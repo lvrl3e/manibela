@@ -215,17 +215,17 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF1FE),
+                color: AppColors.settingsTileBg,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline_rounded, color: AppColors.logoBlue, size: 20),
+                  Icon(Icons.info_outline_rounded, color: AppColors.settingsIconColor, size: 20),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       "We need to verify your identity before you can book rides. Choose a valid government ID and upload clear photos of both sides.",
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1F4B99)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.settingsIconColor),
                     ),
                   ),
                 ],
@@ -340,8 +340,8 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
               child: ElevatedButton(
                 onPressed: _isVerifying ? null : _handleVerify,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.logoBlue,
-                  disabledBackgroundColor: AppColors.logoBlue.withOpacity(0.6),
+                  backgroundColor: AppColors.primary,
+                  disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -350,11 +350,11 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                        child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.onPrimary),
                       )
                     : const Text(
                         'Verify',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white),
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
                       ),
               ),
             ),
@@ -407,7 +407,7 @@ class _IdUploadTile extends StatelessWidget {
                   border: Border.all(
                     color: error != null
                         ? const Color(0xFFE23F3F)
-                        : (hasImage ? const Color(0xFF2E9E6D) : const Color(0xFFEDEDED)),
+                        : (hasImage ? AppColors.primary : const Color(0xFFEDEDED)),
                   ),
                   boxShadow: [
                     BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6, offset: const Offset(0, 2)),
@@ -441,7 +441,7 @@ class _IdUploadTile extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
-                              color: hasImage ? const Color(0xFF2E9E6D) : Colors.black45,
+                              color: hasImage ? AppColors.onPrimary : Colors.black45,
                             ),
                           ),
                         ],

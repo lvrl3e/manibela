@@ -154,8 +154,8 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
                   child: ElevatedButton(
                     onPressed: _isProcessing ? null : _handleCapture,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.logoBlue,
-                      disabledBackgroundColor: AppColors.logoBlue.withOpacity(0.6),
+                      backgroundColor: AppColors.primary,
+                      disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
                       padding: const EdgeInsets.symmetric(vertical: 15),
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -164,11 +164,11 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.onPrimary),
                           )
                         : const Text(
                             'Capture',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white),
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
                           ),
                   ),
                 )
@@ -194,8 +194,8 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
                       child: ElevatedButton(
                         onPressed: _isProcessing ? null : _handleConfirm,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.logoBlue,
-                          disabledBackgroundColor: AppColors.logoBlue.withOpacity(0.6),
+                          backgroundColor: AppColors.primary,
+                          disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
                           padding: const EdgeInsets.symmetric(vertical: 15),
                           elevation: 0,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -204,11 +204,11 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                                child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.onPrimary),
                               )
                             : const Text(
                                 'Confirm',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
                               ),
                       ),
                     ),
@@ -240,10 +240,10 @@ class _FaceFrame extends StatelessWidget {
           height: 300,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: isCaptured ? const Color(0xFFEAF1FE) : const Color(0xFFECEDEF),
+            color: isCaptured ? AppColors.qrTileBg : const Color(0xFFECEDEF),
             borderRadius: BorderRadius.circular(140),
             border: Border.all(
-              color: isCaptured ? const Color(0xFF2E9E6D) : AppColors.logoBlue,
+              color: AppColors.primary,
               width: 3,
             ),
           ),
@@ -258,10 +258,10 @@ class _FaceFrame extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(
-                          color: Color(0xFF2E9E6D),
+                          color: AppColors.primary,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.check_rounded, size: 18, color: Colors.white),
+                        child: const Icon(Icons.check_rounded, size: 18, color: AppColors.onPrimary),
                       ),
                     ),
                   ],
@@ -273,7 +273,7 @@ class _FaceFrame extends StatelessWidget {
                 ),
         ),
         if (isProcessing)
-          const CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.logoBlue),
+          const CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.primary),
       ],
     );
   }

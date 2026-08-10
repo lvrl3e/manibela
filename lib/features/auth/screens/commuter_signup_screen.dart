@@ -434,7 +434,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _handleSignUp,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE5A800),
+                        backgroundColor: AppColors.splashBackground,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),

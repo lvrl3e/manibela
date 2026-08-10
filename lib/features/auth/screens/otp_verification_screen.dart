@@ -4,12 +4,20 @@ import '../../../core/constants/app_colors.dart';
 import 'reset_password_screen.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
-  const OtpVerificationScreen({super.key, required this.mobileNumber});
+  const OtpVerificationScreen({
+    super.key,
+    required this.mobileNumber,
+    this.isDriver = false,
+  });
 
   /// Already normalized to `+63XXXXXXXXXX` — the account this OTP flow is
   /// verifying, passed through so [ResetPasswordScreen] knows which
   /// account's password to update.
   final String mobileNumber;
+
+  /// Whether this flow is resetting a driver account instead of a
+  /// commuter account — threaded through to [ResetPasswordScreen].
+  final bool isDriver;
 
   @override
   State<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
@@ -89,6 +97,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       MaterialPageRoute(
         builder: (_) => ResetPasswordScreen(
           mobileNumber: widget.mobileNumber,
+          isDriver: widget.isDriver,
         ),
       ),
     );

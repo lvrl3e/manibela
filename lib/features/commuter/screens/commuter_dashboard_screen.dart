@@ -1,15 +1,19 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_assets.dart';
-import 'find_nearby_jeepneys_screen.dart';
-import 'rate_or_report_driver_screen.dart';
-import 'emergency_hotlines_screen.dart';
+import 'jeepney_booking_flow_screen.dart';
 import 'commuter_menu_drawer.dart';
 import 'settings_screen.dart';
 import 'notifications_screen.dart';
+import 'commuter_history_screen.dart';
 import '../../../core/services/user_session.dart';
 import '../../auth/screens/commuter_login_screen.dart';
+
+const Color _kBlueDark = Color(0xFF0F3EA6);
 
 class CommuterDashboardScreen extends StatefulWidget {
   const CommuterDashboardScreen({super.key});
@@ -28,8 +32,98 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   DateTime? _dateOfBirth = UserSession.instance.dateOfBirth;
   String? _photoPath = UserSession.instance.photoPath;
 
+  // Fallback used only if GPS is unavailable/denied — San Juan City, Metro
+  // Manila. The real value is populated by _resolveCurrentLocation() below.
+  static const LatLng _fallbackLocation = LatLng(14.6019, 121.0355);
+
+  final MapController _mapController = MapController();
+
+  LatLng? _currentLocation;
+  bool _locatingInProgress = true;
+  String? _locationError;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveCurrentLocation();
+  }
+
+  Future<void> _resolveCurrentLocation({bool showErrors = false}) async {
+    setState(() {
+      _locatingInProgress = true;
+      _locationError = null;
+    });
+
+    try {
+      // 1. Make sure location services are actually on for the device.
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw const _LocationFailure(
+          'Location services are turned off. Enable them in your device settings.',
+        );
+      }
+
+      // 2. Check/request permission.
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw const _LocationFailure(
+            'Location permission was denied.',
+          );
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw const _LocationFailure(
+          'Location permission is permanently denied. Enable it from app settings.',
+        );
+      }
+
+      // 3. Get the actual GPS fix.
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      if (!mounted) return;
+      final resolved = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _currentLocation = resolved;
+        _locatingInProgress = false;
+      });
+      _mapController.move(resolved, 16);
+    } on _LocationFailure catch (failure) {
+      if (!mounted) return;
+      setState(() {
+        _currentLocation ??= _fallbackLocation;
+        _locatingInProgress = false;
+        _locationError = failure.message;
+      });
+      if (showErrors) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(failure.message)),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _currentLocation ??= _fallbackLocation;
+        _locatingInProgress = false;
+        _locationError = 'Could not get your current location.';
+      });
+      if (showErrors) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not get your current location.')),
+        );
+      }
+    }
+  }
+
   Future<void> _handleLogout(BuildContext context) async {
     await UserSession.instance.signOut();
+    await CommuterHistoryScreen.clearOnLogout();
+    await NotificationsScreen.clearOnLogout();
 
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -64,458 +158,415 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
     });
   }
 
+  void _handleBook(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => JeepneyBookingFlowScreen(commuterName: _commuterName),
+      ),
+    );
+  }
+
+  void _recenterMap() {
+    if (_currentLocation != null) {
+      _mapController.move(_currentLocation!, 16);
+    }
+    // Also refresh the GPS fix in case the device has moved.
+    _resolveCurrentLocation(showErrors: true);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final mapCenter = _currentLocation ?? _fallbackLocation;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6F8),
+      backgroundColor: const Color(0xFFE9ECEE),
       drawer: CommuterMenuDrawer(
         commuterName: _commuterName,
         photoPath: _photoPath,
         onSettingsTap: () => _openSettings(context),
         onLogoutTap: () => _handleLogout(context),
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            _TopBar(photoPath: _photoPath),
-            const SizedBox(height: 16),
-            _WelcomeCard(
-              name: _commuterName,
-              role: 'Commuter',
-              photoPath: _photoPath,
+      body: Stack(
+        children: [
+          // Full-screen live OpenStreetMap.
+          Positioned.fill(
+            child: _LiveMap(
+              mapController: _mapController,
+              currentLocation: mapCenter,
+              hasRealFix: _currentLocation != null && _locationError == null,
+              onRecenter: _recenterMap,
             ),
-            const SizedBox(height: 16),
-            const _NearbyJeepneysCard(),
-            const SizedBox(height: 20),
-            const _SectionTitle(title: 'Commuter Dashboard'),
-            const SizedBox(height: 12),
-            _DashboardListItem(
-              icon: Icons.map_outlined,
-              iconBackground: const Color(0xFFDCEFE6),
-              iconColor: const Color(0xFF2E9E6D),
-              title: 'Find Nearby Jeepneys',
-              subtitle: 'View available jeepneys near your\ncurrent location.',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => FindNearbyJeepneysScreen(
-                    commuterName: _commuterName,
-                  ),
+          ),
+
+          if (_locatingInProgress)
+            const Positioned(
+              top: 70,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: _StatusPill(
+                  icon: null,
+                  label: 'Getting your location…',
+                  showSpinner: true,
+                ),
+              ),
+            )
+          else if (_locationError != null)
+            Positioned(
+              top: 70,
+              left: 16,
+              right: 16,
+              child: Center(
+                child: _StatusPill(
+                  icon: Icons.location_off_rounded,
+                  label: _locationError!,
+                  onTap: () => _resolveCurrentLocation(showErrors: true),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            _DashboardListItem(
-              icon: Icons.warning_amber_rounded,
-              iconBackground: const Color(0xFFFCEFD2),
-              iconColor: const Color(0xFFE5A800),
-              title: 'Rate or Report Driver',
-              subtitle: 'Allows passengers to rate drivers and\nreport issues for better service and safety.',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RateOrReportDriverScreen()),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _DashboardListItem(
-              icon: Icons.phone_in_talk_rounded,
-              iconBackground: const Color(0xFFFBDADA),
-              iconColor: const Color(0xFFE23F3F),
-              title: 'Emergency Hotlines',
-              subtitle: 'Allow passengers to quickly contact\nemergency services when needed.',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EmergencyHotlinesScreen()),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
-class _TopBar extends StatelessWidget {
-  const _TopBar({this.photoPath});
-
-  final String? photoPath;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        IconButton(
-          onPressed: () => Scaffold.of(context).openDrawer(),
-          icon: const Icon(Icons.menu, color: Colors.black87),
-        ),
-
-        Row(
-          children: [
-            /* Image.asset(
-              AppAssets.jeepneyLogo,
-              width: 100,
-              height: 100,
-              errorBuilder: (context, error, stackTrace) {
-                return const Icon(
-                  Icons.directions_bus_rounded,
-                  size: 28,
-                  color: AppColors.logoBlue,
-                );
-              },
-            ), */
-
-            const SizedBox(width: 1),
-
-            RichText(
-              text: const TextSpan(
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.3,
-                ),
+          // Floating top bar: menu (left) + notifications (right).
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  TextSpan(
-                    text: 'Manibel',
-                    style: TextStyle(
-                      color: AppColors.logoBlue,
+                  Builder(
+                    builder: (context) => _RoundIconButton(
+                      icon: Icons.menu,
+                      onTap: () => Scaffold.of(context).openDrawer(),
                     ),
                   ),
-                  TextSpan(
-                    text: 'App',
-                    style: TextStyle(
-                      color: AppColors.logoRed,
+                  _RoundIconButton(
+                    icon: Icons.notifications_none_rounded,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationsScreen(),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
-
-        IconButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-            );
-          },
-          icon: const Icon(
-            Icons.notifications_none_rounded,
-            color: Colors.black87,
           ),
-        ),
-      ],
-    );
-  }
-}
 
-class _WelcomeCard extends StatelessWidget {
-  final String name;
-  final String role;
-  final String? photoPath;
-
-  const _WelcomeCard({required this.name, required this.role, this.photoPath});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: const Color(0xFFE4E4E4),
-            backgroundImage:
-                photoPath != null ? FileImage(File(photoPath!)) : null,
-            child: photoPath == null
-                ? const Icon(Icons.person, color: Colors.white70, size: 26)
-                : null,
-          ),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Welcome,',
-                style: TextStyle(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                name,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                role,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.logoBlue),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NearbyJeepneysCard extends StatelessWidget {
-  const _NearbyJeepneysCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12), // reduced from 16
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Nearby Jeepneys',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black,
+          // Bottom sheet: "Choose Service" + Book button.
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 16,
+                      offset: const Offset(0, -4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.map_outlined,
+                            color: Colors.black87, size: 20),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Find Nearby Jeepneys',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: () => _handleBook(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(26),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Text(
+  'Sakay na',
+  style: TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+    color: _kBlueDark,
+  ),
+),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              _LiveBadge(),
-            ],
-          ),
-
-          SizedBox(height: 4),
-
-          Text(
-            'Track active drivers and routes in real time',
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.black45,
-              fontWeight: FontWeight.w500,
             ),
-          ),
-
-          SizedBox(height: 8),
-
-          _TrafficLegend(),
-
-          SizedBox(height: 8),
-
-          SizedBox(
-            height: 140, // reduced from your previous height
-            child: _MapPreview(),
           ),
         ],
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
 }
 
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge();
+class _LocationFailure {
+  final String message;
+  const _LocationFailure(this.message);
+}
+
+class _StatusPill extends StatelessWidget {
+  final IconData? icon;
+  final String label;
+  final bool showSpinner;
+  final VoidCallback? onTap;
+
+  const _StatusPill({
+    required this.icon,
+    required this.label,
+    this.showSpinner = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: const BoxDecoration(color: Color(0xFF2E9E6D), shape: BoxShape.circle),
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 3,
+      shadowColor: Colors.black26,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showSpinner)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (icon != null)
+                Icon(icon, size: 16, color: const Color(0xFFE23F3F)),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.refresh_rounded,
+                    size: 14, color: AppColors.logoBlue),
+              ],
+            ],
+          ),
         ),
-        const SizedBox(width: 5),
-        const Text(
-          'Live',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF2E9E6D)),
+      ),
+    );
+  }
+}
+
+class _RoundIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _RoundIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 3,
+      shadowColor: Colors.black26,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Icon(icon, size: 22, color: Colors.black87),
+        ),
+      ),
+    );
+  }
+}
+
+/// Real, pannable/zoomable OpenStreetMap tile view (via flutter_map), with
+/// jeepney and POI markers layered on top.
+class _LiveMap extends StatelessWidget {
+  final MapController mapController;
+  final LatLng currentLocation;
+  final bool hasRealFix;
+  final VoidCallback onRecenter;
+
+  const _LiveMap({
+    required this.mapController,
+    required this.currentLocation,
+    required this.hasRealFix,
+    required this.onRecenter,
+  });
+
+  // A few nearby points, offset from the current location, standing in for
+  // live jeepney/driver positions until a real feed is wired up.
+  List<LatLng> get _jeepneyPositions => [
+        LatLng(currentLocation.latitude + 0.004, currentLocation.longitude + 0.003),
+        LatLng(currentLocation.latitude - 0.003, currentLocation.longitude - 0.004),
+        LatLng(currentLocation.latitude + 0.002, currentLocation.longitude - 0.005),
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        FlutterMap(
+          mapController: mapController,
+          options: MapOptions(
+            initialCenter: currentLocation,
+            initialZoom: 15,
+            minZoom: 3,
+            maxZoom: 19,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.manibel.app',
+              maxZoom: 19,
+            ),
+            RichAttributionWidget(
+              attributions: [
+                TextSourceAttribution(
+                  '© OpenStreetMap contributors',
+                  onTap: () {},
+                ),
+              ],
+            ),
+            MarkerLayer(
+              markers: [
+                // Current location — greyed out until we have a real GPS fix.
+                Marker(
+                  point: currentLocation,
+                  width: 24,
+                  height: 24,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: hasRealFix
+                          ? AppColors.logoBlue
+                          : Colors.black38,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (hasRealFix
+                                  ? AppColors.logoBlue
+                                  : Colors.black38)
+                              .withOpacity(0.4),
+                          blurRadius: 8,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Nearby jeepneys.
+                for (int i = 0; i < _jeepneyPositions.length; i++)
+                  Marker(
+                    point: _jeepneyPositions[i],
+                    width: 18,
+                    height: 18,
+                    child: _JeepneyPin(
+                      color: [
+                        AppColors.logoBlue,
+                        AppColors.splashBackground,
+                        AppColors.settingsIconColor,
+                      ][i % 3],
+                    ),
+                  ),
+
+                // A couple of points of interest.
+                Marker(
+                  point: LatLng(
+                    currentLocation.latitude + 0.006,
+                    currentLocation.longitude - 0.001,
+                  ),
+                  width: 30,
+                  height: 30,
+                  child: const _PoiPin(
+                    icon: Icons.restaurant,
+                    background: AppColors.splashBackground,
+                  ),
+                ),
+                Marker(
+                  point: LatLng(
+                    currentLocation.latitude - 0.001,
+                    currentLocation.longitude + 0.006,
+                  ),
+                  width: 30,
+                  height: 30,
+                  child: const _PoiPin(
+                    icon: Icons.lock,
+                    background: AppColors.logoBlue,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+
+        // Map controls, bottom-right — mirrors the reference's floating
+        // location/layers buttons.
+        Positioned(
+          right: 12,
+          bottom: 160,
+          child: Column(
+            children: [
+              _RoundIconButton(
+                icon: Icons.my_location_rounded,
+                onTap: onRecenter,
+              ),
+              const SizedBox(height: 10),
+              _RoundIconButton(icon: Icons.layers_outlined, onTap: () {}),
+            ],
+          ),
         ),
       ],
     );
   }
-}
-
-class _TrafficLegend extends StatelessWidget {
-  const _TrafficLegend();
-
-  Widget _legendRow(Color color, String label) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Row(
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: Colors.black54,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 6,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F6F8),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFFE7E7E7),
-        ),
-      ),
-      width: 120, // reduced from 140
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _legendRow(const Color(0xFF2E9E6D), 'SMOOTH'),
-          _legendRow(const Color(0xFFE5A800), 'MODERATE'),
-          _legendRow(const Color(0xFFE23F3F), 'HEAVY'),
-        ],
-      ),
-    );
-  }
-}
-
-class _MapPreview extends StatelessWidget {
-  const _MapPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    final mapHeight = MediaQuery.of(context).size.height * 0.18;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        height: mapHeight.clamp(120.0, 160.0),
-        width: double.infinity,
-        child: Stack(
-          children: [
-            Container(
-              color: const Color(0xFFE9ECEE),
-            ),
-
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _MapRoadsPainter(),
-              ),
-            ),
-
-            const Positioned(
-              left: 60,
-              top: 70,
-              child: _JeepneyPin(
-                color: Color(0xFF2E9E6D),
-              ),
-            ),
-
-            const Positioned(
-              left: 130,
-              top: 40,
-              child: _JeepneyPin(
-                color: Color(0xFFE5A800),
-              ),
-            ),
-
-            const Positioned(
-              left: 170,
-              top: 110,
-              child: _JeepneyPin(
-                color: Color(0xFF2E9E6D),
-              ),
-            ),
-
-            const Positioned(
-              left: 90,
-              top: 140,
-              child: _JeepneyPin(
-                color: Color(0xFFE23F3F),
-              ),
-            ),
-
-            Positioned(
-              right: 10,
-              bottom: 44,
-              child: _MapButton(
-                icon: Icons.my_location_rounded,
-                onTap: () {},
-              ),
-            ),
-
-            Positioned(
-              right: 10,
-              bottom: 8,
-              child: _MapButton(
-                icon: Icons.layers_outlined,
-                onTap: () {},
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MapRoadsPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-
-    canvas.drawLine(Offset(0, size.height * 0.3), Offset(size.width, size.height * 0.25), paint);
-    canvas.drawLine(Offset(0, size.height * 0.65), Offset(size.width, size.height * 0.7), paint);
-    canvas.drawLine(Offset(size.width * 0.3, 0), Offset(size.width * 0.35, size.height), paint);
-    canvas.drawLine(Offset(size.width * 0.7, 0), Offset(size.width * 0.65, size.height), paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _JeepneyPin extends StatelessWidget {
@@ -525,127 +576,44 @@ class _JeepneyPin extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 16,
-      height: 16,
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 2),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
     );
   }
 }
 
-class _MapButton extends StatelessWidget {
+class _PoiPin extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onTap;
+  final Color background;
 
-  const _MapButton({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      shape: const CircleBorder(),
-      elevation: 2,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 18, color: Colors.black87),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String title;
-  const _SectionTitle({required this.title});
+  const _PoiPin({required this.icon, required this.background});
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black),
-    );
-  }
-}
-
-class _DashboardListItem extends StatelessWidget {
-  final IconData icon;
-  final Color iconBackground;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-
-  const _DashboardListItem({
-    required this.icon,
-    required this.iconBackground,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        color: background,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: iconBackground,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w500, height: 1.3),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.logoBlue),
-            ],
-          ),
-        ),
+        ],
       ),
+      child: Icon(icon, size: 15, color: Colors.white),
     );
   }
 }

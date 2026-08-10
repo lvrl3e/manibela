@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/services/driver_session.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'otp_verification_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
-  const ForgotPasswordScreen({super.key});
+  const ForgotPasswordScreen({super.key, this.isDriver = false});
+
+  /// Whether this flow is resetting a driver account (checked against
+  /// [DriverSession]) instead of a commuter account (checked against
+  /// [UserSession]).
+  final bool isDriver;
 
   @override
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
@@ -56,11 +62,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     // Make sure we're checking against whatever account is actually
     // persisted on disk, not stale in-memory fields.
-    await UserSession.instance.loadFromPrefs();
+    if (widget.isDriver) {
+      await DriverSession.instance.loadFromPrefs();
+    } else {
+      await UserSession.instance.loadFromPrefs();
+    }
 
     final normalizedPhone = PhoneUtils.toE164(_phoneController.text.trim());
 
-    if (!UserSession.instance.isRegistered(normalizedPhone)) {
+    final isRegistered = widget.isDriver
+        ? DriverSession.instance.isRegistered(normalizedPhone)
+        : UserSession.instance.isRegistered(normalizedPhone);
+
+    if (!isRegistered) {
       setState(() {
         _isLoading = false;
       });
@@ -83,6 +97,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       MaterialPageRoute(
         builder: (context) => OtpVerificationScreen(
           mobileNumber: normalizedPhone,
+          isDriver: widget.isDriver,
         ),
       ),
     );

@@ -3,9 +3,17 @@ import 'package:flutter/material.dart';
 class AppColors {
   // Brand Base Colors
   static const Color splashBackground = Color(0xFFEAB308); // Primary Yellow
-  static const Color logoBlue = Color(0xFF0B57D0);        // Primary Blue
+  static const Color logoBlue = Color(0xFF0B57D0);        // Secondary Blue
   static const Color logoRed = Color(0xFFDC2626);         // Primary Red
-  
+
+  // Semantic aliases — yellow leads as the main brand color, blue is the
+  // secondary/accent color. Prefer these in new code over reaching for
+  // splashBackground/logoBlue directly so the hierarchy stays explicit.
+  static const Color primary = splashBackground;    // Yellow — primary buttons, active states, main CTAs
+  static const Color onPrimary = Color(0xFF92600A); // Dark amber text/icons for yellow surfaces
+  static const Color secondary = logoBlue;          // Blue — secondary actions, links, accents
+  static const Color onSecondary = Color(0xFFFFFFFF); // White text/icons for blue surfaces
+
   // Role Selection & Button Colors
   static const Color primaryButtonRed = Color(0xFFB91C1C); // Deep Red Button
   static const Color selectedCardBg = Color(0xFFFEE2E2);   // Light Red Tint
@@ -22,9 +30,9 @@ class AppColors {
   static const Color settingsTileBorder = Color(0xFFBCC0E7); // Blue Border
   static const Color settingsIconColor = Color(0xFF253B9E);   // Blue Icon
 
-  static const Color qrTileBg = Color(0xFFD2E8D4);           // Light Green Tint
-  static const Color qrTileBorder = Color(0xFFA5D2A9);       // Green Border
-  static const Color qrIconColor = Color(0xFF1B6A27);         // Green Icon & Text
+  static const Color qrTileBg = Color(0xFFFEF3C7);           // Light Yellow Tint
+  static const Color qrTileBorder = Color(0xFFFCD34D);       // Yellow Border
+  static const Color qrIconColor = Color(0xFF92600A);         // Amber Icon & Text
 
   static const Color logoutTileBg = Color(0xFFF9D8CE);       // Light Red/Peach Tint
   static const Color logoutTileBorder = Color(0xFFF3B4A2);   // Peach Border

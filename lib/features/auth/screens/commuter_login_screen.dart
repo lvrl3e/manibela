@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'commuter_signup_screen.dart';
 import 'forgot_password_screen.dart';
 import '../../commuter/screens/commuter_dashboard_screen.dart';
+import '../../commuter/screens/commuter_history_screen.dart';
+import '../../commuter/screens/notifications_screen.dart';
 
 class CommuterLoginScreen extends StatefulWidget {
   const CommuterLoginScreen({super.key});
@@ -128,6 +130,11 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
       true,
     );
 
+    // Load this commuter's persisted trip history and notifications
+    // before the dashboard ever builds — otherwise they'd briefly render
+    // as empty.
+    await CommuterHistoryScreen.loadFromPrefs();
+    await NotificationsScreen.loadFromPrefs();
 
     if (!mounted) return;
 
@@ -136,12 +143,16 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
       _isLoading = false;
     });
 
-
-    Navigator.pushReplacement(
+    // Clears the whole stack (not just a pushReplacement) so
+    // RoleSelectionScreen isn't still sitting underneath — otherwise the
+    // phone's back button on the dashboard would pop straight back to
+    // it, which looks exactly like getting logged out.
+    Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
         builder: (_) => const CommuterDashboardScreen(),
       ),
+      (route) => false,
     );
   }
 

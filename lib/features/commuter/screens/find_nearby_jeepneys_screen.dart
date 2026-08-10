@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../core/constants/app_colors.dart';
 
 /// -----------------------------------------------------------------------
 /// MODELS
@@ -172,7 +173,7 @@ class _FindNearbyJeepneysScreenState extends State<FindNearbyJeepneysScreen> {
         markerId: MarkerId(jeepney.id),
         position: jeepney.position,
         icon: BitmapDescriptor.defaultMarkerWithHue(
-          selected ? BitmapDescriptor.hueViolet : BitmapDescriptor.hueAzure,
+          selected ? BitmapDescriptor.hueYellow : BitmapDescriptor.hueAzure,
         ),
         onTap: () => _selectJeepney(jeepney),
       );
@@ -350,7 +351,7 @@ class _FindNearbyJeepneysScreenState extends State<FindNearbyJeepneysScreen> {
               color: Colors.white,
               border: Border.all(
                 color: _isSharing
-                    ? const Color(0xFF2E9E4F)
+                    ? AppColors.primary
                     : Colors.grey.shade300,
                 width: 2,
               ),
@@ -368,8 +369,8 @@ class _FindNearbyJeepneysScreenState extends State<FindNearbyJeepneysScreen> {
                     bottom: 8,
                     child: CircleAvatar(
                       radius: 8,
-                      backgroundColor: Color(0xFF2E9E4F),
-                      child: Icon(Icons.check, size: 10, color: Colors.white),
+                      backgroundColor: AppColors.primary,
+                      child: Icon(Icons.check, size: 10, color: AppColors.onPrimary),
                     ),
                   ),
               ],
@@ -493,7 +494,7 @@ class _CircleIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: filled ? const Color(0xFF1652F0) : Colors.white,
+      color: filled ? AppColors.primary : Colors.white,
       shape: const CircleBorder(),
       elevation: 4,
       child: InkWell(
@@ -504,7 +505,7 @@ class _CircleIconButton extends StatelessWidget {
           child: Icon(
             icon,
             size: 22,
-            color: filled ? Colors.white : Colors.black87,
+            color: filled ? AppColors.onPrimary : Colors.black87,
           ),
         ),
       ),
@@ -693,7 +694,7 @@ class _JeepneyListTile extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 22,
-              backgroundColor: const Color(0xFF1652F0),
+              backgroundColor: AppColors.logoBlue,
               child: const Icon(
                 Icons.directions_bus,
                 color: Colors.white,
@@ -888,7 +889,7 @@ class _ProgressTrack extends StatelessWidget {
                 width: dotX,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1652F0),
+                  color: AppColors.primary,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -898,12 +899,12 @@ class _ProgressTrack extends StatelessWidget {
                   width: 20,
                   height: 20,
                   decoration: const BoxDecoration(
-                    color: Color(0xFF1652F0),
+                    color: AppColors.primary,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.directions_bus,
-                    color: Colors.white,
+                    color: AppColors.onPrimary,
                     size: 12,
                   ),
                 ),
@@ -1009,7 +1010,7 @@ class _SharePromptPanel extends StatelessWidget {
           child: ElevatedButton(
             onPressed: onShare,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1652F0),
+              backgroundColor: AppColors.primary,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -1019,7 +1020,7 @@ class _SharePromptPanel extends StatelessWidget {
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: Colors.white,
+                color: AppColors.onPrimary,
               ),
             ),
           ),

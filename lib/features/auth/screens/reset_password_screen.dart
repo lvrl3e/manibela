@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/services/driver_session.dart';
 import 'password_reset_success_screen.dart';
-import 'commuter_login_screen.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
-  const ResetPasswordScreen({super.key, required this.mobileNumber});
+  const ResetPasswordScreen({
+    super.key,
+    required this.mobileNumber,
+    this.isDriver = false,
+  });
 
   /// Already normalized to `+63XXXXXXXXXX` — identifies which account's
   /// password gets updated. Passed down from ForgotPasswordScreen through
   /// OtpVerificationScreen.
   final String mobileNumber;
+
+  /// Whether this flow is resetting a driver account (updates
+  /// [DriverSession]) instead of a commuter account (updates
+  /// [UserSession]).
+  final bool isDriver;
 
   @override
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
@@ -91,26 +100,21 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
     // Make sure we're updating whatever's actually persisted, not stale
     // in-memory fields from earlier in the app's lifetime.
-    await UserSession.instance.loadFromPrefs();
+    if (widget.isDriver) {
+      await DriverSession.instance.loadFromPrefs();
+    } else {
+      await UserSession.instance.loadFromPrefs();
+    }
 
-    // TEMP DEBUG — remove once diagnosed.
-    debugPrint(
-      'RESET DEBUG (after loadFromPrefs) | fullName: '
-      '"${UserSession.instance.fullName}" | mobileNumber: '
-      '${UserSession.instance.mobileNumber} | widget.mobileNumber: '
-      '${widget.mobileNumber}',
-    );
-
-    final success = await UserSession.instance.resetPassword(
-      mobileNumber: widget.mobileNumber,
-      newPassword: _passwordController.text,
-    );
-
-    // TEMP DEBUG — remove once diagnosed.
-    debugPrint(
-      'RESET DEBUG (after resetPassword, success=$success) | fullName: '
-      '"${UserSession.instance.fullName}"',
-    );
+    final success = widget.isDriver
+        ? await DriverSession.instance.resetPassword(
+            mobileNumber: widget.mobileNumber,
+            newPassword: _passwordController.text,
+          )
+        : await UserSession.instance.resetPassword(
+            mobileNumber: widget.mobileNumber,
+            newPassword: _passwordController.text,
+          );
 
     if (!mounted) return;
 
@@ -135,7 +139,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => const PasswordResetSuccessScreen(),
+        builder: (_) => PasswordResetSuccessScreen(isDriver: widget.isDriver),
       ),
     );
   }
@@ -204,7 +208,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   width: 70,
                   height: 70,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEAF1FE),
+                    color: AppColors.settingsTileBg,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Icon(
@@ -283,7 +287,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _resetPassword,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE5A800),
+                      backgroundColor: AppColors.splashBackground,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),

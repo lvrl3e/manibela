@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/services/user_session.dart';
+import '../../../core/services/driver_session.dart';
 
-class ChangePasswordScreen extends StatefulWidget {
-  const ChangePasswordScreen({super.key});
+class DriverChangePasswordScreen extends StatefulWidget {
+  const DriverChangePasswordScreen({super.key});
 
   @override
-  State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
+  State<DriverChangePasswordScreen> createState() =>
+      _DriverChangePasswordScreenState();
 }
 
-class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
+class _DriverChangePasswordScreenState
+    extends State<DriverChangePasswordScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final TextEditingController _currentPasswordController =
@@ -38,15 +40,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   String? _validateCurrentPassword(String? value) {
-    final v = value ?? '';
+    // Trimmed defensively — a stored password can never legitimately
+    // contain a space (new passwords are rejected if they do, see
+    // _validateNewPassword), so a stray leading/trailing space here can
+    // only be an artifact of the on-screen keyboard, not an intentional
+    // part of the password.
+    final v = value?.trim() ?? '';
     if (v.isEmpty) {
       return 'Enter your current password';
     }
-    // If there's no password on file yet (e.g. this screen was opened
-    // without a signed-up session), skip the match check rather than
-    // block the user — a real backend would be the source of truth here.
-    if (UserSession.instance.password != null &&
-        v != UserSession.instance.password) {
+    if (DriverSession.instance.password != null &&
+        v != DriverSession.instance.password) {
       return 'Current password is incorrect';
     }
     return null;
@@ -105,11 +109,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
 
-    // TODO: once a backend exists, call it here to verify the current
-    // password and persist the new one server-side instead of updating
-    // the local session directly.
-    final success = await UserSession.instance.updatePassword(
-      currentPassword: _currentPasswordController.text,
+    final success = await DriverSession.instance.updatePassword(
+      currentPassword: _currentPasswordController.text.trim(),
       newPassword: _newPasswordController.text,
     );
 
@@ -122,10 +123,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password updated.')),
-    );
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(true);
   }
 
   @override
@@ -165,8 +163,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           setState(() => _obscureNew = !_obscureNew),
                       validator: _validateNewPassword,
                       onChanged: (_) {
-                        // Re-validate confirm field live so a stale "match" state
-                        // doesn't linger after the user edits the new password.
                         _formKey.currentState?.validate();
                       },
                     ),
@@ -194,12 +190,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     );
   }
 
-  // ===============================================================
-  // HEADER
-  // ===============================================================
-  // Scrolls away with the rest of the content — the back button and the
-  // title/subtitle both live inside the yellow banner now.
-
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -226,8 +216,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               customBorder: const CircleBorder(),
               onTap: () => Navigator.of(context).maybePop(),
               child: const Padding(
-                padding: EdgeInsets.all(10),
-                child: Icon(Icons.arrow_back, size: 18, color: Colors.black87),
+                padding: EdgeInsets.all(13),
+                child: Icon(Icons.arrow_back, size: 22, color: Colors.black87),
               ),
             ),
           ),
@@ -254,10 +244,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     );
   }
 }
-
-/// -----------------------------------------------------------------------
-/// PASSWORD FIELD
-/// -----------------------------------------------------------------------
 
 class _PasswordField extends StatelessWidget {
   const _PasswordField({
@@ -304,6 +290,10 @@ class _PasswordField extends StatelessWidget {
             obscureText: obscureText,
             validator: validator,
             onChanged: onChanged,
+            keyboardType: TextInputType.visiblePassword,
+            autocorrect: false,
+            enableSuggestions: false,
+            autofillHints: const [],
             style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
             decoration: InputDecoration(
               isDense: true,
@@ -337,10 +327,6 @@ class _PasswordField extends StatelessWidget {
   }
 }
 
-/// -----------------------------------------------------------------------
-/// PASSWORD REQUIREMENTS HINT
-/// -----------------------------------------------------------------------
-
 class _PasswordRequirementsHint extends StatelessWidget {
   const _PasswordRequirementsHint();
 
@@ -356,14 +342,10 @@ class _PasswordRequirementsHint extends StatelessWidget {
   }
 }
 
-/// -----------------------------------------------------------------------
-/// SUBMIT BUTTON
-/// -----------------------------------------------------------------------
-
 class _SubmitButton extends StatelessWidget {
   const _SubmitButton({required this.onTap});
 
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

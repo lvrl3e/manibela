@@ -2,18 +2,21 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../core/constants/app_colors.dart';
 
-/// Real, app-generated notifications (trip completed, rating submitted,
-/// report submitted, etc.) — pushed here via [NotificationsScreen.push]
-/// whenever one of those events actually happens elsewhere in the app.
+/// Real, app-generated notifications for the driver (trip started/ended,
+/// reports received, etc.) — pushed here via
+/// [DriverNotificationsScreen.push] whenever one of those events actually
+/// happens elsewhere in the app. Kept separate from the commuter
+/// [NotificationsScreen]/[AppNotification] pair so the two feeds never mix.
 /// Persisted to disk — logging out must never clear the feed.
-class NotificationsScreen extends StatelessWidget {
-  const NotificationsScreen({super.key});
+class DriverNotificationsScreen extends StatelessWidget {
+  const DriverNotificationsScreen({super.key});
 
-  static const _kPrefsKey = 'commuter_notifications_v1';
+  static const _kPrefsKey = 'driver_notifications_v1';
 
-  static final List<AppNotification> _notifications = [];
+  static final List<DriverAppNotification> _notifications = [];
   static bool _loaded = false;
 
   /// Loads whatever was previously persisted, once. Safe to call
@@ -26,7 +29,7 @@ class NotificationsScreen extends StatelessWidget {
       try {
         _notifications
           ..clear()
-          ..addAll(raw.map((s) => AppNotification._fromJson(jsonDecode(s) as Map<String, dynamic>)));
+          ..addAll(raw.map((s) => DriverAppNotification._fromJson(jsonDecode(s) as Map<String, dynamic>)));
       } catch (_) {
         // Corrupt/old-format data on disk — start clean rather than crash.
       }
@@ -40,7 +43,7 @@ class NotificationsScreen extends StatelessWidget {
   }
 
   /// Records a new notification at the top of the feed.
-  static Future<void> push(AppNotification notification) async {
+  static Future<void> push(DriverAppNotification notification) async {
     _notifications.insert(0, notification);
     await _persist();
   }
@@ -69,7 +72,7 @@ class NotificationsScreen extends StatelessWidget {
       return '${months[time.month - 1]} ${time.day}, ${time.year}';
     }
 
-    final groups = <String, List<AppNotification>>{};
+    final groups = <String, List<DriverAppNotification>>{};
     for (final notification in _notifications) {
       groups.putIfAbsent(labelFor(notification.time), () => []).add(notification);
     }
@@ -130,14 +133,6 @@ class NotificationsScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
-  // HEADER
-  // ===============================================================
-  // Same yellow banner + back button + title/subtitle convention used
-  // across the other commuter screens (Settings, Change Password,
-  // Emergency Hotlines, History). Fixed (not scrolling) since the body
-  // below it swaps between a list and a centered empty state.
-
   Widget _buildHeader(BuildContext context) {
     return Container(
       width: double.infinity,
@@ -164,8 +159,8 @@ class NotificationsScreen extends StatelessWidget {
               customBorder: const CircleBorder(),
               onTap: () => Navigator.of(context).maybePop(),
               child: const Padding(
-                padding: EdgeInsets.all(10),
-                child: Icon(Icons.arrow_back, size: 18, color: Colors.black87),
+                padding: EdgeInsets.all(13),
+                child: Icon(Icons.arrow_back, size: 22, color: Colors.black87),
               ),
             ),
           ),
@@ -195,14 +190,14 @@ class NotificationsScreen extends StatelessWidget {
 
 /// A single real notification. [time] drives both the day grouping and the
 /// displayed time-of-day.
-class AppNotification {
+class DriverAppNotification {
   final IconData icon;
   final Color iconBackground;
   final String title;
   final String message;
   final DateTime time;
 
-  const AppNotification({
+  const DriverAppNotification({
     required this.icon,
     required this.iconBackground,
     required this.title,
@@ -220,17 +215,16 @@ class AppNotification {
   // Icons are looked up by name, not by raw codePoint — a dynamically
   // constructed IconData (from a JSON int) defeats Flutter's icon
   // tree-shaking in release builds and can end up not rendering at all.
-  // Every icon this app actually pushes into a commuter notification is
+  // Every icon this app actually pushes into a driver notification is
   // listed in [_iconRegistry] below.
   static const Map<String, IconData> _iconRegistry = {
-    'star': Icons.star_rounded,
-    'shield': Icons.shield_rounded,
-    'directions_bus_filled': Icons.directions_bus_filled_rounded,
+    'directions_bus': Icons.directions_bus_rounded,
+    'check_circle': Icons.check_circle_rounded,
   };
 
   String get _iconKey => _iconRegistry.entries.firstWhere(
         (e) => e.value == icon,
-        orElse: () => const MapEntry('directions_bus_filled', Icons.directions_bus_filled_rounded),
+        orElse: () => const MapEntry('check_circle', Icons.check_circle_rounded),
       ).key;
 
   Map<String, dynamic> _toJson() => {
@@ -241,7 +235,7 @@ class AppNotification {
         'time': time.toIso8601String(),
       };
 
-  static AppNotification _fromJson(Map<String, dynamic> json) => AppNotification(
+  static DriverAppNotification _fromJson(Map<String, dynamic> json) => DriverAppNotification(
         icon: _iconRegistry[json['icon'] as String] ?? Icons.notifications_rounded,
         iconBackground: Color(json['iconBackground'] as int),
         title: json['title'] as String,
@@ -252,13 +246,13 @@ class AppNotification {
 
 class _NotificationGroup {
   final String label;
-  final List<AppNotification> items;
+  final List<DriverAppNotification> items;
 
   const _NotificationGroup({required this.label, required this.items});
 }
 
 class _NotificationCard extends StatelessWidget {
-  final AppNotification item;
+  final DriverAppNotification item;
 
   const _NotificationCard({required this.item});
 
@@ -285,10 +279,10 @@ class _NotificationCard extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AppColors.logoBlue,
+              color: item.iconBackground,
               shape: BoxShape.circle,
             ),
-            child: Icon(item.icon, color: AppColors.white, size: 20),
+            child: Icon(item.icon, color: Colors.white, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(

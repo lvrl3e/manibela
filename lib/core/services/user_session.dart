@@ -82,6 +82,10 @@ class UserSession {
 
   /// Called after a successful sign-up. [mobileNumber] should already be
   /// normalized to `+63XXXXXXXXXX` (PhoneUtils.toE164).
+  ///
+  /// This always starts the account with no profile photo and a fresh
+  /// commuter ID — a device's previous account (whoever was signed up
+  /// before) must never leak its photo/ID into a brand-new signup.
   Future<void> signUp({
     required String fullName,
     required String mobileNumber,
@@ -90,7 +94,8 @@ class UserSession {
     this.fullName = fullName;
     this.mobileNumber = mobileNumber;
     this.password = password;
-    commuterId ??= _generateCommuterId();
+    photoPath = null;
+    commuterId = _generateCommuterId();
     await _persist();
   }
 

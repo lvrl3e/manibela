@@ -2,59 +2,51 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/services/user_session.dart';
+import '../../../core/services/driver_session.dart';
 import '../../../core/utils/phone_utils.dart';
-import 'change_password_screen.dart';
+import 'driver_change_password_screen.dart';
 
-/// Value returned by [SettingsScreen] via `Navigator.pop` when the user
-/// successfully saves their changes, so the caller can update its own
-/// state (e.g. the name shown on the dashboard) without a refetch.
-class SettingsResult {
-  const SettingsResult({
+/// Value returned by [DriverSettingsScreen] via `Navigator.pop` when the
+/// driver successfully saves their changes, so the caller can update its
+/// own state (e.g. the name shown on the dashboard) without a refetch.
+class DriverSettingsResult {
+  const DriverSettingsResult({
     required this.fullName,
     required this.mobileNumber,
-    required this.dateOfBirth,
     required this.photoPath,
   });
 
   final String fullName;
   final String mobileNumber;
-  final DateTime? dateOfBirth;
   final String? photoPath;
 }
 
-class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({
+class DriverSettingsScreen extends StatefulWidget {
+  const DriverSettingsScreen({
     super.key,
     this.initialFullName,
     this.initialMobileNumber,
-    this.initialDateOfBirth,
   });
 
   /// Seed values from the caller (e.g. the dashboard's currently-held
-  /// commuter name) so this screen always reflects the latest saved state,
+  /// driver name) so this screen always reflects the latest saved state,
   /// not a hard-coded default.
   final String? initialFullName;
   final String? initialMobileNumber;
-  final DateTime? initialDateOfBirth;
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  State<DriverSettingsScreen> createState() => _DriverSettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  // TODO: seed these from the authenticated user's profile once available.
   late final TextEditingController _fullNameController;
   late final TextEditingController _mobileNumberController;
 
-  DateTime? _dateOfBirth;
-  String? _dateOfBirthError;
-
   /// Local filesystem path to the currently selected profile photo, or
   /// null if none has been set. Seeded from whatever was persisted in
-  /// [UserSession], same as the name/mobile fields.
+  /// [DriverSession], same as the name/mobile fields.
   String? _photoPath;
 
   // Snapshot of every field's value as of screen-open (or last successful
@@ -62,7 +54,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // the Save button stays disabled until it has.
   late String _initialFullName;
   late String _initialMobileNumber;
-  DateTime? _initialDateOfBirth;
   String? _initialPhotoPath;
 
   // Avatar / header sizing: the avatar is always centered on the banner's
@@ -73,39 +64,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const double _headerHeight = 170;
 
   // Matches 09XXXXXXXXX (11 digits) or +63XXXXXXXXXX (10 digits after +63).
-  static final RegExp _phMobileRegex =
-      RegExp(r'^(?:\+63\d{10}|09\d{9})$');
+  static final RegExp _phMobileRegex = RegExp(r'^(?:\+63\d{10}|09\d{9})$');
 
   // Only letters, spaces, and a few common name characters.
   static final RegExp _fullNameRegex = RegExp(r"^[A-Za-zÀ-ÿ.'\- ]+$");
 
-  static const int _minAge = 13;
-
   @override
   void initState() {
     super.initState();
-    // Prefer whatever the caller (e.g. the dashboard) explicitly passed in;
-    // fall back to the session (in case this screen is opened directly),
-    // and finally to a placeholder if neither is available yet.
     _fullNameController = TextEditingController(
       text: widget.initialFullName ??
-          UserSession.instance.fullName ??
-          'Juan Dela Cruz',
+          DriverSession.instance.fullName ??
+          'Driver',
     );
     _mobileNumberController = TextEditingController(
       text: widget.initialMobileNumber ??
-          UserSession.instance.mobileNumber ??
+          DriverSession.instance.mobileNumber ??
           '',
     );
-    _dateOfBirth = widget.initialDateOfBirth ?? UserSession.instance.dateOfBirth;
-    _photoPath = UserSession.instance.photoPath;
+    _photoPath = DriverSession.instance.photoPath;
 
     _initialFullName = _fullNameController.text;
     _initialMobileNumber = _mobileNumberController.text;
-    _initialDateOfBirth = _dateOfBirth;
     _initialPhotoPath = _photoPath;
 
-    // Re-evaluate whether Save should be enabled as the user types.
     _fullNameController.addListener(_onFieldChanged);
     _mobileNumberController.addListener(_onFieldChanged);
   }
@@ -120,37 +102,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _onFieldChanged() {
-    // Just triggers a rebuild so _hasChanges() is re-checked; the
-    // controllers themselves already hold the latest text.
     setState(() {});
-  }
-
-  bool _isSameDate(DateTime? a, DateTime? b) {
-    if (a == null || b == null) return a == b;
-    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   bool get _hasChanges {
     return _fullNameController.text != _initialFullName ||
         _mobileNumberController.text != _initialMobileNumber ||
-        !_isSameDate(_dateOfBirth, _initialDateOfBirth) ||
         _photoPath != _initialPhotoPath;
-  }
-
-  Future<void> _pickDateOfBirth() async {
-    final DateTime now = DateTime.now();
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _dateOfBirth ?? DateTime(now.year - 18, now.month, now.day),
-      firstDate: DateTime(1900),
-      lastDate: now,
-    );
-    if (picked != null) {
-      setState(() {
-        _dateOfBirth = picked;
-        _dateOfBirthError = _validateDateOfBirth(picked);
-      });
-    }
   }
 
   String? _validateFullName(String? value) {
@@ -183,43 +141,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return 'Enter a valid PH mobile number (e.g. 09XXXXXXXXX or +63XXXXXXXXXX)';
     }
     return null;
-  }
-
-  String? _validateDateOfBirth(DateTime? value) {
-    if (value == null) {
-      return 'Date of birth is required';
-    }
-    final now = DateTime.now();
-    if (value.isAfter(now)) {
-      return 'Date of birth cannot be in the future';
-    }
-    final age = _calculateAge(value, now);
-    if (age < _minAge) {
-      return 'You must be at least $_minAge years old';
-    }
-    if (age > 120) {
-      return 'Please enter a valid date of birth';
-    }
-    return null;
-  }
-
-  int _calculateAge(DateTime dob, DateTime now) {
-    int age = now.year - dob.year;
-    final hasHadBirthdayThisYear =
-        (now.month > dob.month) ||
-        (now.month == dob.month && now.day >= dob.day);
-    if (!hasHadBirthdayThisYear) age--;
-    return age;
-  }
-
-  String get _dateOfBirthLabel {
-    if (_dateOfBirth == null) return 'Month, Day, Year';
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    final d = _dateOfBirth!;
-    return '${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
   Future<void> _handleChangePhoto() async {
@@ -259,14 +180,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (!mounted) return;
-
-    // Sheet was dismissed (tap outside / back button) without choosing
-    // anything — leave the current photo untouched.
     if (action == null) return;
 
     if (action == _PhotoAction.remove) {
-      // Staged only — not written to UserSession until Save Changes is
-      // tapped, same as the name/mobile/DOB fields below.
       setState(() => _photoPath = null);
       return;
     }
@@ -282,57 +198,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
       imageQuality: 85,
     );
 
-    if (picked == null || !mounted) return; // user cancelled the picker
+    if (picked == null || !mounted) return;
 
-    // Staged only — not written to UserSession until Save Changes is
-    // tapped, so backing out of this screen leaves the stored photo
-    // untouched.
     setState(() => _photoPath = picked.path);
   }
 
-  void _handleChangePassword() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+  Future<void> _handleChangePassword() async {
+    final updated = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const DriverChangePasswordScreen()),
     );
-  }
 
-  void _handleTwoFactorAuth() {
-    // TODO: navigate to the two-factor authentication setup screen.
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password updated.')),
+      );
+    }
   }
 
   Future<void> _handleSave() async {
     final formValid = _formKey.currentState?.validate() ?? false;
-    final dobError = _validateDateOfBirth(_dateOfBirth);
 
-    setState(() => _dateOfBirthError = dobError);
-
-    if (!formValid || dobError != null) {
+    if (!formValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fix the highlighted fields.')),
       );
       return;
     }
 
-    // TODO: persist these to a real backend once one exists. For now, keep
-    // the local session in sync so other screens see the update too.
     final updatedName = _fullNameController.text.trim();
     final updatedMobile = PhoneUtils.toE164(_mobileNumberController.text.trim());
 
-    await UserSession.instance.updateProfile(
+    await DriverSession.instance.updateProfile(
       fullName: updatedName,
       mobileNumber: updatedMobile,
-      dateOfBirth: _dateOfBirth,
     );
-    await UserSession.instance.updatePhoto(_photoPath);
+    await DriverSession.instance.updatePhoto(_photoPath);
 
     if (!mounted) return;
 
-    // Reset the "changed" baseline to what was just saved, in case the
-    // user keeps editing instead of leaving the screen.
     setState(() {
       _initialFullName = updatedName;
       _initialMobileNumber = updatedMobile;
-      _initialDateOfBirth = _dateOfBirth;
       _initialPhotoPath = _photoPath;
     });
 
@@ -340,14 +246,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SnackBar(content: Text('Settings saved.')),
     );
 
-    // Hand the updated profile back to whoever pushed this screen (e.g. the
-    // dashboard) so it can update its own state — the name shown in the
-    // drawer / welcome card, etc.
     Navigator.of(context).pop(
-      SettingsResult(
+      DriverSettingsResult(
         fullName: updatedName,
         mobileNumber: updatedMobile,
-        dateOfBirth: _dateOfBirth,
         photoPath: _photoPath,
       ),
     );
@@ -361,11 +263,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         bottom: false,
         child: Stack(
           children: [
-            // ---------------------------------------------------------
-            // SCROLLABLE CONTENT — clipped to start below the avatar, so
-            // it can never scroll up behind the header banner; it's a
-            // separate layer confined to the region beneath it.
-            // ---------------------------------------------------------
             Positioned.fill(
               top: _headerHeight + (_avatarSize / 2) + 20,
               child: Form(
@@ -390,14 +287,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       keyboardType: TextInputType.phone,
                       validator: _validateMobileNumber,
                     ),
-                    const SizedBox(height: 12),
-                    _SettingsDateField(
-                      label: 'Date of Birth',
-                      valueLabel: _dateOfBirthLabel,
-                      hasValue: _dateOfBirth != null,
-                      errorText: _dateOfBirthError,
-                      onTap: _pickDateOfBirth,
-                    ),
                     const SizedBox(height: 24),
                     const _SectionTitle(title: 'Security'),
                     const SizedBox(height: 12),
@@ -405,12 +294,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.lock_outline_rounded,
                       label: 'Change Password',
                       onTap: _handleChangePassword,
-                    ),
-                    const SizedBox(height: 12),
-                    _SecurityItem(
-                      icon: Icons.verified_user_outlined,
-                      label: 'Two Factor Authentication',
-                      onTap: _handleTwoFactorAuth,
                     ),
                     const SizedBox(height: 24),
                     _SaveButton(
@@ -422,12 +305,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
-            // ---------------------------------------------------------
-            // FIXED HEADER BANNER — back button pinned top-left; title
-            // and subtitle sit in the space between the back button row
-            // and the avatar overlap, so they scale with the banner
-            // instead of being pinned to a fixed row next to the button.
-            // ---------------------------------------------------------
             Positioned(
               top: 0,
               left: 0,
@@ -450,7 +327,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     20,
                     16,
                     20,
-                    // Leave room at the bottom for the avatar's top half.
                     (_avatarSize / 2) + 12,
                   ),
                   child: Row(
@@ -464,8 +340,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           customBorder: const CircleBorder(),
                           onTap: () => Navigator.of(context).maybePop(),
                           child: const Padding(
-                            padding: EdgeInsets.all(10),
-                            child: Icon(Icons.arrow_back, size: 18, color: Colors.black87),
+                            padding: EdgeInsets.all(13),
+                            child: Icon(Icons.arrow_back, size: 22, color: Colors.black87),
                           ),
                         ),
                       ),
@@ -493,11 +369,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
-            // ---------------------------------------------------------
-            // AVATAR — fixed, centered horizontally, straddling the
-            // header/content boundary (half above, half below), with the
-            // edit button anchored to it.
-            // ---------------------------------------------------------
             Positioned(
               top: _headerHeight - (_avatarSize / 2),
               left: 0,
@@ -517,10 +388,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// Result of the change-photo bottom sheet. Kept separate from
-/// [ImageSource] so "remove" has its own case instead of colliding with
-/// a real camera/gallery choice, and so `null` unambiguously means "sheet
-/// dismissed without picking anything."
 enum _PhotoAction { camera, gallery, remove }
 
 class _SectionTitle extends StatelessWidget {
@@ -540,10 +407,6 @@ class _SectionTitle extends StatelessWidget {
     );
   }
 }
-
-/// -----------------------------------------------------------------------
-/// PROFILE PHOTO
-/// -----------------------------------------------------------------------
 
 class _ProfilePhoto extends StatelessWidget {
   const _ProfilePhoto({
@@ -620,10 +483,6 @@ class _ProfilePhoto extends StatelessWidget {
   }
 }
 
-/// -----------------------------------------------------------------------
-/// EDITABLE TEXT FIELD (Full Name / Mobile Number)
-/// -----------------------------------------------------------------------
-
 class _SettingsField extends StatelessWidget {
   const _SettingsField({
     required this.label,
@@ -686,111 +545,6 @@ class _SettingsField extends StatelessWidget {
   }
 }
 
-/// -----------------------------------------------------------------------
-/// DATE OF BIRTH FIELD
-/// -----------------------------------------------------------------------
-
-class _SettingsDateField extends StatelessWidget {
-  const _SettingsDateField({
-    required this.label,
-    required this.valueLabel,
-    required this.hasValue,
-    required this.onTap,
-    this.errorText,
-  });
-
-  final String label;
-  final String valueLabel;
-  final bool hasValue;
-  final VoidCallback onTap;
-  final String? errorText;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasError = errorText != null;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF2F2F3),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: hasError
-                    ? const Color(0xFFD32F2F)
-                    : const Color(0xFFE6E6E7),
-                width: hasError ? 1.4 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        valueLabel,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: hasValue
-                              ? Colors.black87
-                              : Colors.grey.shade400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_today_rounded,
-                    size: 18,
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (hasError)
-            Padding(
-              padding: const EdgeInsets.only(top: 6, left: 4),
-              child: Text(
-                errorText!,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFFD32F2F),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// -----------------------------------------------------------------------
-/// SECURITY LIST ITEM
-/// -----------------------------------------------------------------------
-
 class _SecurityItem extends StatelessWidget {
   const _SecurityItem({
     required this.icon,
@@ -833,10 +587,6 @@ class _SecurityItem extends StatelessWidget {
     );
   }
 }
-
-/// -----------------------------------------------------------------------
-/// SAVE BUTTON
-/// -----------------------------------------------------------------------
 
 class _SaveButton extends StatelessWidget {
   const _SaveButton({required this.onTap, required this.enabled});

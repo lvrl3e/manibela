@@ -1,24 +1,29 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/app_colors.dart';
+import 'emergency_hotlines_screen.dart';
+import 'commuter_history_screen.dart';
 
 class CommuterMenuDrawer extends StatelessWidget {
   final String commuterName;
   final String commuterId;
   final String? photoPath;
+
   final VoidCallback? onSettingsTap;
   final VoidCallback? onQrCodeTap;
   final VoidCallback? onLogoutTap;
 
   const CommuterMenuDrawer({
-  super.key,
-  this.commuterName = "Juan Dela Cruz",
-  this.commuterId = "CM-0001",
-  this.photoPath,
-  this.onSettingsTap,
-  this.onQrCodeTap,
-  this.onLogoutTap,
-});
+    super.key,
+    this.commuterName = "Commuter Name",
+    this.commuterId = "CM-0001",
+    this.photoPath,
+    this.onSettingsTap,
+    this.onQrCodeTap,
+    this.onLogoutTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -27,114 +32,270 @@ class CommuterMenuDrawer extends StatelessWidget {
       elevation: 0,
       width: MediaQuery.of(context).size.width * .78,
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 24,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              /// Profile Header
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildProfileHeader(),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // =====================================================
+                    // SETTINGS
+                    // =====================================================
+                    _buildMenuButton(
+                      context: context,
+                      icon: Icons.settings_rounded,
+                      label: "Settings",
+                      iconColor: AppColors.secondary,
+                      onTap: () {
+                        Navigator.pop(context);
+
+                        if (onSettingsTap != null) {
+                          onSettingsTap!();
+                        }
+                      },
+                    ),
+
+                    _buildMenuDivider(),
+
+                    // =====================================================
+                    // HISTORY
+                    // =====================================================
+                    _buildMenuButton(
+                      context: context,
+                      icon: Icons.history_rounded,
+                      label: "History",
+                      iconColor: AppColors.secondary,
+                      onTap: () {
+                        Navigator.pop(context);
+
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const CommuterHistoryScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    _buildMenuDivider(),
+
+                    // =====================================================
+                    // EMERGENCY HOTLINES
+                    // =====================================================
+                    _buildMenuButton(
+                      context: context,
+                      icon: Icons.emergency_rounded,
+                      label: "Emergency Hotlines",
+                      iconColor: Colors.red,
+                      onTap: () {
+                        Navigator.pop(context);
+
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const EmergencyHotlinesScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    _buildMenuDivider(),
+
+                    // =====================================================
+                    // LOGOUT
+                    // =====================================================
+                    _buildMenuButton(
+                      context: context,
+                      icon: Icons.output_rounded,
+                      label: "Logout",
+                      iconColor: AppColors.logoutIconColor,
+                      onTap: () {
+                        Navigator.pop(context);
+
+                        if (onLogoutTap != null) {
+                          onLogoutTap!();
+                        } else {
+                          Navigator.of(context).popUntil((route) => route.isFirst);
+                        }
+                      },
+                    ),
+
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ===============================================================
+  // PROFILE HEADER
+  // ===============================================================
+  // Full-bleed banner (not boxed within the drawer's padding) so it reads
+  // as a distinct header, not just another list section. Layered soft
+  // circles stand in for a background "image" — decorative depth without
+  // needing an actual image asset.
+
+  Widget _buildProfileHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 28, 18, 24),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.primary, Color(0xFFFFDE7A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.topCenter,
+          children: [
+            Positioned(
+              right: -36,
+              top: -36,
+              child: _decorativeCircle(120, Colors.white.withOpacity(0.14)),
+            ),
+            Positioned(
+              left: -30,
+              bottom: -46,
+              child: _decorativeCircle(90, Colors.white.withOpacity(0.12)),
+            ),
+            Positioned(
+              right: 30,
+              bottom: -20,
+              child: _decorativeCircle(40, Colors.white.withOpacity(0.16)),
+            ),
+            Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                  ),
+                  child: CircleAvatar(
+                    radius: 38,
                     backgroundColor: const Color(0xFFD9D9D9),
-                    backgroundImage: photoPath != null
+                    backgroundImage: photoPath != null && photoPath!.isNotEmpty
                         ? FileImage(File(photoPath!))
                         : null,
-                    child: photoPath == null
+                    child: photoPath == null || photoPath!.isEmpty
                         ? const Icon(
                             Icons.person,
-                            size: 36,
+                            size: 44,
                             color: AppColors.textSecondary,
                           )
                         : null,
                   ),
-                  const SizedBox(width: 14),
-
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          commuterName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-
-                        const SizedBox(height: 2),
-
-                        const Text(
-                          "Commuter ID:",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.logoBlue,
-                          ),
-                        ),
-
-                        Text(
-                          commuterId,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.logoBlue,
-                          ),
-                        ),
-                      ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  commuterName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.onPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    commuterId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.onPrimary,
                     ),
                   ),
-                ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _decorativeCircle(double size, Color color) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    );
+  }
+
+  // ===============================================================
+  // MENU BUTTON
+  // ===============================================================
+  // Flat list items directly on the drawer's yellow background — no boxed
+  // card per item. The icon carries the semantic color (blue for regular
+  // actions, red for emergency/logout); the label stays a uniform dark
+  // tone for legibility and a clean, scannable list.
+
+  Widget _buildMenuButton({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required Color iconColor,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        splashColor: Colors.black.withOpacity(0.06),
+        highlightColor: Colors.black.withOpacity(0.04),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          child: Row(
+            children: [
+              Icon(icon, size: 26, color: iconColor),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
               ),
-
-              const SizedBox(height: 32),
-
-              /// Settings
-              _buildMenuButton(
-                context: context,
-                icon: Icons.settings_suggest_rounded,
-                label: "Settings",
-                backgroundColor: AppColors.settingsTileBg,
-                borderColor: AppColors.settingsTileBorder,
-                iconColor: AppColors.settingsIconColor,
-                textColor: AppColors.textPrimary,
-                onTap: () {
-                  Navigator.pop(context);
-
-                  if (onSettingsTap != null) {
-                    onSettingsTap!();
-                  }
-                },
-              ),
-
-              const SizedBox(height: 16),
-
-              /// Logout
-              _buildMenuButton(
-                context: context,
-                icon: Icons.output_rounded,
-                label: "Logout",
-                backgroundColor: AppColors.logoutTileBg,
-                borderColor: AppColors.logoutTileBorder,
-                iconColor: AppColors.logoutIconColor,
-                textColor: AppColors.logoutIconColor,
-                onTap: () {
-                  Navigator.pop(context);
-
-                  if (onLogoutTap != null) {
-                    onLogoutTap!();
-                  } else {
-                    Navigator.of(context)
-                        .popUntil((route) => route.isFirst);
-                  }
-                },
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: AppColors.onPrimary.withOpacity(0.45),
               ),
             ],
           ),
@@ -143,55 +304,11 @@ class CommuterMenuDrawer extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuButton({
-    required BuildContext context,
-    required IconData icon,
-    required String label,
-    required Color backgroundColor,
-    required Color borderColor,
-    required Color iconColor,
-    required Color textColor,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: borderColor,
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 32,
-                color: iconColor,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _buildMenuDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: Colors.black.withOpacity(0.08),
     );
   }
 }

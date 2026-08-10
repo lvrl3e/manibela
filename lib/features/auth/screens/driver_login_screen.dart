@@ -562,7 +562,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
                     child: const Text(
                       'Demo driver account\n'
-                      '09926017890 · Arklo05.',
+                      '09171234567 · Driver@123',
 
                       textAlign: TextAlign.center,
 

@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OtpPurpose {
+  PASSWORD_RESET
+  SIGNUP_VERIFICATION
+}
+
+model Commuter {
+  id              String    @id @default(cuid())
+  commuterId      String    @unique
+  fullName        String
+  mobileNumber    String    @unique
+  passwordHash    String
+  dateOfBirth     DateTime?
+  photoUrl        String?
+
+  /// Set once the commuter verifies the OTP sent at signup. Null until
+  /// then — nothing currently gates on this being set (the ID/KYC steps
+  /// after it are still fully mocked), it's just a record that the
+  /// number was actually confirmed.
+  phoneVerifiedAt DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Driver {
+  id            String    @id @default(cuid())
+  driverId      String    @unique
+  fullName      String
+  mobileNumber  String    @unique
+  passwordHash  String
+  plateNumber   String
+  photoUrl      String?
+
+  /// Opaque random token encoded into this driver's QR code. Nullable and
+  /// generated lazily (on first request) rather than at account creation,
+  /// so existing driver rows don't need a backfill migration. Rotating it
+  /// (see /me/qr-token/rotate) invalidates any previously printed/shown
+  /// QR code — this is what makes it "backend-verified" rather than just
+  /// a QR that encodes the driverId directly, which anyone could forge.
+  qrToken       String?   @unique
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model OtpCode {
+  id            String     @id @default(cuid())
+  mobileNumber  String
+  code          String
+  purpose       OtpPurpose
+  consumed      Boolean    @default(false)
+  expiresAt     DateTime
+  createdAt     DateTime   @default(now())
+
+  @@index([mobileNumber, purpose])
+}

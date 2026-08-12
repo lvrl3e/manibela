@@ -10,6 +10,7 @@ import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { requireAuth } from '../middleware/auth';
+import { uploadPhoto, deleteUploadedPhoto } from '../middleware/upload';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ function toPublicDriver(driver: {
   fullName: string;
   mobileNumber: string;
   plateNumber: string;
+  dateOfBirth: Date | null;
   photoUrl: string | null;
 }) {
   return {
@@ -27,6 +29,7 @@ function toPublicDriver(driver: {
     fullName: driver.fullName,
     mobileNumber: driver.mobileNumber,
     plateNumber: driver.plateNumber,
+    dateOfBirth: driver.dateOfBirth,
     photoUrl: driver.photoUrl,
   };
 }
@@ -153,7 +156,10 @@ router.post('/verify-otp', async (req, res, next) => {
     const body = verifyOtpSchema.parse(req.body);
     const mobileNumber = toE164(body.mobileNumber);
 
-    const ok = await verifyOtp(mobileNumber, 'PASSWORD_RESET', body.code);
+    // Doesn't consume the code — this is just early feedback ("yes, that's
+    // right") before the app moves on to reset-password, which is the
+    // call that actually spends it.
+    const ok = await verifyOtp(mobileNumber, 'PASSWORD_RESET', body.code, { consume: false });
     if (!ok) {
       res.status(400).json({ error: 'Invalid or expired code.' });
       return;
@@ -217,6 +223,7 @@ router.get('/me', requireAuth('driver'), async (req, res, next) => {
 const updateProfileSchema = z.object({
   fullName: z.string().trim().min(1).optional(),
   mobileNumber: z.string().trim().min(1).optional(),
+  dateOfBirth: z.coerce.date().nullable().optional(),
   photoUrl: z.string().trim().min(1).nullable().optional(),
 });
 
@@ -238,6 +245,7 @@ router.patch('/me', requireAuth('driver'), async (req, res, next) => {
       data: {
         fullName: body.fullName,
         mobileNumber,
+        dateOfBirth: body.dateOfBirth,
         photoUrl: body.photoUrl,
       },
     });
@@ -246,6 +254,44 @@ router.patch('/me', requireAuth('driver'), async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// multipart/form-data, field name "photo" — a plain URL/JSON field can't
+// carry binary image data, hence the separate endpoint (and separate
+// content type) from PATCH /me above.
+router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
+  uploadPhoto(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: 'No photo was uploaded.' });
+      return;
+    }
+
+    try {
+      const existing = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
+      if (!existing) {
+        res.status(404).json({ error: 'Account not found.' });
+        return;
+      }
+
+      const photoUrl = `/uploads/${req.file.filename}`;
+      const driver = await prisma.driver.update({
+        where: { id: existing.id },
+        data: { photoUrl },
+      });
+
+      // Only after the DB update succeeds — never leave the record
+      // pointing at a file that got deleted out from under it.
+      deleteUploadedPhoto(existing.photoUrl);
+
+      res.json({ driver: toPublicDriver(driver) });
+    } catch (err2) {
+      next(err2);
+    }
+  });
 });
 
 const changePasswordSchema = z.object({

@@ -1,14 +1,13 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/avatar_image.dart';
 import 'driver_history_screen.dart';
 
 class DriverMenuDrawer extends StatelessWidget {
   final String driverName;
   final String driverId;
-  final String? photoPath;
+  final String? photoUrl;
 
   final VoidCallback? onSettingsTap;
   final VoidCallback? onQrCodeTap;
@@ -18,7 +17,7 @@ class DriverMenuDrawer extends StatelessWidget {
     super.key,
     required this.driverName,
     required this.driverId,
-    this.photoPath,
+    this.photoUrl,
     this.onSettingsTap,
     this.onQrCodeTap,
     this.onLogoutTap,
@@ -253,16 +252,11 @@ class DriverMenuDrawer extends StatelessWidget {
                         const Color(0xFFD9D9D9),
 
                     backgroundImage:
-                        photoPath != null &&
-                                photoPath!.isNotEmpty
-                            ? FileImage(
-                                File(photoPath!),
-                              )
-                            : null,
+                        avatarImageProvider(photoUrl: photoUrl),
 
                     child:
-                        photoPath == null ||
-                                photoPath!.isEmpty
+                        avatarImageProvider(photoUrl: photoUrl) ==
+                                null
                             ? const Icon(
                                 Icons.person,
                                 size: 44,

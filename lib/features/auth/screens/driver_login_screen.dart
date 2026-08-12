@@ -93,6 +93,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       });
 
       final driver = response['driver'] as Map<String, dynamic>;
+      final dobRaw = driver['dateOfBirth'] as String?;
 
       // ---------------------------------------------------------------------
       // SAVE DRIVER LOGIN
@@ -104,6 +105,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
         driverId: driver['driverId'] as String,
         fullName: driver['fullName'] as String,
         plateNumber: driver['plateNumber'] as String,
+        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : null,
+        photoUrl: driver['photoUrl'] as String?,
         password: _passwordController.text,
       );
 

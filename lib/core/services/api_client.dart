@@ -49,6 +49,41 @@ class ApiClient {
     return _send('PATCH', path, body: body, token: token);
   }
 
+  /// Turns a relative path the backend returned (e.g. a `photoUrl` like
+  /// `/uploads/xyz.png`) into a fully-qualified URL an `Image.network`
+  /// can load — using the *same* base URL as every other request, so it
+  /// resolves correctly whether that's localhost, 10.0.2.2, or a LAN IP.
+  static String resolveUrl(String path) {
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    return '$_baseUrl$path';
+  }
+
+  /// Uploads the file at [filePath] as multipart/form-data under
+  /// [fieldName]. Used for endpoints that take binary data (photos) —
+  /// [post]/[patch] above only ever send JSON.
+  static Future<Map<String, dynamic>> uploadFile(
+    String path, {
+    required String filePath,
+    required String fieldName,
+    String? token,
+  }) async {
+    final uri = Uri.parse('$_baseUrl$path');
+    final request = http.MultipartRequest('POST', uri);
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+
+    http.Response response;
+    try {
+      request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+      response = await http.Response.fromStream(await request.send());
+    } catch (_) {
+      throw const ApiException(
+        "Couldn't reach the server. Check your connection and that the backend is running.",
+      );
+    }
+
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> _send(
     String method,
     String path, {
@@ -77,6 +112,10 @@ class ApiClient {
       );
     }
 
+    return _decode(response);
+  }
+
+  static Map<String, dynamic> _decode(http.Response response) {
     Map<String, dynamic>? decoded;
     if (response.body.isNotEmpty) {
       try {

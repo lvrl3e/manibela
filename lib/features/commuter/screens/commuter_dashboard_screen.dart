@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -30,7 +29,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   String _commuterName = UserSession.instance.fullName ?? 'Juan Dela Cruz';
   String _mobileNumber = UserSession.instance.mobileNumber ?? '';
   DateTime? _dateOfBirth = UserSession.instance.dateOfBirth;
-  String? _photoPath = UserSession.instance.photoPath;
+  String? _photoUrl = UserSession.instance.photoUrl;
 
   // Fallback used only if GPS is unavailable/denied — San Juan City, Metro
   // Manila. The real value is populated by _resolveCurrentLocation() below.
@@ -154,7 +153,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       if (result.fullName.isNotEmpty) _commuterName = result.fullName;
       _mobileNumber = result.mobileNumber;
       _dateOfBirth = result.dateOfBirth;
-      _photoPath = result.photoPath;
+      _photoUrl = result.photoUrl;
     });
   }
 
@@ -183,7 +182,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       backgroundColor: const Color(0xFFE9ECEE),
       drawer: CommuterMenuDrawer(
         commuterName: _commuterName,
-        photoPath: _photoPath,
+        photoUrl: _photoUrl,
         onSettingsTap: () => _openSettings(context),
         onLogoutTap: () => _handleLogout(context),
       ),

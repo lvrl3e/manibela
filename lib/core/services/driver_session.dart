@@ -28,10 +28,19 @@ class DriverSession {
   /// editable by the driver themselves, unlike name/mobile number.
   String? plateNumber;
 
-  /// Local filesystem path to the picked profile photo (from image_picker),
-  /// not a remote URL. Once photo upload exists, this should become an
-  /// uploaded photo URL instead.
+  DateTime? dateOfBirth;
+
+  /// Local filesystem path to a photo picked in DriverSettingsScreen but
+  /// not yet uploaded/saved — purely a staging value for that screen's
+  /// own preview. [photoUrl] below is the actual profile picture
+  /// everywhere else in the app.
   String? photoPath;
+
+  /// Relative path (e.g. `/uploads/xyz.png`) returned by
+  /// `POST /api/driver/me/photo` — resolve with [ApiClient.resolveUrl]
+  /// before handing it to `Image.network`. This is the real profile
+  /// picture; null means no photo has been uploaded.
+  String? photoUrl;
 
   /// JWT from a successful `/api/driver/login`, sent as a Bearer token on
   /// authenticated backend requests.
@@ -55,7 +64,9 @@ class DriverSession {
   static const _kPassword = 'driver_session_password';
   static const _kDriverId = 'driver_session_driverId';
   static const _kPlateNumber = 'driver_session_plateNumber';
+  static const _kDateOfBirth = 'driver_session_dateOfBirth';
   static const _kPhotoPath = 'driver_session_photoPath';
+  static const _kPhotoUrl = 'driver_session_photoUrl';
   static const _kAuthToken = 'driver_session_authToken';
   static const _kQrToken = 'driver_session_qrToken';
   static const _kLoggedInFlag = 'driverLoggedIn';
@@ -73,8 +84,11 @@ class DriverSession {
     driverId = prefs.getString(_kDriverId);
     plateNumber = prefs.getString(_kPlateNumber);
     photoPath = prefs.getString(_kPhotoPath);
+    photoUrl = prefs.getString(_kPhotoUrl);
     authToken = prefs.getString(_kAuthToken);
     qrToken = prefs.getString(_kQrToken);
+    final dobIso = prefs.getString(_kDateOfBirth);
+    dateOfBirth = dobIso != null ? DateTime.tryParse(dobIso) : null;
   }
 
   Future<void> _persist() async {
@@ -91,12 +105,22 @@ class DriverSession {
     } else {
       await prefs.remove(_kPhotoPath);
     }
+    if (photoUrl != null) {
+      await prefs.setString(_kPhotoUrl, photoUrl!);
+    } else {
+      await prefs.remove(_kPhotoUrl);
+    }
     if (authToken != null) {
       await prefs.setString(_kAuthToken, authToken!);
     } else {
       await prefs.remove(_kAuthToken);
     }
     if (qrToken != null) await prefs.setString(_kQrToken, qrToken!);
+    if (dateOfBirth != null) {
+      await prefs.setString(_kDateOfBirth, dateOfBirth!.toIso8601String());
+    } else {
+      await prefs.remove(_kDateOfBirth);
+    }
   }
 
   /// Caches the QR token fetched from `/api/driver/me/qr-token` so
@@ -111,16 +135,28 @@ class DriverSession {
   Future<void> updateProfile({
     String? fullName,
     String? mobileNumber,
+    DateTime? dateOfBirth,
   }) async {
     if (fullName != null && fullName.isNotEmpty) this.fullName = fullName;
     if (mobileNumber != null) this.mobileNumber = mobileNumber;
+    this.dateOfBirth = dateOfBirth;
     await _persist();
   }
 
-  /// Called from DriverSettingsScreen when the driver picks/removes a
-  /// profile photo. Pass null to remove the current photo.
+  /// Called from DriverSettingsScreen when the driver picks a new profile
+  /// photo but hasn't saved yet — purely a preview staging value. Pass
+  /// null to clear the staged pick.
   Future<void> updatePhoto(String? path) async {
     photoPath = path;
+    await _persist();
+  }
+
+  /// Called once `POST /api/driver/me/photo` succeeds (or after clearing
+  /// the photo via PATCH /me) — this is the actual saved profile picture
+  /// from here on, so the staged [photoPath] preview is cleared too.
+  Future<void> updatePhotoUrl(String? url) async {
+    photoUrl = url;
+    photoPath = null;
     await _persist();
   }
 
@@ -147,6 +183,8 @@ class DriverSession {
     required String driverId,
     required String fullName,
     required String plateNumber,
+    DateTime? dateOfBirth,
+    String? photoUrl,
     String? password,
   }) async {
     this.mobileNumber = mobileNumber;
@@ -154,14 +192,16 @@ class DriverSession {
     this.driverId = driverId;
     this.fullName = fullName;
     this.plateNumber = plateNumber;
+    this.dateOfBirth = dateOfBirth;
+    this.photoUrl = photoUrl;
     if (password != null) this.password = password;
 
     final prefs = await SharedPreferences.getInstance();
 
-    // The backend doesn't return a photo (no upload support yet), and
     // signOut() clears photoPath from memory (though not from disk) — so
     // without this, _persist() below would see photoPath == null and wipe
-    // out whatever was actually saved on a previous login.
+    // out a photo staged-but-unsaved from before. (photoUrl needs no such
+    // rescue — the backend always returns the real current value above.)
     photoPath ??= prefs.getString(_kPhotoPath);
 
     await _persist();
@@ -178,7 +218,9 @@ class DriverSession {
     password = null;
     driverId = null;
     plateNumber = null;
+    dateOfBirth = null;
     photoPath = null;
+    photoUrl = null;
     authToken = null;
     qrToken = null;
 

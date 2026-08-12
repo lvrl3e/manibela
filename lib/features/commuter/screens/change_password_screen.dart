@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   bool _obscureCurrent = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
+  bool _isSubmitting = false;
 
   static const int _minLength = 8;
   static final RegExp _hasUppercase = RegExp(r'[A-Z]');
@@ -38,13 +40,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   String? _validateCurrentPassword(String? value) {
-    final v = value ?? '';
+    // Trimmed defensively — a stored password can never legitimately
+    // contain a space (new passwords are rejected if they do, see
+    // _validateNewPassword), so a stray leading/trailing space here can
+    // only be an artifact of the on-screen keyboard, not an intentional
+    // part of the password.
+    final v = value?.trim() ?? '';
     if (v.isEmpty) {
       return 'Enter your current password';
     }
     // If there's no password on file yet (e.g. this screen was opened
     // without a signed-up session), skip the match check rather than
-    // block the user — a real backend would be the source of truth here.
+    // block the user — the backend is the real source of truth on submit.
     if (UserSession.instance.password != null &&
         v != UserSession.instance.password) {
       return 'Current password is incorrect';
@@ -97,6 +104,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   Future<void> _handleSubmit() async {
+    if (_isSubmitting) return;
+
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -105,27 +114,37 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
 
-    // TODO: once a backend exists, call it here to verify the current
-    // password and persist the new one server-side instead of updating
-    // the local session directly.
-    final success = await UserSession.instance.updatePassword(
-      currentPassword: _currentPasswordController.text,
-      newPassword: _newPasswordController.text,
-    );
+    setState(() => _isSubmitting = true);
 
-    if (!mounted) return;
-
-    if (!success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Current password is incorrect.')),
+    try {
+      await ApiClient.patch(
+        '/api/commuter/me/password',
+        {
+          'currentPassword': _currentPasswordController.text.trim(),
+          'newPassword': _newPasswordController.text,
+        },
+        token: UserSession.instance.authToken,
       );
-      return;
-    }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password updated.')),
-    );
-    Navigator.of(context).pop();
+      // Keeps the local copy in sync so this screen's own "current
+      // password" check (and re-opening it later) still works without
+      // needing a fresh login first.
+      await UserSession.instance.updatePassword(
+        currentPassword: _currentPasswordController.text.trim(),
+        newPassword: _newPasswordController.text,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password updated.')),
+      );
+      Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   @override
@@ -304,6 +323,10 @@ class _PasswordField extends StatelessWidget {
             obscureText: obscureText,
             validator: validator,
             onChanged: onChanged,
+            keyboardType: TextInputType.visiblePassword,
+            autocorrect: false,
+            enableSuggestions: false,
+            autofillHints: const [],
             style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
             decoration: InputDecoration(
               isDense: true,

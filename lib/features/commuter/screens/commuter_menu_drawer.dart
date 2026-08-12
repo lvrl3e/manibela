@@ -1,15 +1,14 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/avatar_image.dart';
 import 'emergency_hotlines_screen.dart';
 import 'commuter_history_screen.dart';
 
 class CommuterMenuDrawer extends StatelessWidget {
   final String commuterName;
   final String commuterId;
-  final String? photoPath;
+  final String? photoUrl;
 
   final VoidCallback? onSettingsTap;
   final VoidCallback? onQrCodeTap;
@@ -19,7 +18,7 @@ class CommuterMenuDrawer extends StatelessWidget {
     super.key,
     this.commuterName = "Commuter Name",
     this.commuterId = "CM-0001",
-    this.photoPath,
+    this.photoUrl,
     this.onSettingsTap,
     this.onQrCodeTap,
     this.onLogoutTap,
@@ -194,10 +193,8 @@ class CommuterMenuDrawer extends StatelessWidget {
                   child: CircleAvatar(
                     radius: 38,
                     backgroundColor: const Color(0xFFD9D9D9),
-                    backgroundImage: photoPath != null && photoPath!.isNotEmpty
-                        ? FileImage(File(photoPath!))
-                        : null,
-                    child: photoPath == null || photoPath!.isEmpty
+                    backgroundImage: avatarImageProvider(photoUrl: photoUrl),
+                    child: avatarImageProvider(photoUrl: photoUrl) == null
                         ? const Icon(
                             Icons.person,
                             size: 44,

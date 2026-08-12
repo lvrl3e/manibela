@@ -22,10 +22,17 @@ class UserSession {
   DateTime? dateOfBirth;
   String? commuterId;
 
-  /// Local filesystem path to the picked profile photo (from image_picker),
-  /// not a remote URL. Once photo upload exists, this should become an
-  /// uploaded photo URL instead.
+  /// Local filesystem path to a photo picked in SettingsScreen but not yet
+  /// uploaded/saved — purely a staging value for that screen's own
+  /// preview. [photoUrl] below is the actual profile picture everywhere
+  /// else in the app.
   String? photoPath;
+
+  /// Relative path (e.g. `/uploads/xyz.png`) returned by
+  /// `POST /api/commuter/me/photo` — resolve with [ApiClient.resolveUrl]
+  /// before handing it to `Image.network`. This is the real profile
+  /// picture; null means no photo has been uploaded.
+  String? photoUrl;
 
   /// JWT from a successful signup/login, sent as a Bearer token on
   /// authenticated backend requests.
@@ -43,6 +50,7 @@ class UserSession {
   static const _kCommuterId = 'session_commuterId';
   static const _kDateOfBirth = 'session_dateOfBirth';
   static const _kPhotoPath = 'session_photoPath';
+  static const _kPhotoUrl = 'session_photoUrl';
   static const _kAuthToken = 'session_authToken';
   static const _kLoggedInFlag = 'commuterLoggedIn';
 
@@ -59,6 +67,7 @@ class UserSession {
     password = prefs.getString(_kPassword);
     commuterId = prefs.getString(_kCommuterId);
     photoPath = prefs.getString(_kPhotoPath);
+    photoUrl = prefs.getString(_kPhotoUrl);
     authToken = prefs.getString(_kAuthToken);
     final dobIso = prefs.getString(_kDateOfBirth);
     dateOfBirth = dobIso != null ? DateTime.tryParse(dobIso) : null;
@@ -76,6 +85,11 @@ class UserSession {
       await prefs.setString(_kPhotoPath, photoPath!);
     } else {
       await prefs.remove(_kPhotoPath);
+    }
+    if (photoUrl != null) {
+      await prefs.setString(_kPhotoUrl, photoUrl!);
+    } else {
+      await prefs.remove(_kPhotoUrl);
     }
     if (dateOfBirth != null) {
       await prefs.setString(_kDateOfBirth, dateOfBirth!.toIso8601String());
@@ -109,6 +123,7 @@ class UserSession {
     this.commuterId = commuterId;
     this.authToken = authToken;
     photoPath = null;
+    photoUrl = null;
     await _persist();
   }
 
@@ -121,6 +136,7 @@ class UserSession {
     required String commuterId,
     required String fullName,
     DateTime? dateOfBirth,
+    String? photoUrl,
     String? password,
   }) async {
     this.mobileNumber = mobileNumber;
@@ -128,12 +144,13 @@ class UserSession {
     this.commuterId = commuterId;
     this.fullName = fullName;
     this.dateOfBirth = dateOfBirth;
+    this.photoUrl = photoUrl;
     if (password != null) this.password = password;
 
-    // The backend doesn't return a photo (no upload support yet), and
     // signOut() clears photoPath from memory (though not from disk) — so
     // without this, _persist() below would see photoPath == null and wipe
-    // out whatever was actually saved on a previous login.
+    // out a photo staged-but-unsaved from before. (photoUrl needs no such
+    // rescue — the backend always returns the real current value above.)
     if (photoPath == null) {
       final prefs = await SharedPreferences.getInstance();
       photoPath = prefs.getString(_kPhotoPath);
@@ -154,10 +171,20 @@ class UserSession {
     await _persist();
   }
 
-  /// Called from SettingsScreen when the user picks/removes a profile
-  /// photo. Pass null to remove the current photo.
+  /// Called from SettingsScreen when the user picks a new profile photo
+  /// but hasn't saved yet — purely a preview staging value. Pass null to
+  /// clear the staged pick.
   Future<void> updatePhoto(String? path) async {
     photoPath = path;
+    await _persist();
+  }
+
+  /// Called once `POST /api/commuter/me/photo` succeeds (or after clearing
+  /// the photo via PATCH /me) — this is the actual saved profile picture
+  /// from here on, so the staged [photoPath] preview is cleared too.
+  Future<void> updatePhotoUrl(String? url) async {
+    photoUrl = url;
+    photoPath = null;
     await _persist();
   }
 
@@ -186,6 +213,7 @@ class UserSession {
     password = null;
     commuterId = null;
     photoPath = null;
+    photoUrl = null;
     authToken = null;
 
     final prefs = await SharedPreferences.getInstance();

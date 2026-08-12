@@ -39,10 +39,20 @@ export async function issueOtp(
   return code;
 }
 
+/**
+ * Checks [code] for [mobileNumber]/[purpose]. By default this *spends*
+ * the code (marks it consumed, so it can't verify again) — pass
+ * `consume: false` for an early "is this even right?" check (e.g. an OTP
+ * screen's own Verify button) that a later call, like reset-password,
+ * still needs to actually spend. Without that distinction, an earlier
+ * peek would burn the code and the real, final check would always fail
+ * with "invalid or expired" even though the user typed it correctly.
+ */
 export async function verifyOtp(
   mobileNumber: string,
   purpose: OtpPurpose,
   code: string,
+  { consume = true }: { consume?: boolean } = {},
 ): Promise<boolean> {
   const match = await prisma.otpCode.findFirst({
     where: {
@@ -57,10 +67,12 @@ export async function verifyOtp(
 
   if (!match) return false;
 
-  await prisma.otpCode.update({
-    where: { id: match.id },
-    data: { consumed: true },
-  });
+  if (consume) {
+    await prisma.otpCode.update({
+      where: { id: match.id },
+      data: { consumed: true },
+    });
+  }
 
   return true;
 }

@@ -86,6 +86,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
         commuterId: commuter['commuterId'] as String,
         fullName: commuter['fullName'] as String,
         dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : null,
+        photoUrl: commuter['photoUrl'] as String?,
         password: passwordController.text,
       );
 

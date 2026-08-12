@@ -38,6 +38,7 @@ model Driver {
   mobileNumber  String    @unique
   passwordHash  String
   plateNumber   String
+  dateOfBirth   DateTime?
   photoUrl      String?
 
   /// Opaque random token encoded into this driver's QR code. Assigned

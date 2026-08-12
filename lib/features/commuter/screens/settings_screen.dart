@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/avatar_image.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'change_password_screen.dart';
 
@@ -15,13 +15,13 @@ class SettingsResult {
     required this.fullName,
     required this.mobileNumber,
     required this.dateOfBirth,
-    required this.photoPath,
+    required this.photoUrl,
   });
 
   final String fullName;
   final String mobileNumber;
   final DateTime? dateOfBirth;
-  final String? photoPath;
+  final String? photoUrl;
 }
 
 class SettingsScreen extends StatefulWidget {
@@ -53,10 +53,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _dateOfBirthError;
   bool _isSaving = false;
 
-  /// Local filesystem path to the currently selected profile photo, or
-  /// null if none has been set. Seeded from whatever was persisted in
-  /// [UserSession], same as the name/mobile fields.
+  /// Local filesystem path to a photo just picked but not yet uploaded —
+  /// null unless the user has picked something new this screen visit.
   String? _photoPath;
+
+  /// The currently-saved profile picture (a relative `/uploads/...` path
+  /// from the backend), seeded from [UserSession]. Set to null by the
+  /// "Remove Photo" action, or replaced once a newly-staged [_photoPath]
+  /// finishes uploading on Save.
+  String? _photoUrl;
 
   // Snapshot of every field's value as of screen-open (or last successful
   // save), used purely to detect whether anything has actually changed —
@@ -64,7 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late String _initialFullName;
   late String _initialMobileNumber;
   DateTime? _initialDateOfBirth;
-  String? _initialPhotoPath;
+  String? _initialPhotoUrl;
 
   // Avatar / header sizing: the avatar is always centered on the banner's
   // bottom edge — half overlapping the banner, half overlapping the
@@ -99,12 +104,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           '',
     );
     _dateOfBirth = widget.initialDateOfBirth ?? UserSession.instance.dateOfBirth;
-    _photoPath = UserSession.instance.photoPath;
+    _photoUrl = UserSession.instance.photoUrl;
 
     _initialFullName = _fullNameController.text;
     _initialMobileNumber = _mobileNumberController.text;
     _initialDateOfBirth = _dateOfBirth;
-    _initialPhotoPath = _photoPath;
+    _initialPhotoUrl = _photoUrl;
 
     // Re-evaluate whether Save should be enabled as the user types.
     _fullNameController.addListener(_onFieldChanged);
@@ -135,7 +140,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _fullNameController.text != _initialFullName ||
         _mobileNumberController.text != _initialMobileNumber ||
         !_isSameDate(_dateOfBirth, _initialDateOfBirth) ||
-        _photoPath != _initialPhotoPath;
+        _photoPath != null ||
+        _photoUrl != _initialPhotoUrl;
   }
 
   Future<void> _pickDateOfBirth() async {
@@ -242,7 +248,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('Choose from Gallery'),
               onTap: () => Navigator.pop(sheetContext, _PhotoAction.gallery),
             ),
-            if (_photoPath != null)
+            if (_photoPath != null || _photoUrl != null)
               ListTile(
                 leading: const Icon(
                   Icons.delete_outline_rounded,
@@ -268,7 +274,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (action == _PhotoAction.remove) {
       // Staged only — not written to UserSession until Save Changes is
       // tapped, same as the name/mobile/DOB fields below.
-      setState(() => _photoPath = null);
+      setState(() {
+        _photoPath = null;
+        _photoUrl = null;
+      });
       return;
     }
 
@@ -320,12 +329,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // A freshly-staged pick uploads as its own request (binary data
+      // can't ride along in the JSON body below); an explicit removal
+      // with no new pick just clears photoUrl in the regular PATCH.
+      if (_photoPath != null) {
+        final uploadResponse = await ApiClient.uploadFile(
+          '/api/commuter/me/photo',
+          filePath: _photoPath!,
+          fieldName: 'photo',
+          token: UserSession.instance.authToken,
+        );
+        final uploaded = uploadResponse['commuter'] as Map<String, dynamic>;
+        _photoUrl = uploaded['photoUrl'] as String?;
+        _photoPath = null;
+      }
+
       // The backend is the source of truth for name/mobile — without this,
       // a changed number only ever updated the local copy, so the next
       // login (which checks the backend) would still expect the old one.
       final response = await ApiClient.patch(
         '/api/commuter/me',
-        {'fullName': updatedName, 'mobileNumber': updatedMobile},
+        {
+          'fullName': updatedName,
+          'mobileNumber': updatedMobile,
+          'dateOfBirth': _dateOfBirth?.toIso8601String(),
+          if (_photoUrl != _initialPhotoUrl) 'photoUrl': _photoUrl,
+        },
         token: UserSession.instance.authToken,
       );
       final commuter = response['commuter'] as Map<String, dynamic>;
@@ -336,8 +365,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         mobileNumber: commuter['mobileNumber'] as String,
         dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : _dateOfBirth,
       );
-      // No backend upload support yet — this stays local-only.
-      await UserSession.instance.updatePhoto(_photoPath);
+      await UserSession.instance.updatePhotoUrl(commuter['photoUrl'] as String?);
+      _photoUrl = commuter['photoUrl'] as String?;
 
       if (!mounted) return;
 
@@ -348,7 +377,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _initialFullName = updatedName;
         _initialMobileNumber = updatedMobile;
         _initialDateOfBirth = _dateOfBirth;
-        _initialPhotoPath = _photoPath;
+        _initialPhotoUrl = _photoUrl;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -363,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           fullName: updatedName,
           mobileNumber: updatedMobile,
           dateOfBirth: _dateOfBirth,
-          photoPath: _photoPath,
+          photoUrl: _photoUrl,
         ),
       );
     } on ApiException catch (e) {
@@ -525,6 +554,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Center(
                 child: _ProfilePhoto(
                   photoPath: _photoPath,
+                  photoUrl: _photoUrl,
                   size: _avatarSize,
                   onEditTap: _handleChangePhoto,
                 ),
@@ -570,14 +600,18 @@ class _ProfilePhoto extends StatelessWidget {
     required this.onEditTap,
     required this.size,
     this.photoPath,
+    this.photoUrl,
   });
 
   final VoidCallback onEditTap;
   final double size;
   final String? photoPath;
+  final String? photoUrl;
 
   @override
   Widget build(BuildContext context) {
+    final image = avatarImageProvider(photoUrl: photoUrl, photoPath: photoPath);
+
     return SizedBox(
       width: size,
       height: size,
@@ -598,14 +632,9 @@ class _ProfilePhoto extends StatelessWidget {
                   offset: const Offset(0, 4),
                 ),
               ],
-              image: photoPath != null
-                  ? DecorationImage(
-                      image: FileImage(File(photoPath!)),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
+              image: image != null ? DecorationImage(image: image, fit: BoxFit.cover) : null,
             ),
-            child: photoPath == null
+            child: image == null
                 ? Icon(
                     Icons.person_rounded,
                     size: size * 0.54,

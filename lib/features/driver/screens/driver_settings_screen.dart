@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
+import '../../../core/utils/avatar_image.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'driver_change_password_screen.dart';
 
@@ -14,12 +14,14 @@ class DriverSettingsResult {
   const DriverSettingsResult({
     required this.fullName,
     required this.mobileNumber,
-    required this.photoPath,
+    required this.dateOfBirth,
+    required this.photoUrl,
   });
 
   final String fullName;
   final String mobileNumber;
-  final String? photoPath;
+  final DateTime? dateOfBirth;
+  final String? photoUrl;
 }
 
 class DriverSettingsScreen extends StatefulWidget {
@@ -27,6 +29,7 @@ class DriverSettingsScreen extends StatefulWidget {
     super.key,
     this.initialFullName,
     this.initialMobileNumber,
+    this.initialDateOfBirth,
   });
 
   /// Seed values from the caller (e.g. the dashboard's currently-held
@@ -34,6 +37,7 @@ class DriverSettingsScreen extends StatefulWidget {
   /// not a hard-coded default.
   final String? initialFullName;
   final String? initialMobileNumber;
+  final DateTime? initialDateOfBirth;
 
   @override
   State<DriverSettingsScreen> createState() => _DriverSettingsScreenState();
@@ -45,17 +49,26 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
   late final TextEditingController _fullNameController;
   late final TextEditingController _mobileNumberController;
 
-  /// Local filesystem path to the currently selected profile photo, or
-  /// null if none has been set. Seeded from whatever was persisted in
-  /// [DriverSession], same as the name/mobile fields.
+  /// Local filesystem path to a photo just picked but not yet uploaded —
+  /// null unless the driver has picked something new this screen visit.
   String? _photoPath;
+
+  /// The currently-saved profile picture (a relative `/uploads/...` path
+  /// from the backend), seeded from [DriverSession]. Set to null by the
+  /// "Remove Photo" action, or replaced once a newly-staged [_photoPath]
+  /// finishes uploading on Save.
+  String? _photoUrl;
+
+  DateTime? _dateOfBirth;
+  String? _dateOfBirthError;
 
   // Snapshot of every field's value as of screen-open (or last successful
   // save), used purely to detect whether anything has actually changed —
   // the Save button stays disabled until it has.
   late String _initialFullName;
   late String _initialMobileNumber;
-  String? _initialPhotoPath;
+  DateTime? _initialDateOfBirth;
+  String? _initialPhotoUrl;
   bool _isSaving = false;
 
   // Avatar / header sizing: the avatar is always centered on the banner's
@@ -71,6 +84,8 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
   // Only letters, spaces, and a few common name characters.
   static final RegExp _fullNameRegex = RegExp(r"^[A-Za-zÀ-ÿ.'\- ]+$");
 
+  static const int _minAge = 18;
+
   @override
   void initState() {
     super.initState();
@@ -84,11 +99,13 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
           DriverSession.instance.mobileNumber ??
           '',
     );
-    _photoPath = DriverSession.instance.photoPath;
+    _photoUrl = DriverSession.instance.photoUrl;
+    _dateOfBirth = widget.initialDateOfBirth ?? DriverSession.instance.dateOfBirth;
 
     _initialFullName = _fullNameController.text;
     _initialMobileNumber = _mobileNumberController.text;
-    _initialPhotoPath = _photoPath;
+    _initialDateOfBirth = _dateOfBirth;
+    _initialPhotoUrl = _photoUrl;
 
     _fullNameController.addListener(_onFieldChanged);
     _mobileNumberController.addListener(_onFieldChanged);
@@ -107,10 +124,17 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     setState(() {});
   }
 
+  bool _isSameDate(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return a == b;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   bool get _hasChanges {
     return _fullNameController.text != _initialFullName ||
         _mobileNumberController.text != _initialMobileNumber ||
-        _photoPath != _initialPhotoPath;
+        !_isSameDate(_dateOfBirth, _initialDateOfBirth) ||
+        _photoPath != null ||
+        _photoUrl != _initialPhotoUrl;
   }
 
   String? _validateFullName(String? value) {
@@ -145,6 +169,58 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     return null;
   }
 
+  String? _validateDateOfBirth(DateTime? value) {
+    if (value == null) {
+      return 'Date of birth is required';
+    }
+    final now = DateTime.now();
+    if (value.isAfter(now)) {
+      return 'Date of birth cannot be in the future';
+    }
+    final age = _calculateAge(value, now);
+    if (age < _minAge) {
+      return 'You must be at least $_minAge years old';
+    }
+    if (age > 120) {
+      return 'Please enter a valid date of birth';
+    }
+    return null;
+  }
+
+  int _calculateAge(DateTime dob, DateTime now) {
+    int age = now.year - dob.year;
+    final hasHadBirthdayThisYear =
+        (now.month > dob.month) || (now.month == dob.month && now.day >= dob.day);
+    if (!hasHadBirthdayThisYear) age--;
+    return age;
+  }
+
+  String get _dateOfBirthLabel {
+    if (_dateOfBirth == null) return 'Month, Day, Year';
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    final d = _dateOfBirth!;
+    return '${months[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  Future<void> _pickDateOfBirth() async {
+    final DateTime now = DateTime.now();
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _dateOfBirth ?? DateTime(now.year - 18, now.month, now.day),
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked != null) {
+      setState(() {
+        _dateOfBirth = picked;
+        _dateOfBirthError = _validateDateOfBirth(picked);
+      });
+    }
+  }
+
   Future<void> _handleChangePhoto() async {
     final action = await showModalBottomSheet<_PhotoAction>(
       context: context,
@@ -164,7 +240,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
               title: const Text('Choose from Gallery'),
               onTap: () => Navigator.pop(sheetContext, _PhotoAction.gallery),
             ),
-            if (_photoPath != null)
+            if (_photoPath != null || _photoUrl != null)
               ListTile(
                 leading: const Icon(
                   Icons.delete_outline_rounded,
@@ -185,7 +261,10 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     if (action == null) return;
 
     if (action == _PhotoAction.remove) {
-      setState(() => _photoPath = null);
+      setState(() {
+        _photoPath = null;
+        _photoUrl = null;
+      });
       return;
     }
 
@@ -219,8 +298,11 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
 
   Future<void> _handleSave() async {
     final formValid = _formKey.currentState?.validate() ?? false;
+    final dobError = _validateDateOfBirth(_dateOfBirth);
 
-    if (!formValid) {
+    setState(() => _dateOfBirthError = dobError);
+
+    if (!formValid || dobError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fix the highlighted fields.')),
       );
@@ -233,22 +315,45 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // A freshly-staged pick uploads as its own request (binary data
+      // can't ride along in the JSON body below); an explicit removal
+      // with no new pick just clears photoUrl in the regular PATCH.
+      if (_photoPath != null) {
+        final uploadResponse = await ApiClient.uploadFile(
+          '/api/driver/me/photo',
+          filePath: _photoPath!,
+          fieldName: 'photo',
+          token: DriverSession.instance.authToken,
+        );
+        final uploaded = uploadResponse['driver'] as Map<String, dynamic>;
+        _photoUrl = uploaded['photoUrl'] as String?;
+        _photoPath = null;
+      }
+
       // The backend is the source of truth for name/mobile — without this,
       // a changed number only ever updated the local copy, so the next
       // login (which checks the backend) would still expect the old one.
+      // plateNumber is deliberately never sent — it's not editable here.
       final response = await ApiClient.patch(
         '/api/driver/me',
-        {'fullName': updatedName, 'mobileNumber': updatedMobile},
+        {
+          'fullName': updatedName,
+          'mobileNumber': updatedMobile,
+          'dateOfBirth': _dateOfBirth?.toIso8601String(),
+          if (_photoUrl != _initialPhotoUrl) 'photoUrl': _photoUrl,
+        },
         token: DriverSession.instance.authToken,
       );
       final driver = response['driver'] as Map<String, dynamic>;
+      final dobRaw = driver['dateOfBirth'] as String?;
 
       await DriverSession.instance.updateProfile(
         fullName: driver['fullName'] as String,
         mobileNumber: driver['mobileNumber'] as String,
+        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : _dateOfBirth,
       );
-      // No backend upload support yet — this stays local-only.
-      await DriverSession.instance.updatePhoto(_photoPath);
+      await DriverSession.instance.updatePhotoUrl(driver['photoUrl'] as String?);
+      _photoUrl = driver['photoUrl'] as String?;
 
       if (!mounted) return;
 
@@ -256,7 +361,8 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
         _isSaving = false;
         _initialFullName = updatedName;
         _initialMobileNumber = updatedMobile;
-        _initialPhotoPath = _photoPath;
+        _initialDateOfBirth = _dateOfBirth;
+        _initialPhotoUrl = _photoUrl;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -267,7 +373,8 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
         DriverSettingsResult(
           fullName: updatedName,
           mobileNumber: updatedMobile,
-          photoPath: _photoPath,
+          dateOfBirth: _dateOfBirth,
+          photoUrl: _photoUrl,
         ),
       );
     } on ApiException catch (e) {
@@ -308,6 +415,19 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
                       hintText: '+63 XXX XXX XXXX',
                       keyboardType: TextInputType.phone,
                       validator: _validateMobileNumber,
+                    ),
+                    const SizedBox(height: 12),
+                    _SettingsDateField(
+                      label: 'Date of Birth',
+                      valueLabel: _dateOfBirthLabel,
+                      hasValue: _dateOfBirth != null,
+                      errorText: _dateOfBirthError,
+                      onTap: _pickDateOfBirth,
+                    ),
+                    const SizedBox(height: 12),
+                    _ReadOnlyField(
+                      label: 'Plate Number',
+                      value: DriverSession.instance.plateNumber ?? '—',
                     ),
                     const SizedBox(height: 24),
                     const _SectionTitle(title: 'Security'),
@@ -398,6 +518,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
               child: Center(
                 child: _ProfilePhoto(
                   photoPath: _photoPath,
+                  photoUrl: _photoUrl,
                   size: _avatarSize,
                   onEditTap: _handleChangePhoto,
                 ),
@@ -435,14 +556,18 @@ class _ProfilePhoto extends StatelessWidget {
     required this.onEditTap,
     required this.size,
     this.photoPath,
+    this.photoUrl,
   });
 
   final VoidCallback onEditTap;
   final double size;
   final String? photoPath;
+  final String? photoUrl;
 
   @override
   Widget build(BuildContext context) {
+    final image = avatarImageProvider(photoUrl: photoUrl, photoPath: photoPath);
+
     return SizedBox(
       width: size,
       height: size,
@@ -463,14 +588,9 @@ class _ProfilePhoto extends StatelessWidget {
                   offset: const Offset(0, 4),
                 ),
               ],
-              image: photoPath != null
-                  ? DecorationImage(
-                      image: FileImage(File(photoPath!)),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
+              image: image != null ? DecorationImage(image: image, fit: BoxFit.cover) : null,
             ),
-            child: photoPath == null
+            child: image == null
                 ? Icon(
                     Icons.person_rounded,
                     size: size * 0.54,
@@ -560,6 +680,143 @@ class _SettingsField extends StatelessWidget {
                 height: 1.4,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsDateField extends StatelessWidget {
+  const _SettingsDateField({
+    required this.label,
+    required this.valueLabel,
+    required this.hasValue,
+    required this.onTap,
+    this.errorText,
+  });
+
+  final String label;
+  final String valueLabel;
+  final bool hasValue;
+  final VoidCallback onTap;
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = errorText != null;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F2F3),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: hasError ? const Color(0xFFD32F2F) : const Color(0xFFE6E6E7),
+                width: hasError ? 1.4 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        valueLabel,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: hasValue ? Colors.black87 : Colors.grey.shade400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.calendar_today_rounded,
+                    size: 18,
+                    color: AppColors.onPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasError)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                errorText!,
+                style: const TextStyle(fontSize: 11, color: Color(0xFFD32F2F)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A field the driver can see but never edit here — plateNumber is set once
+/// at account creation (by an operator) and the backend doesn't accept it
+/// through PATCH /me at all, so there's no point pretending it's editable.
+class _ReadOnlyField extends StatelessWidget {
+  const _ReadOnlyField({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F2F3),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE6E6E7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(Icons.lock_outline_rounded, size: 13, color: Colors.grey.shade500),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
           ),
         ],
       ),

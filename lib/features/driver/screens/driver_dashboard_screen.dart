@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -8,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
+import '../../../core/utils/avatar_image.dart';
 import '../../auth/screens/driver_login_screen.dart';
 import 'driver_daily_operations_screen.dart';
 import 'driver_history_screen.dart';
@@ -51,7 +50,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // fetch of the authenticated driver's profile.
   String _driverName = DriverSession.instance.fullName ?? 'Driver';
   String _driverId = DriverSession.instance.driverId ?? '—';
-  String? _photoPath = DriverSession.instance.photoPath;
+  String? _photoUrl = DriverSession.instance.photoUrl;
 
   // Trip state — "online" now just means "currently on a trip" instead of a
   // manually-flipped switch, since Start/End Trip is what actually drives
@@ -193,7 +192,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
     setState(() {
       if (result.fullName.isNotEmpty) _driverName = result.fullName;
-      _photoPath = result.photoPath;
+      _photoUrl = result.photoUrl;
     });
   }
 
@@ -314,7 +313,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       drawer: DriverMenuDrawer(
         driverName: _driverName,
         driverId: _driverId,
-        photoPath: _photoPath,
+        photoUrl: _photoUrl,
         onSettingsTap: _openSettings,
         onQrCodeTap: _openQrCode,
         onLogoutTap: _handleLogout,
@@ -422,10 +421,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       child: CircleAvatar(
                         radius: 26,
                         backgroundColor: const Color(0xFFD9D9D9),
-                        backgroundImage: _photoPath != null && _photoPath!.isNotEmpty
-                            ? FileImage(File(_photoPath!))
-                            : null,
-                        child: _photoPath == null || _photoPath!.isEmpty
+                        backgroundImage: avatarImageProvider(photoUrl: _photoUrl),
+                        child: avatarImageProvider(photoUrl: _photoUrl) == null
                             ? const Icon(Icons.person, size: 32, color: AppColors.textSecondary)
                             : null,
                       ),

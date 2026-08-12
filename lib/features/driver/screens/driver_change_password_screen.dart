@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 
 class DriverChangePasswordScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _DriverChangePasswordScreenState
   bool _obscureCurrent = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
+  bool _isSubmitting = false;
 
   static const int _minLength = 8;
   static final RegExp _hasUppercase = RegExp(r'[A-Z]');
@@ -101,6 +103,8 @@ class _DriverChangePasswordScreenState
   }
 
   Future<void> _handleSubmit() async {
+    if (_isSubmitting) return;
+
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -109,21 +113,33 @@ class _DriverChangePasswordScreenState
       return;
     }
 
-    final success = await DriverSession.instance.updatePassword(
-      currentPassword: _currentPasswordController.text.trim(),
-      newPassword: _newPasswordController.text,
-    );
+    setState(() => _isSubmitting = true);
 
-    if (!mounted) return;
-
-    if (!success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Current password is incorrect.')),
+    try {
+      await ApiClient.patch(
+        '/api/driver/me/password',
+        {
+          'currentPassword': _currentPasswordController.text.trim(),
+          'newPassword': _newPasswordController.text,
+        },
+        token: DriverSession.instance.authToken,
       );
-      return;
-    }
 
-    Navigator.of(context).pop(true);
+      // Keeps the local copy in sync so this screen's own "current
+      // password" check (and re-opening it later) still works without
+      // needing a fresh login first.
+      await DriverSession.instance.updatePassword(
+        currentPassword: _currentPasswordController.text.trim(),
+        newPassword: _newPasswordController.text,
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   @override

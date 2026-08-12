@@ -450,19 +450,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.85),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: _isOnline ? Colors.green : AppColors.errorRed),
+                        border: Border.all(color: _isOnline ? Colors.green : Colors.orange),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircleAvatar(radius: 4, backgroundColor: _isOnline ? Colors.green : AppColors.errorRed),
+                          CircleAvatar(radius: 4, backgroundColor: _isOnline ? Colors.green : Colors.orange),
                           const SizedBox(width: 6),
                           Text(
-                            _isOnline ? 'On Trip' : 'Offline',
+                            _isOnline ? 'On Trip' : 'Awaiting Trip',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: _isOnline ? Colors.green.shade800 : AppColors.errorRed,
+                              color: _isOnline ? Colors.green.shade800 : Colors.orange,
                             ),
                           ),
                         ],

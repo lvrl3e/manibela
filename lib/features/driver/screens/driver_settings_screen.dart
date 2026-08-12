@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'driver_change_password_screen.dart';
@@ -55,6 +56,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
   late String _initialFullName;
   late String _initialMobileNumber;
   String? _initialPhotoPath;
+  bool _isSaving = false;
 
   // Avatar / header sizing: the avatar is always centered on the banner's
   // bottom edge — half overlapping the banner, half overlapping the
@@ -228,31 +230,51 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     final updatedName = _fullNameController.text.trim();
     final updatedMobile = PhoneUtils.toE164(_mobileNumberController.text.trim());
 
-    await DriverSession.instance.updateProfile(
-      fullName: updatedName,
-      mobileNumber: updatedMobile,
-    );
-    await DriverSession.instance.updatePhoto(_photoPath);
+    setState(() => _isSaving = true);
 
-    if (!mounted) return;
+    try {
+      // The backend is the source of truth for name/mobile — without this,
+      // a changed number only ever updated the local copy, so the next
+      // login (which checks the backend) would still expect the old one.
+      final response = await ApiClient.patch(
+        '/api/driver/me',
+        {'fullName': updatedName, 'mobileNumber': updatedMobile},
+        token: DriverSession.instance.authToken,
+      );
+      final driver = response['driver'] as Map<String, dynamic>;
 
-    setState(() {
-      _initialFullName = updatedName;
-      _initialMobileNumber = updatedMobile;
-      _initialPhotoPath = _photoPath;
-    });
+      await DriverSession.instance.updateProfile(
+        fullName: driver['fullName'] as String,
+        mobileNumber: driver['mobileNumber'] as String,
+      );
+      // No backend upload support yet — this stays local-only.
+      await DriverSession.instance.updatePhoto(_photoPath);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Settings saved.')),
-    );
+      if (!mounted) return;
 
-    Navigator.of(context).pop(
-      DriverSettingsResult(
-        fullName: updatedName,
-        mobileNumber: updatedMobile,
-        photoPath: _photoPath,
-      ),
-    );
+      setState(() {
+        _isSaving = false;
+        _initialFullName = updatedName;
+        _initialMobileNumber = updatedMobile;
+        _initialPhotoPath = _photoPath;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settings saved.')),
+      );
+
+      Navigator.of(context).pop(
+        DriverSettingsResult(
+          fullName: updatedName,
+          mobileNumber: updatedMobile,
+          photoPath: _photoPath,
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   @override
@@ -297,7 +319,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
                     ),
                     const SizedBox(height: 24),
                     _SaveButton(
-                      enabled: _hasChanges,
+                      enabled: _hasChanges && !_isSaving,
                       onTap: _handleSave,
                     ),
                   ],

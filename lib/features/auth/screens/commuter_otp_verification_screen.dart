@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
-import '../../../core/services/user_session.dart';
 import 'commuter_verification_screen.dart';
 
 /// Verifies the mobile number entered during commuter sign up. No account
 /// exists yet at this point — [fullName]/[mobileNumber]/[password] are
-/// just what was typed into the sign-up form, carried here in memory. The
-/// account only actually gets created once the code checks out (see
-/// _verifyCode, which calls /api/commuter/signup with the code attached),
-/// so abandoning the flow before this screen succeeds never leaves a
-/// "registered" account behind. Continues into [CommuterVerificationScreen]
-/// (ID upload) on success.
+/// just what was typed into the sign-up form, carried here in memory.
+/// Verifying the code doesn't create the account either — it stashes the
+/// (now-hashed) signup details server-side and hands back a ticket, which
+/// gets threaded through ID + face verification and only redeemed into a
+/// real account at the very end of that flow (see
+/// CommuterFaceVerificationScreen). So abandoning the flow anywhere before
+/// that final step never leaves a "registered" account behind.
 class CommuterOtpVerificationScreen extends StatefulWidget {
   const CommuterOtpVerificationScreen({
     super.key,
@@ -92,25 +92,14 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
     });
 
     try {
-      // This is the actual account-creation call — the code is only
-      // accepted here, atomically with creating the row, so there's no
-      // window where "verified" and "registered" can disagree.
-      final response = await ApiClient.post('/api/commuter/signup', {
+      final response = await ApiClient.post('/api/commuter/verify-signup-otp', {
         'fullName': widget.fullName,
         'mobileNumber': widget.mobileNumber,
         'password': widget.password,
         'code': _code,
       });
 
-      final commuter = response['commuter'] as Map<String, dynamic>;
-
-      await UserSession.instance.signUp(
-        fullName: commuter['fullName'] as String,
-        mobileNumber: commuter['mobileNumber'] as String,
-        password: widget.password,
-        commuterId: commuter['commuterId'] as String,
-        authToken: response['token'] as String,
-      );
+      final ticket = response['ticket'] as String;
 
       if (!mounted) return;
 
@@ -121,7 +110,10 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => const CommuterVerificationScreen(),
+          builder: (_) => CommuterVerificationScreen(
+            signupTicket: ticket,
+            password: widget.password,
+          ),
         ),
       );
     } on ApiException catch (e) {

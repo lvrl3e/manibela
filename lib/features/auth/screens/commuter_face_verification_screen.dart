@@ -3,12 +3,30 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/user_session.dart';
 import 'commuter_verified_screen.dart';
 
 class CommuterFaceVerificationScreen extends StatefulWidget {
-  const CommuterFaceVerificationScreen({super.key, required this.idType});
+  const CommuterFaceVerificationScreen({
+    super.key,
+    required this.idType,
+    required this.signupTicket,
+    required this.password,
+  });
 
   final String idType;
+
+  /// Redeemed into the actual account on a successful confirm below — this
+  /// is the last step of sign-up, so it's the only place a Commuter row
+  /// ever gets created.
+  final String signupTicket;
+
+  /// What was typed on the original sign-up form — the backend never sees
+  /// this again (already hashed), it's only here to seed UserSession's
+  /// local password field so change-password's "current password" check
+  /// works immediately, without requiring a fresh login first.
+  final String password;
 
   @override
   State<CommuterFaceVerificationScreen> createState() => _CommuterFaceVerificationScreenState();
@@ -90,12 +108,36 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
       await Future<void>.delayed(const Duration(milliseconds: 1000));
       if (!mounted) return;
 
+      // This is the actual account-creation call — nothing about the
+      // commuter's account exists in the database until this succeeds.
+      final response = await ApiClient.post('/api/commuter/signup', {
+        'ticket': widget.signupTicket,
+      });
+
+      final commuter = response['commuter'] as Map<String, dynamic>;
+
+      await UserSession.instance.signUp(
+        fullName: commuter['fullName'] as String,
+        mobileNumber: commuter['mobileNumber'] as String,
+        password: widget.password,
+        commuterId: commuter['commuterId'] as String,
+        authToken: response['token'] as String,
+      );
+
+      if (!mounted) return;
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => CommuterVerifiedScreen(idType: widget.idType),
         ),
       );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _error = e.message;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {

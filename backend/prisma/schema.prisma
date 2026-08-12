@@ -64,3 +64,19 @@ model OtpCode {
 
   @@index([mobileNumber, purpose])
 }
+
+/// A commuter sign-up that's passed phone verification but hasn't
+/// finished ID + face verification yet — no Commuter row exists until
+/// this ticket is redeemed (see POST /api/commuter/signup). Holds the
+/// already-hashed password so nothing plaintext sits around waiting.
+/// Given a generous expiry (well beyond the OTP's own 5-minute window)
+/// since ID upload + a selfie can reasonably take a while.
+model PendingCommuterSignup {
+  id           String   @id @default(cuid())
+  ticket       String   @unique
+  fullName     String
+  mobileNumber String
+  passwordHash String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}

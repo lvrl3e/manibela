@@ -155,9 +155,16 @@ class DriverSession {
     this.fullName = fullName;
     this.plateNumber = plateNumber;
     if (password != null) this.password = password;
-    await _persist();
 
     final prefs = await SharedPreferences.getInstance();
+
+    // The backend doesn't return a photo (no upload support yet), and
+    // signOut() clears photoPath from memory (though not from disk) — so
+    // without this, _persist() below would see photoPath == null and wipe
+    // out whatever was actually saved on a previous login.
+    photoPath ??= prefs.getString(_kPhotoPath);
+
+    await _persist();
     await prefs.setBool(_kLoggedInFlag, true);
   }
 

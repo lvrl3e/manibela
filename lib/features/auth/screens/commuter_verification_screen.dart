@@ -17,7 +17,21 @@ const List<String> _idTypeOptions = [
 const int _maxUploadBytes = 8 * 1024 * 1024; // 8 MB
 
 class CommuterVerificationScreen extends StatefulWidget {
-  const CommuterVerificationScreen({super.key});
+  const CommuterVerificationScreen({
+    super.key,
+    required this.signupTicket,
+    required this.password,
+  });
+
+  /// Proves phone verification already happened; threaded through to
+  /// [CommuterFaceVerificationScreen], which redeems it into the actual
+  /// account once face verification succeeds.
+  final String signupTicket;
+
+  /// Carried through only so [CommuterFaceVerificationScreen] can seed
+  /// UserSession's local password field on signUp() — the backend never
+  /// sees this again (it already hashed it back at the OTP step).
+  final String password;
 
   @override
   State<CommuterVerificationScreen> createState() => _CommuterVerificationScreenState();
@@ -178,7 +192,11 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => CommuterFaceVerificationScreen(idType: _selectedId!),
+          builder: (_) => CommuterFaceVerificationScreen(
+            idType: _selectedId!,
+            signupTicket: widget.signupTicket,
+            password: widget.password,
+          ),
         ),
       );
     } catch (_) {

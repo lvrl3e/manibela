@@ -129,6 +129,16 @@ class UserSession {
     this.fullName = fullName;
     this.dateOfBirth = dateOfBirth;
     if (password != null) this.password = password;
+
+    // The backend doesn't return a photo (no upload support yet), and
+    // signOut() clears photoPath from memory (though not from disk) — so
+    // without this, _persist() below would see photoPath == null and wipe
+    // out whatever was actually saved on a previous login.
+    if (photoPath == null) {
+      final prefs = await SharedPreferences.getInstance();
+      photoPath = prefs.getString(_kPhotoPath);
+    }
+
     await _persist();
   }
 

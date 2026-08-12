@@ -223,12 +223,21 @@ const updateProfileSchema = z.object({
 router.patch('/me', requireAuth('driver'), async (req, res, next) => {
   try {
     const body = updateProfileSchema.parse(req.body);
+    const mobileNumber = body.mobileNumber ? toE164(body.mobileNumber) : undefined;
+
+    if (mobileNumber) {
+      const existing = await prisma.driver.findUnique({ where: { mobileNumber } });
+      if (existing && existing.id !== req.auth!.sub) {
+        res.status(409).json({ error: 'This mobile number is already registered to another account.' });
+        return;
+      }
+    }
 
     const driver = await prisma.driver.update({
       where: { id: req.auth!.sub },
       data: {
         fullName: body.fullName,
-        mobileNumber: body.mobileNumber ? toE164(body.mobileNumber) : undefined,
+        mobileNumber,
         photoUrl: body.photoUrl,
       },
     });

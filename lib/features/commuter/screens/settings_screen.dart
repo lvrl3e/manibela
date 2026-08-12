@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'change_password_screen.dart';
@@ -45,12 +46,12 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  // TODO: seed these from the authenticated user's profile once available.
   late final TextEditingController _fullNameController;
   late final TextEditingController _mobileNumberController;
 
   DateTime? _dateOfBirth;
   String? _dateOfBirthError;
+  bool _isSaving = false;
 
   /// Local filesystem path to the currently selected profile photo, or
   /// null if none has been set. Seeded from whatever was persisted in
@@ -313,44 +314,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    // TODO: persist these to a real backend once one exists. For now, keep
-    // the local session in sync so other screens see the update too.
     final updatedName = _fullNameController.text.trim();
     final updatedMobile = PhoneUtils.toE164(_mobileNumberController.text.trim());
 
-    await UserSession.instance.updateProfile(
-      fullName: updatedName,
-      mobileNumber: updatedMobile,
-      dateOfBirth: _dateOfBirth,
-    );
-    await UserSession.instance.updatePhoto(_photoPath);
+    setState(() => _isSaving = true);
 
-    if (!mounted) return;
+    try {
+      // The backend is the source of truth for name/mobile — without this,
+      // a changed number only ever updated the local copy, so the next
+      // login (which checks the backend) would still expect the old one.
+      final response = await ApiClient.patch(
+        '/api/commuter/me',
+        {'fullName': updatedName, 'mobileNumber': updatedMobile},
+        token: UserSession.instance.authToken,
+      );
+      final commuter = response['commuter'] as Map<String, dynamic>;
+      final dobRaw = commuter['dateOfBirth'] as String?;
 
-    // Reset the "changed" baseline to what was just saved, in case the
-    // user keeps editing instead of leaving the screen.
-    setState(() {
-      _initialFullName = updatedName;
-      _initialMobileNumber = updatedMobile;
-      _initialDateOfBirth = _dateOfBirth;
-      _initialPhotoPath = _photoPath;
-    });
+      await UserSession.instance.updateProfile(
+        fullName: commuter['fullName'] as String,
+        mobileNumber: commuter['mobileNumber'] as String,
+        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : _dateOfBirth,
+      );
+      // No backend upload support yet — this stays local-only.
+      await UserSession.instance.updatePhoto(_photoPath);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Settings saved.')),
-    );
+      if (!mounted) return;
 
-    // Hand the updated profile back to whoever pushed this screen (e.g. the
-    // dashboard) so it can update its own state — the name shown in the
-    // drawer / welcome card, etc.
-    Navigator.of(context).pop(
-      SettingsResult(
-        fullName: updatedName,
-        mobileNumber: updatedMobile,
-        dateOfBirth: _dateOfBirth,
-        photoPath: _photoPath,
-      ),
-    );
+      // Reset the "changed" baseline to what was just saved, in case the
+      // user keeps editing instead of leaving the screen.
+      setState(() {
+        _isSaving = false;
+        _initialFullName = updatedName;
+        _initialMobileNumber = updatedMobile;
+        _initialDateOfBirth = _dateOfBirth;
+        _initialPhotoPath = _photoPath;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settings saved.')),
+      );
+
+      // Hand the updated profile back to whoever pushed this screen (e.g. the
+      // dashboard) so it can update its own state — the name shown in the
+      // drawer / welcome card, etc.
+      Navigator.of(context).pop(
+        SettingsResult(
+          fullName: updatedName,
+          mobileNumber: updatedMobile,
+          dateOfBirth: _dateOfBirth,
+          photoPath: _photoPath,
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   @override
@@ -414,7 +434,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 24),
                     _SaveButton(
-                      enabled: _hasChanges,
+                      enabled: _hasChanges && !_isSaving,
                       onTap: _handleSave,
                     ),
                   ],

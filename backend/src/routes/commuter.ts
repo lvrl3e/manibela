@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -9,6 +10,8 @@ import { issueOtp, verifyOtp } from '../utils/otp';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
+
+const PENDING_SIGNUP_TTL_MINUTES = 30;
 
 async function generateCommuterId(): Promise<string> {
   for (;;) {
@@ -44,12 +47,21 @@ function toPublicCommuter(commuter: {
 // ---------------------------------------------------------------------------
 // SIGN UP
 // ---------------------------------------------------------------------------
-// No account is created until the phone number is actually verified — the
-// signup form only requests a code (against a number, not an account that
-// doesn't exist yet); the account itself only gets created once that code
-// checks out, inside /signup below. This is deliberate: someone who fills
-// in the form but never enters the code should never end up occupying that
-// phone number as a "registered" account.
+// No Commuter row exists until the entire sign-up flow — phone
+// verification AND the ID/face verification steps after it — actually
+// finishes. The sequence:
+//   1. send-signup-otp   — request a code against a number (no account yet)
+//   2. verify-signup-otp — check the code, stash the (now-hashed) signup
+//                          details as a PendingCommuterSignup, hand back a
+//                          ticket. Still no account yet — the app carries
+//                          this ticket through the ID/face verification
+//                          screens.
+//   3. signup            — redeem the ticket to actually create the
+//                          account, once the app reaches the end of that
+//                          flow. This is the only place a Commuter row
+//                          gets created.
+// Abandoning the flow at any point before step 3 leaves nothing behind —
+// the phone number stays available and no password ever gets stored.
 
 const sendSignupOtpSchema = z.object({ mobileNumber: z.string().trim().min(1) });
 
@@ -71,16 +83,24 @@ router.post('/send-signup-otp', async (req, res, next) => {
   }
 });
 
-const signupSchema = z.object({
+async function generateSignupTicket(): Promise<string> {
+  for (;;) {
+    const candidate = randomBytes(24).toString('base64url');
+    const exists = await prisma.pendingCommuterSignup.findUnique({ where: { ticket: candidate } });
+    if (!exists) return candidate;
+  }
+}
+
+const verifySignupOtpSchema = z.object({
   fullName: z.string().trim().min(1),
   mobileNumber: z.string().trim().min(1),
   password: z.string().min(8),
   code: z.string().length(6),
 });
 
-router.post('/signup', async (req, res, next) => {
+router.post('/verify-signup-otp', async (req, res, next) => {
   try {
-    const body = signupSchema.parse(req.body);
+    const body = verifySignupOtpSchema.parse(req.body);
     const mobileNumber = toE164(body.mobileNumber);
 
     const existing = await prisma.commuter.findUnique({ where: { mobileNumber } });
@@ -89,10 +109,6 @@ router.post('/signup', async (req, res, next) => {
       return;
     }
 
-    // Re-checking the code here (rather than trusting a prior
-    // /send-signup-otp + client-side "it verified" claim) is what actually
-    // enforces the "must finish verification" rule — nothing about the
-    // account gets created unless this specific code is currently valid.
     const ok = await verifyOtp(mobileNumber, 'SIGNUP_VERIFICATION', body.code);
     if (!ok) {
       res.status(400).json({ error: 'Invalid or expired code.' });
@@ -100,15 +116,59 @@ router.post('/signup', async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
-    const commuter = await prisma.commuter.create({
+    const pending = await prisma.pendingCommuterSignup.create({
       data: {
-        commuterId: await generateCommuterId(),
+        ticket: await generateSignupTicket(),
         fullName: body.fullName,
         mobileNumber,
         passwordHash,
+        expiresAt: new Date(Date.now() + PENDING_SIGNUP_TTL_MINUTES * 60_000),
+      },
+    });
+
+    res.json({ ticket: pending.ticket });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const signupSchema = z.object({ ticket: z.string().min(1) });
+
+router.post('/signup', async (req, res, next) => {
+  try {
+    const body = signupSchema.parse(req.body);
+
+    const pending = await prisma.pendingCommuterSignup.findUnique({
+      where: { ticket: body.ticket },
+    });
+    if (!pending || pending.expiresAt < new Date()) {
+      res.status(400).json({
+        error: 'Your verification has expired. Please start sign-up again from the beginning.',
+      });
+      return;
+    }
+
+    // Re-checked here in case someone else registered this number while
+    // this ticket's owner was still working through ID/face verification.
+    const existing = await prisma.commuter.findUnique({
+      where: { mobileNumber: pending.mobileNumber },
+    });
+    if (existing) {
+      res.status(409).json({ error: 'This number is already registered.' });
+      return;
+    }
+
+    const commuter = await prisma.commuter.create({
+      data: {
+        commuterId: await generateCommuterId(),
+        fullName: pending.fullName,
+        mobileNumber: pending.mobileNumber,
+        passwordHash: pending.passwordHash,
         phoneVerifiedAt: new Date(),
       },
     });
+
+    await prisma.pendingCommuterSignup.delete({ where: { id: pending.id } });
 
     const token = signAuthToken({ sub: commuter.id, role: 'commuter' });
     res.status(201).json({ token, commuter: toPublicCommuter(commuter) });
@@ -256,12 +316,21 @@ const updateProfileSchema = z.object({
 router.patch('/me', requireAuth('commuter'), async (req, res, next) => {
   try {
     const body = updateProfileSchema.parse(req.body);
+    const mobileNumber = body.mobileNumber ? toE164(body.mobileNumber) : undefined;
+
+    if (mobileNumber) {
+      const existing = await prisma.commuter.findUnique({ where: { mobileNumber } });
+      if (existing && existing.id !== req.auth!.sub) {
+        res.status(409).json({ error: 'This mobile number is already registered to another account.' });
+        return;
+      }
+    }
 
     const commuter = await prisma.commuter.update({
       where: { id: req.auth!.sub },
       data: {
         fullName: body.fullName,
-        mobileNumber: body.mobileNumber ? toE164(body.mobileNumber) : undefined,
+        mobileNumber,
         photoUrl: body.photoUrl,
       },
     });

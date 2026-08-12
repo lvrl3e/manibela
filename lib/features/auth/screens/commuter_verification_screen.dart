@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/utils/platform_utils.dart';
 import 'commuter_face_verification_screen.dart';
 
@@ -15,7 +16,10 @@ const List<String> _idTypeOptions = [
   'Postal ID',
 ];
 
-const int _maxUploadBytes = 8 * 1024 * 1024; // 8 MB
+// Matches the backend's multer limit (uploadIdPhotos) — checked
+// client-side too so a too-large pick fails fast with a clear message
+// instead of a raw server error after the whole file's uploaded.
+const int _maxUploadBytes = 5 * 1024 * 1024; // 5 MB
 
 class CommuterVerificationScreen extends StatefulWidget {
   const CommuterVerificationScreen({
@@ -123,9 +127,9 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
       if (sizeBytes > _maxUploadBytes) {
         setState(() {
           if (isFront) {
-            _frontError = 'Image is too large. Please choose one under 8MB.';
+            _frontError = 'Image is too large. Please choose one under 5MB.';
           } else {
-            _backError = 'Image is too large. Please choose one under 8MB.';
+            _backError = 'Image is too large. Please choose one under 5MB.';
           }
         });
         return;
@@ -187,8 +191,14 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
     setState(() => _isVerifying = true);
 
     try {
-      // TODO: replace with the real ID-type + photo upload submission call.
-      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await ApiClient.uploadFiles(
+        '/api/commuter/signup/${widget.signupTicket}/id-photos',
+        files: {
+          'front': _frontImage!.path,
+          'back': _backImage!.path,
+        },
+        fields: {'idType': _selectedId!},
+      );
       if (!mounted) return;
 
       Navigator.push(
@@ -199,6 +209,15 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
             signupTicket: widget.signupTicket,
             password: widget.password,
           ),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFE23F3F),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (_) {

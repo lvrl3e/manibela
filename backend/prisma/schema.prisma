@@ -28,6 +28,16 @@ model Commuter {
   /// number was actually confirmed.
   phoneVerifiedAt DateTime?
 
+  /// Carried over from PendingCommuterSignup at signup redemption — the
+  /// government ID type/photos and selfie captured during onboarding.
+  /// Stored for the account's lifetime as the KYC record; nothing
+  /// currently runs an actual face-match against [selfieUrl] (see the
+  /// TODO on the face-verification screen) — these are just persisted.
+  idType          String?
+  idFrontUrl      String?
+  idBackUrl       String?
+  selfieUrl       String?
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
@@ -79,6 +89,16 @@ model PendingCommuterSignup {
   fullName     String
   mobileNumber String
   passwordHash String
+
+  /// Filled in by POST /signup/:ticket/id-photos and
+  /// /signup/:ticket/selfie as the app moves through those screens —
+  /// null until then. Copied onto the Commuter row once /signup redeems
+  /// this ticket.
+  idType       String?
+  idFrontUrl   String?
+  idBackUrl    String?
+  selfieUrl    String?
+
   expiresAt    DateTime
   createdAt    DateTime @default(now())
 }

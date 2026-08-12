@@ -67,23 +67,42 @@ class ApiClient {
     required String filePath,
     required String fieldName,
     String? token,
+  }) {
+    return uploadFiles(path, files: {fieldName: filePath}, token: token);
+  }
+
+  /// Like [uploadFile], but for endpoints that take more than one file in
+  /// a single request (e.g. an ID's front + back) — [files] maps each
+  /// multipart field name to the local path of the file for it. [fields]
+  /// carries along any plain text fields the endpoint also expects (e.g.
+  /// an ID type) — multipart/form-data is the only way to mix binary
+  /// files and text in the same request, so these can't ride along as
+  /// separate JSON the way [post]/[patch] send everything else.
+  static Future<Map<String, dynamic>> uploadFiles(
+    String path, {
+    required Map<String, String> files,
+    Map<String, String>? fields,
+    String? token,
   }) async {
     final uri = Uri.parse('$_baseUrl$path');
     final request = http.MultipartRequest('POST', uri);
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    if (fields != null) request.fields.addAll(fields);
 
     http.Response response;
     try {
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          fieldName,
-          filePath,
-          // MultipartFile.fromPath defaults to application/octet-stream
-          // otherwise, which the backend's multer fileFilter rejects
-          // outright since it only allows image/jpeg|png|webp.
-          contentType: _contentTypeFor(filePath),
-        ),
-      );
+      for (final entry in files.entries) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            entry.key,
+            entry.value,
+            // MultipartFile.fromPath defaults to application/octet-stream
+            // otherwise, which the backend's multer fileFilter rejects
+            // outright since it only allows image/jpeg|png|webp.
+            contentType: _contentTypeFor(entry.value),
+          ),
+        );
+      }
       response = await http.Response.fromStream(await request.send());
     } catch (_) {
       throw const ApiException(

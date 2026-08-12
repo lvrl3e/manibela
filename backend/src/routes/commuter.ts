@@ -9,7 +9,7 @@ import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { dateOnly, formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
-import { uploadPhoto, deleteUploadedPhoto } from '../middleware/upload';
+import { uploadPhoto, uploadIdPhotos, uploadSelfie, deleteUploadedPhoto } from '../middleware/upload';
 
 const router = Router();
 
@@ -140,6 +140,106 @@ router.post('/verify-signup-otp', async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// ID + FACE VERIFICATION (unauthenticated — no account exists yet at this
+// point in the flow, so the unguessable ticket itself is what gates these,
+// same as /signup below). Both just persist the uploaded photos onto the
+// pending signup row; neither runs any actual verification against them —
+// see the TODO on the face-verification screen for the still-mocked
+// face-match step.
+// ---------------------------------------------------------------------------
+
+router.post('/signup/:ticket/id-photos', (req, res, next) => {
+  uploadIdPhotos(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+      return;
+    }
+
+    try {
+      const pending = await prisma.pendingCommuterSignup.findUnique({
+        where: { ticket: req.params.ticket },
+      });
+      if (!pending || pending.expiresAt < new Date()) {
+        res.status(400).json({
+          error: 'Your verification has expired. Please start sign-up again from the beginning.',
+        });
+        return;
+      }
+
+      const files = req.files as { front?: Express.Multer.File[]; back?: Express.Multer.File[] } | undefined;
+      const front = files?.front?.[0];
+      const back = files?.back?.[0];
+      if (!front || !back) {
+        res.status(400).json({ error: 'Both the front and back of your ID are required.' });
+        return;
+      }
+
+      const idType = typeof req.body.idType === 'string' ? req.body.idType.trim() : '';
+      if (!idType) {
+        res.status(400).json({ error: 'ID type is required.' });
+        return;
+      }
+
+      const idFrontUrl = `/uploads/id-photos/${front.filename}`;
+      const idBackUrl = `/uploads/id-photos/${back.filename}`;
+
+      await prisma.pendingCommuterSignup.update({
+        where: { id: pending.id },
+        data: { idType, idFrontUrl, idBackUrl },
+      });
+
+      // Only after the DB update succeeds, and only the previous pair —
+      // never leave the record pointing at files that got deleted out
+      // from under it. Covers a retry re-uploading over an earlier pick.
+      deleteUploadedPhoto(pending.idFrontUrl);
+      deleteUploadedPhoto(pending.idBackUrl);
+
+      res.json({ message: 'ID photos uploaded.' });
+    } catch (err2) {
+      next(err2);
+    }
+  });
+});
+
+router.post('/signup/:ticket/selfie', (req, res, next) => {
+  uploadSelfie(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: 'No selfie was uploaded.' });
+      return;
+    }
+
+    try {
+      const pending = await prisma.pendingCommuterSignup.findUnique({
+        where: { ticket: req.params.ticket },
+      });
+      if (!pending || pending.expiresAt < new Date()) {
+        res.status(400).json({
+          error: 'Your verification has expired. Please start sign-up again from the beginning.',
+        });
+        return;
+      }
+
+      const selfieUrl = `/uploads/selfies/${req.file.filename}`;
+
+      await prisma.pendingCommuterSignup.update({
+        where: { id: pending.id },
+        data: { selfieUrl },
+      });
+
+      deleteUploadedPhoto(pending.selfieUrl);
+
+      res.json({ message: 'Selfie uploaded.' });
+    } catch (err2) {
+      next(err2);
+    }
+  });
+});
+
 const signupSchema = z.object({ ticket: z.string().min(1) });
 
 router.post('/signup', async (req, res, next) => {
@@ -173,6 +273,10 @@ router.post('/signup', async (req, res, next) => {
         mobileNumber: pending.mobileNumber,
         passwordHash: pending.passwordHash,
         phoneVerifiedAt: new Date(),
+        idType: pending.idType,
+        idFrontUrl: pending.idFrontUrl,
+        idBackUrl: pending.idBackUrl,
+        selfieUrl: pending.selfieUrl,
       },
     });
 
@@ -427,7 +531,7 @@ router.post('/me/photo', requireAuth('commuter'), (req, res, next) => {
         return;
       }
 
-      const photoUrl = `/uploads/${req.file.filename}`;
+      const photoUrl = `/uploads/profile-photos/${req.file.filename}`;
       const commuter = await prisma.commuter.update({
         where: { id: existing.id },
         data: { photoUrl },

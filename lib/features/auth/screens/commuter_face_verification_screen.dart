@@ -108,9 +108,15 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
     });
 
     try {
-      // TODO: replace with the real face-match verification call. The
-      // captured selfie is available at _capturedPhoto for that request.
-      await Future<void>.delayed(const Duration(milliseconds: 1000));
+      // Uploads and persists the selfie against the pending signup — but
+      // doesn't itself verify anything. TODO: run an actual face-match
+      // against the ID photos uploaded on the previous screen once a
+      // provider for that is chosen; right now this step only proves a
+      // selfie was captured, not that it matches the ID.
+      await ApiClient.uploadFiles(
+        '/api/commuter/signup/${widget.signupTicket}/selfie',
+        files: {'selfie': _capturedPhoto!.path},
+      );
       if (!mounted) return;
 
       // This is the actual account-creation call — nothing about the

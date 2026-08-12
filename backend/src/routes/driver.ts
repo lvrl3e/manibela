@@ -330,7 +330,7 @@ router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
         return;
       }
 
-      const photoUrl = `/uploads/${req.file.filename}`;
+      const photoUrl = `/uploads/profile-photos/${req.file.filename}`;
       const driver = await prisma.driver.update({
         where: { id: existing.id },
         data: { photoUrl },

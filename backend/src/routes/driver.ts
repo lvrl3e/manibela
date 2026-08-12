@@ -9,6 +9,7 @@ import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
+import { dateOnly, formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
 import { uploadPhoto, deleteUploadedPhoto } from '../middleware/upload';
 
@@ -29,7 +30,7 @@ function toPublicDriver(driver: {
     fullName: driver.fullName,
     mobileNumber: driver.mobileNumber,
     plateNumber: driver.plateNumber,
-    dateOfBirth: driver.dateOfBirth,
+    dateOfBirth: driver.dateOfBirth ? formatDateOnly(driver.dateOfBirth) : null,
     photoUrl: driver.photoUrl,
   };
 }
@@ -222,32 +223,84 @@ router.get('/me', requireAuth('driver'), async (req, res, next) => {
 
 const updateProfileSchema = z.object({
   fullName: z.string().trim().min(1).optional(),
-  mobileNumber: z.string().trim().min(1).optional(),
-  dateOfBirth: z.coerce.date().nullable().optional(),
+  dateOfBirth: dateOnly.nullable().optional(),
   photoUrl: z.string().trim().min(1).nullable().optional(),
 });
 
 router.patch('/me', requireAuth('driver'), async (req, res, next) => {
   try {
     const body = updateProfileSchema.parse(req.body);
-    const mobileNumber = body.mobileNumber ? toE164(body.mobileNumber) : undefined;
-
-    if (mobileNumber) {
-      const existing = await prisma.driver.findUnique({ where: { mobileNumber } });
-      if (existing && existing.id !== req.auth!.sub) {
-        res.status(409).json({ error: 'This mobile number is already registered to another account.' });
-        return;
-      }
-    }
 
     const driver = await prisma.driver.update({
       where: { id: req.auth!.sub },
       data: {
         fullName: body.fullName,
-        mobileNumber,
         dateOfBirth: body.dateOfBirth,
         photoUrl: body.photoUrl,
       },
+    });
+
+    res.json({ driver: toPublicDriver(driver) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CHANGE MOBILE NUMBER (authenticated) — OTP-gated so a number can't be
+// swapped onto an account without proving the caller actually controls it.
+// send-otp texts the code to the NEW number (not the account's current
+// one — there's nothing to prove about a number already on file); verify
+// checks it and, only then, actually moves the account onto it.
+// ---------------------------------------------------------------------------
+
+const sendPhoneChangeOtpSchema = z.object({ mobileNumber: z.string().trim().min(1) });
+
+router.post('/me/phone/send-otp', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const body = sendPhoneChangeOtpSchema.parse(req.body);
+    const mobileNumber = toE164(body.mobileNumber);
+
+    const existing = await prisma.driver.findUnique({ where: { mobileNumber } });
+    if (existing && existing.id !== req.auth!.sub) {
+      res.status(409).json({ error: 'This mobile number is already registered to another account.' });
+      return;
+    }
+
+    await issueOtp(mobileNumber, 'PHONE_CHANGE');
+    res.json({ message: 'A verification code has been sent.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const verifyPhoneChangeOtpSchema = z.object({
+  mobileNumber: z.string().trim().min(1),
+  code: z.string().length(6),
+});
+
+router.post('/me/phone/verify', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const body = verifyPhoneChangeOtpSchema.parse(req.body);
+    const mobileNumber = toE164(body.mobileNumber);
+
+    const ok = await verifyOtp(mobileNumber, 'PHONE_CHANGE', body.code);
+    if (!ok) {
+      res.status(400).json({ error: 'Invalid or expired code.' });
+      return;
+    }
+
+    // Re-checked here (not just at send-otp time) in case someone else
+    // claimed this number during the window the code was outstanding.
+    const existing = await prisma.driver.findUnique({ where: { mobileNumber } });
+    if (existing && existing.id !== req.auth!.sub) {
+      res.status(409).json({ error: 'This mobile number is already registered to another account.' });
+      return;
+    }
+
+    const driver = await prisma.driver.update({
+      where: { id: req.auth!.sub },
+      data: { mobileNumber },
     });
 
     res.json({ driver: toPublicDriver(driver) });

@@ -10,6 +10,7 @@ datasource db {
 enum OtpPurpose {
   PASSWORD_RESET
   SIGNUP_VERIFICATION
+  PHONE_CHANGE
 }
 
 model Commuter {
@@ -18,7 +19,7 @@ model Commuter {
   fullName        String
   mobileNumber    String    @unique
   passwordHash    String
-  dateOfBirth     DateTime?
+  dateOfBirth     DateTime? @db.Date
   photoUrl        String?
 
   /// Set once the commuter verifies the OTP sent at signup. Null until
@@ -38,7 +39,7 @@ model Driver {
   mobileNumber  String    @unique
   passwordHash  String
   plateNumber   String
-  dateOfBirth   DateTime?
+  dateOfBirth   DateTime? @db.Date
   photoUrl      String?
 
   /// Opaque random token encoded into this driver's QR code. Assigned

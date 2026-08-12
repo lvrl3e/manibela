@@ -4,7 +4,10 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/avatar_image.dart';
+import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
+import '../../../core/utils/platform_utils.dart';
+import '../../auth/screens/phone_change_otp_screen.dart';
 import 'change_password_screen.dart';
 
 /// Value returned by [SettingsScreen] via `Navigator.pop` when the user
@@ -220,13 +223,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String get _dateOfBirthLabel {
-    if (_dateOfBirth == null) return 'Month, Day, Year';
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    final d = _dateOfBirth!;
-    return '${months[d.month - 1]} ${d.day}, ${d.year}';
+    if (_dateOfBirth == null) return 'DD/MM/YYYY';
+    return DateOnly.displayDDMMYYYY(_dateOfBirth!);
   }
 
   Future<void> _handleChangePhoto() async {
@@ -238,11 +236,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (sheetContext) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_rounded),
-              title: const Text('Take Photo'),
-              onTap: () => Navigator.pop(sheetContext, _PhotoAction.camera),
-            ),
+            if (!isDesktopPlatform)
+              ListTile(
+                leading: const Icon(Icons.photo_camera_rounded),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(sheetContext, _PhotoAction.camera),
+              ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded),
               title: const Text('Choose from Gallery'),
@@ -329,6 +328,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // A changed mobile number must be OTP-verified before it's applied.
+      // The code goes to the NEW number, and /me/phone/verify (called from
+      // the pushed screen below) is what actually writes it on the
+      // backend — nothing else in this save touches mobileNumber at all.
+      if (updatedMobile != _initialMobileNumber) {
+        await ApiClient.post(
+          '/api/commuter/me/phone/send-otp',
+          {'mobileNumber': updatedMobile},
+          token: UserSession.instance.authToken,
+        );
+
+        if (!mounted) return;
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => PhoneChangeOtpScreen(
+              mobileNumber: updatedMobile,
+              authToken: UserSession.instance.authToken,
+              isDriver: false,
+            ),
+          ),
+        );
+
+        if (verified != true) {
+          // Backed out without confirming — leave the number (and
+          // everything else in this save) untouched.
+          if (mounted) setState(() => _isSaving = false);
+          return;
+        }
+      }
+
       // A freshly-staged pick uploads as its own request (binary data
       // can't ride along in the JSON body below); an explicit removal
       // with no new pick just clears photoUrl in the regular PATCH.
@@ -344,26 +373,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _photoPath = null;
       }
 
-      // The backend is the source of truth for name/mobile — without this,
-      // a changed number only ever updated the local copy, so the next
-      // login (which checks the backend) would still expect the old one.
+      // The backend is the source of truth for name/DOB — mobileNumber
+      // isn't part of this request at all now (see above).
       final response = await ApiClient.patch(
         '/api/commuter/me',
         {
           'fullName': updatedName,
-          'mobileNumber': updatedMobile,
-          'dateOfBirth': _dateOfBirth?.toIso8601String(),
+          'dateOfBirth': _dateOfBirth != null ? DateOnly.format(_dateOfBirth!) : null,
           if (_photoUrl != _initialPhotoUrl) 'photoUrl': _photoUrl,
         },
         token: UserSession.instance.authToken,
       );
       final commuter = response['commuter'] as Map<String, dynamic>;
+      final finalMobile = commuter['mobileNumber'] as String;
       final dobRaw = commuter['dateOfBirth'] as String?;
 
       await UserSession.instance.updateProfile(
         fullName: commuter['fullName'] as String,
-        mobileNumber: commuter['mobileNumber'] as String,
-        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : _dateOfBirth,
+        mobileNumber: finalMobile,
+        dateOfBirth: dobRaw != null ? DateOnly.tryParse(dobRaw) : _dateOfBirth,
       );
       await UserSession.instance.updatePhotoUrl(commuter['photoUrl'] as String?);
       _photoUrl = commuter['photoUrl'] as String?;
@@ -375,7 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _isSaving = false;
         _initialFullName = updatedName;
-        _initialMobileNumber = updatedMobile;
+        _initialMobileNumber = finalMobile;
         _initialDateOfBirth = _dateOfBirth;
         _initialPhotoUrl = _photoUrl;
       });
@@ -390,7 +418,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       Navigator.of(context).pop(
         SettingsResult(
           fullName: updatedName,
-          mobileNumber: updatedMobile,
+          mobileNumber: finalMobile,
           dateOfBirth: _dateOfBirth,
           photoUrl: _photoUrl,
         ),

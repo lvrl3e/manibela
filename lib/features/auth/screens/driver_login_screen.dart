@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
+import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../driver/screens/driver_dashboard_screen.dart';
 import '../../driver/screens/driver_history_screen.dart';
@@ -105,7 +106,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
         driverId: driver['driverId'] as String,
         fullName: driver['fullName'] as String,
         plateNumber: driver['plateNumber'] as String,
-        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : null,
+        dateOfBirth: DateOnly.tryParse(dobRaw),
         photoUrl: driver['photoUrl'] as String?,
         password: _passwordController.text,
       );
@@ -509,7 +510,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
                     child: const Text(
                       'Demo driver account\n'
-                      '09171234567 · Driver@123',
+                      '09171234567 · Julie@123',
 
                       textAlign: TextAlign.center,
 

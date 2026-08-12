@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/date_only.dart';
+
 /// Session store for the logged-in commuter.
 ///
 /// Signup/login now go through the real backend (see /backend and
@@ -69,8 +71,7 @@ class UserSession {
     photoPath = prefs.getString(_kPhotoPath);
     photoUrl = prefs.getString(_kPhotoUrl);
     authToken = prefs.getString(_kAuthToken);
-    final dobIso = prefs.getString(_kDateOfBirth);
-    dateOfBirth = dobIso != null ? DateTime.tryParse(dobIso) : null;
+    dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
   }
 
   Future<void> _persist() async {
@@ -92,7 +93,7 @@ class UserSession {
       await prefs.remove(_kPhotoUrl);
     }
     if (dateOfBirth != null) {
-      await prefs.setString(_kDateOfBirth, dateOfBirth!.toIso8601String());
+      await prefs.setString(_kDateOfBirth, DateOnly.format(dateOfBirth!));
     } else {
       await prefs.remove(_kDateOfBirth);
     }

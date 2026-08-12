@@ -4,7 +4,10 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/avatar_image.dart';
+import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
+import '../../../core/utils/platform_utils.dart';
+import '../../auth/screens/phone_change_otp_screen.dart';
 import 'driver_change_password_screen.dart';
 
 /// Value returned by [DriverSettingsScreen] via `Navigator.pop` when the
@@ -196,13 +199,8 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
   }
 
   String get _dateOfBirthLabel {
-    if (_dateOfBirth == null) return 'Month, Day, Year';
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    final d = _dateOfBirth!;
-    return '${months[d.month - 1]} ${d.day}, ${d.year}';
+    if (_dateOfBirth == null) return 'DD/MM/YYYY';
+    return DateOnly.displayDDMMYYYY(_dateOfBirth!);
   }
 
   Future<void> _pickDateOfBirth() async {
@@ -230,11 +228,12 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
       builder: (sheetContext) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_rounded),
-              title: const Text('Take Photo'),
-              onTap: () => Navigator.pop(sheetContext, _PhotoAction.camera),
-            ),
+            if (!isDesktopPlatform)
+              ListTile(
+                leading: const Icon(Icons.photo_camera_rounded),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(sheetContext, _PhotoAction.camera),
+              ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded),
               title: const Text('Choose from Gallery'),
@@ -315,6 +314,36 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // A changed mobile number must be OTP-verified before it's applied.
+      // The code goes to the NEW number, and /me/phone/verify (called from
+      // the pushed screen below) is what actually writes it on the
+      // backend — nothing else in this save touches mobileNumber at all.
+      if (updatedMobile != _initialMobileNumber) {
+        await ApiClient.post(
+          '/api/driver/me/phone/send-otp',
+          {'mobileNumber': updatedMobile},
+          token: DriverSession.instance.authToken,
+        );
+
+        if (!mounted) return;
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => PhoneChangeOtpScreen(
+              mobileNumber: updatedMobile,
+              authToken: DriverSession.instance.authToken,
+              isDriver: true,
+            ),
+          ),
+        );
+
+        if (verified != true) {
+          // Backed out without confirming — leave the number (and
+          // everything else in this save) untouched.
+          if (mounted) setState(() => _isSaving = false);
+          return;
+        }
+      }
+
       // A freshly-staged pick uploads as its own request (binary data
       // can't ride along in the JSON body below); an explicit removal
       // with no new pick just clears photoUrl in the regular PATCH.
@@ -330,27 +359,26 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
         _photoPath = null;
       }
 
-      // The backend is the source of truth for name/mobile — without this,
-      // a changed number only ever updated the local copy, so the next
-      // login (which checks the backend) would still expect the old one.
-      // plateNumber is deliberately never sent — it's not editable here.
+      // The backend is the source of truth for name/DOB — mobileNumber
+      // isn't part of this request at all now (see above). plateNumber is
+      // deliberately never sent — it's not editable here.
       final response = await ApiClient.patch(
         '/api/driver/me',
         {
           'fullName': updatedName,
-          'mobileNumber': updatedMobile,
-          'dateOfBirth': _dateOfBirth?.toIso8601String(),
+          'dateOfBirth': _dateOfBirth != null ? DateOnly.format(_dateOfBirth!) : null,
           if (_photoUrl != _initialPhotoUrl) 'photoUrl': _photoUrl,
         },
         token: DriverSession.instance.authToken,
       );
       final driver = response['driver'] as Map<String, dynamic>;
+      final finalMobile = driver['mobileNumber'] as String;
       final dobRaw = driver['dateOfBirth'] as String?;
 
       await DriverSession.instance.updateProfile(
         fullName: driver['fullName'] as String,
-        mobileNumber: driver['mobileNumber'] as String,
-        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : _dateOfBirth,
+        mobileNumber: finalMobile,
+        dateOfBirth: dobRaw != null ? DateOnly.tryParse(dobRaw) : _dateOfBirth,
       );
       await DriverSession.instance.updatePhotoUrl(driver['photoUrl'] as String?);
       _photoUrl = driver['photoUrl'] as String?;
@@ -360,7 +388,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
       setState(() {
         _isSaving = false;
         _initialFullName = updatedName;
-        _initialMobileNumber = updatedMobile;
+        _initialMobileNumber = finalMobile;
         _initialDateOfBirth = _dateOfBirth;
         _initialPhotoUrl = _photoUrl;
       });
@@ -372,7 +400,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
       Navigator.of(context).pop(
         DriverSettingsResult(
           fullName: updatedName,
-          mobileNumber: updatedMobile,
+          mobileNumber: finalMobile,
           dateOfBirth: _dateOfBirth,
           photoUrl: _photoUrl,
         ),

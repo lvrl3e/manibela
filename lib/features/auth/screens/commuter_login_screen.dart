@@ -3,6 +3,7 @@ import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'commuter_signup_screen.dart';
@@ -85,7 +86,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
         authToken: response['token'] as String,
         commuterId: commuter['commuterId'] as String,
         fullName: commuter['fullName'] as String,
-        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : null,
+        dateOfBirth: DateOnly.tryParse(dobRaw),
         photoUrl: commuter['photoUrl'] as String?,
         password: passwordController.text,
       );

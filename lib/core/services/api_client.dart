@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 /// Base URL for the ManibelApp backend (see /backend in the repo).
 ///
@@ -73,7 +74,16 @@ class ApiClient {
 
     http.Response response;
     try {
-      request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          fieldName,
+          filePath,
+          // MultipartFile.fromPath defaults to application/octet-stream
+          // otherwise, which the backend's multer fileFilter rejects
+          // outright since it only allows image/jpeg|png|webp.
+          contentType: _contentTypeFor(filePath),
+        ),
+      );
       response = await http.Response.fromStream(await request.send());
     } catch (_) {
       throw const ApiException(
@@ -82,6 +92,21 @@ class ApiClient {
     }
 
     return _decode(response);
+  }
+
+  static MediaType _contentTypeFor(String filePath) {
+    final ext = filePath.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return MediaType('image', 'jpeg');
+      case 'png':
+        return MediaType('image', 'png');
+      case 'webp':
+        return MediaType('image', 'webp');
+      default:
+        return MediaType('application', 'octet-stream');
+    }
   }
 
   static Future<Map<String, dynamic>> _send(

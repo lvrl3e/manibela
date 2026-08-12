@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/date_only.dart';
+
 /// Session store for the logged-in driver. Mirrors [UserSession] (the
 /// commuter equivalent) but keeps its own prefs keys/prefix so a driver
 /// account never collides with a commuter account on the same device.
@@ -87,8 +89,7 @@ class DriverSession {
     photoUrl = prefs.getString(_kPhotoUrl);
     authToken = prefs.getString(_kAuthToken);
     qrToken = prefs.getString(_kQrToken);
-    final dobIso = prefs.getString(_kDateOfBirth);
-    dateOfBirth = dobIso != null ? DateTime.tryParse(dobIso) : null;
+    dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
   }
 
   Future<void> _persist() async {
@@ -117,7 +118,7 @@ class DriverSession {
     }
     if (qrToken != null) await prefs.setString(_kQrToken, qrToken!);
     if (dateOfBirth != null) {
-      await prefs.setString(_kDateOfBirth, dateOfBirth!.toIso8601String());
+      await prefs.setString(_kDateOfBirth, DateOnly.format(dateOfBirth!));
     } else {
       await prefs.remove(_kDateOfBirth);
     }

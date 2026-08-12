@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -68,92 +69,59 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
       _isLoading = true;
     });
 
-    // TODO: Add your login/authentication logic here — replace the block
-    // below with a real API call once a backend exists. For now, this
-    // checks the entered credentials against whatever account was created
-    // locally via CommuterSignUpScreen (persisted through UserSession).
-    await Future.delayed(const Duration(seconds: 1));
-
-    // In case the app was just cold-started and nothing has populated
-    // UserSession's in-memory fields yet, load whatever was persisted from
-    // a previous signup/login before comparing.
-    await UserSession.instance.loadFromPrefs();
-
-    // TEMP DEBUG — remove once diagnosed.
-    debugPrint(
-      'LOGIN DEBUG (after loadFromPrefs) | fullName: '
-      '"${UserSession.instance.fullName}" | mobileNumber: '
-      '${UserSession.instance.mobileNumber}',
-    );
-
     final enteredPhoneE164 = PhoneUtils.toE164(phoneController.text.trim());
 
-    // Check registration before password, so an unrecognized number gets
-    // its own message instead of being lumped in with "wrong password".
-    if (!UserSession.instance.isRegistered(enteredPhoneE164)) {
+    try {
+      final response = await ApiClient.post('/api/commuter/login', {
+        'mobileNumber': enteredPhoneE164,
+        'password': passwordController.text,
+      });
+
+      final commuter = response['commuter'] as Map<String, dynamic>;
+      final dobRaw = commuter['dateOfBirth'] as String?;
+
+      await UserSession.instance.logIn(
+        mobileNumber: commuter['mobileNumber'] as String,
+        authToken: response['token'] as String,
+        commuterId: commuter['commuterId'] as String,
+        fullName: commuter['fullName'] as String,
+        dateOfBirth: dobRaw != null ? DateTime.tryParse(dobRaw) : null,
+        password: passwordController.text,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('commuterLoggedIn', true);
+
+      // Load this commuter's persisted trip history and notifications
+      // before the dashboard ever builds — otherwise they'd briefly render
+      // as empty.
+      await CommuterHistoryScreen.loadFromPrefs();
+      await NotificationsScreen.loadFromPrefs();
+
       if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This number is not registered. Please sign up first.',
-          ),
+
+      // Clears the whole stack (not just a pushReplacement) so
+      // RoleSelectionScreen isn't still sitting underneath — otherwise the
+      // phone's back button on the dashboard would pop straight back to
+      // it, which looks exactly like getting logged out.
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const CommuterDashboardScreen(),
         ),
+        (route) => false,
       );
-      return;
-    }
-
-    final credentialsValid = UserSession.instance.verifyCredentials(
-      mobileNumber: enteredPhoneE164,
-      password: passwordController.text,
-    );
-
-    if (!credentialsValid) {
+    } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect phone number or password.')),
-      );
-      return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
-
-    await UserSession.instance.logIn(mobileNumber: enteredPhoneE164);
-
-    final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setBool(
-      'commuterLoggedIn',
-      true,
-    );
-
-    // Load this commuter's persisted trip history and notifications
-    // before the dashboard ever builds — otherwise they'd briefly render
-    // as empty.
-    await CommuterHistoryScreen.loadFromPrefs();
-    await NotificationsScreen.loadFromPrefs();
-
-    if (!mounted) return;
-
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    // Clears the whole stack (not just a pushReplacement) so
-    // RoleSelectionScreen isn't still sitting underneath — otherwise the
-    // phone's back button on the dashboard would pop straight back to
-    // it, which looks exactly like getting logged out.
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const CommuterDashboardScreen(),
-      ),
-      (route) => false,
-    );
   }
 
   InputDecoration _fieldDecoration({

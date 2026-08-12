@@ -44,11 +44,38 @@ function toPublicCommuter(commuter: {
 // ---------------------------------------------------------------------------
 // SIGN UP
 // ---------------------------------------------------------------------------
+// No account is created until the phone number is actually verified — the
+// signup form only requests a code (against a number, not an account that
+// doesn't exist yet); the account itself only gets created once that code
+// checks out, inside /signup below. This is deliberate: someone who fills
+// in the form but never enters the code should never end up occupying that
+// phone number as a "registered" account.
+
+const sendSignupOtpSchema = z.object({ mobileNumber: z.string().trim().min(1) });
+
+router.post('/send-signup-otp', async (req, res, next) => {
+  try {
+    const body = sendSignupOtpSchema.parse(req.body);
+    const mobileNumber = toE164(body.mobileNumber);
+
+    const existing = await prisma.commuter.findUnique({ where: { mobileNumber } });
+    if (existing) {
+      res.status(409).json({ error: 'This mobile number is already registered. Please log in instead.' });
+      return;
+    }
+
+    await issueOtp(mobileNumber, 'SIGNUP_VERIFICATION');
+    res.json({ message: 'A verification code has been sent.' });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const signupSchema = z.object({
   fullName: z.string().trim().min(1),
   mobileNumber: z.string().trim().min(1),
   password: z.string().min(8),
+  code: z.string().length(6),
 });
 
 router.post('/signup', async (req, res, next) => {
@@ -62,6 +89,16 @@ router.post('/signup', async (req, res, next) => {
       return;
     }
 
+    // Re-checking the code here (rather than trusting a prior
+    // /send-signup-otp + client-side "it verified" claim) is what actually
+    // enforces the "must finish verification" rule — nothing about the
+    // account gets created unless this specific code is currently valid.
+    const ok = await verifyOtp(mobileNumber, 'SIGNUP_VERIFICATION', body.code);
+    if (!ok) {
+      res.status(400).json({ error: 'Invalid or expired code.' });
+      return;
+    }
+
     const passwordHash = await bcrypt.hash(body.password, 10);
     const commuter = await prisma.commuter.create({
       data: {
@@ -69,13 +106,9 @@ router.post('/signup', async (req, res, next) => {
         fullName: body.fullName,
         mobileNumber,
         passwordHash,
+        phoneVerifiedAt: new Date(),
       },
     });
-
-    // Fired off immediately so a code is already waiting by the time the
-    // app reaches the OTP screen, mirroring the forgot-password flow's
-    // separate "request a code" step but without an extra round trip.
-    await issueOtp(mobileNumber, 'SIGNUP_VERIFICATION');
 
     const token = signAuthToken({ sub: commuter.id, role: 'commuter' });
     res.status(201).json({ token, commuter: toPublicCommuter(commuter) });
@@ -192,55 +225,6 @@ router.post('/reset-password', async (req, res, next) => {
     await prisma.commuter.update({ where: { id: commuter.id }, data: { passwordHash } });
 
     res.json({ message: 'Password reset successfully.' });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// SIGNUP PHONE VERIFICATION (authenticated — signup already returns a
-// token, so by the time the app reaches this OTP screen it's holding one)
-// ---------------------------------------------------------------------------
-
-const verifySignupOtpSchema = z.object({ code: z.string().length(6) });
-
-router.post('/verify-signup-otp', requireAuth('commuter'), async (req, res, next) => {
-  try {
-    const body = verifySignupOtpSchema.parse(req.body);
-
-    const commuter = await prisma.commuter.findUnique({ where: { id: req.auth!.sub } });
-    if (!commuter) {
-      res.status(404).json({ error: 'Account not found.' });
-      return;
-    }
-
-    const ok = await verifyOtp(commuter.mobileNumber, 'SIGNUP_VERIFICATION', body.code);
-    if (!ok) {
-      res.status(400).json({ error: 'Invalid or expired code.' });
-      return;
-    }
-
-    await prisma.commuter.update({
-      where: { id: commuter.id },
-      data: { phoneVerifiedAt: new Date() },
-    });
-
-    res.json({ verified: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/resend-signup-otp', requireAuth('commuter'), async (req, res, next) => {
-  try {
-    const commuter = await prisma.commuter.findUnique({ where: { id: req.auth!.sub } });
-    if (!commuter) {
-      res.status(404).json({ error: 'Account not found.' });
-      return;
-    }
-
-    await issueOtp(commuter.mobileNumber, 'SIGNUP_VERIFICATION');
-    res.json({ message: 'A verification code has been sent.' });
   } catch (err) {
     next(err);
   }

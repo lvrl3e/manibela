@@ -1,22 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/user_session.dart';
 import 'commuter_verification_screen.dart';
 
-/// Verifies the mobile number entered during commuter sign up before the
-/// account moves on to ID verification. Mirrors the styling and behavior of
-/// [OtpVerificationScreen] (used for password reset) but continues the
-/// sign-up flow into [CommuterVerificationScreen] on success instead of
-/// resetting a password.
+/// Verifies the mobile number entered during commuter sign up. No account
+/// exists yet at this point — [fullName]/[mobileNumber]/[password] are
+/// just what was typed into the sign-up form, carried here in memory. The
+/// account only actually gets created once the code checks out (see
+/// _verifyCode, which calls /api/commuter/signup with the code attached),
+/// so abandoning the flow before this screen succeeds never leaves a
+/// "registered" account behind. Continues into [CommuterVerificationScreen]
+/// (ID upload) on success.
 class CommuterOtpVerificationScreen extends StatefulWidget {
   const CommuterOtpVerificationScreen({
     super.key,
+    required this.fullName,
     required this.mobileNumber,
+    required this.password,
   });
 
-  /// Already normalized to `+63XXXXXXXXXX` — the account this OTP is
-  /// verifying.
+  final String fullName;
+
+  /// Already normalized to `+63XXXXXXXXXX`.
   final String mobileNumber;
+
+  final String password;
 
   @override
   State<CommuterOtpVerificationScreen> createState() => _CommuterOtpVerificationScreenState();
@@ -81,24 +91,50 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
       _isLoading = true;
     });
 
-    // TODO: Replace with your actual OTP verification API call
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      // This is the actual account-creation call — the code is only
+      // accepted here, atomically with creating the row, so there's no
+      // window where "verified" and "registered" can disagree.
+      final response = await ApiClient.post('/api/commuter/signup', {
+        'fullName': widget.fullName,
+        'mobileNumber': widget.mobileNumber,
+        'password': widget.password,
+        'code': _code,
+      });
 
-    if (!mounted) return;
+      final commuter = response['commuter'] as Map<String, dynamic>;
 
-    setState(() {
-      _isLoading = false;
-    });
+      await UserSession.instance.signUp(
+        fullName: commuter['fullName'] as String,
+        mobileNumber: commuter['mobileNumber'] as String,
+        password: widget.password,
+        commuterId: commuter['commuterId'] as String,
+        authToken: response['token'] as String,
+      );
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const CommuterVerificationScreen(),
-      ),
-    );
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const CommuterVerificationScreen(),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _hasError = true;
+        _errorText = e.message;
+        _isLoading = false;
+      });
+    }
   }
 
-  void _handleResend() {
+  Future<void> _handleResend() async {
     for (var controller in _controllers) {
       controller.clear();
     }
@@ -108,9 +144,18 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
     });
     FocusScope.of(context).requestFocus(_focusNodes[0]);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("OTP code resent.")),
-    );
+    try {
+      await ApiClient.post('/api/commuter/send-signup-otp', {
+        'mobileNumber': widget.mobileNumber,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('OTP code resent.')),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   Widget _otpBox(int index) {

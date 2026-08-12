@@ -40,12 +40,13 @@ model Driver {
   plateNumber   String
   photoUrl      String?
 
-  /// Opaque random token encoded into this driver's QR code. Nullable and
-  /// generated lazily (on first request) rather than at account creation,
-  /// so existing driver rows don't need a backfill migration. Rotating it
-  /// (see /me/qr-token/rotate) invalidates any previously printed/shown
-  /// QR code — this is what makes it "backend-verified" rather than just
-  /// a QR that encodes the driverId directly, which anyone could forge.
+  /// Opaque random token encoded into this driver's QR code. Assigned
+  /// once at account creation and permanent for the account's lifetime —
+  /// no self-serve rotation. Nullable only so accounts created before
+  /// this field existed don't need a backfill migration; GET
+  /// /me/qr-token lazily fills it in for any that slip through. This is
+  /// what makes the QR "backend-verified" rather than just one that
+  /// encodes the driverId directly, which anyone could forge.
   qrToken       String?   @unique
 
   createdAt     DateTime  @default(now())

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/phone_utils.dart';
@@ -79,84 +80,31 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       _isLoading = true;
     });
 
+    final normalizedPhone = PhoneUtils.toE164(_phoneController.text.trim());
+
     try {
       // ---------------------------------------------------------------------
-      // LOAD SAVED DRIVER SESSION
+      // LOG IN AGAINST THE BACKEND
       // ---------------------------------------------------------------------
 
-      await DriverSession.instance.loadFromPrefs();
+      final response = await ApiClient.post('/api/driver/login', {
+        'mobileNumber': normalizedPhone,
+        'password': _passwordController.text,
+      });
 
-      // ---------------------------------------------------------------------
-      // DEMO ACCOUNT
-      // ---------------------------------------------------------------------
-
-      await DriverSession.instance.ensureDemoAccountSeeded();
-
-      // ---------------------------------------------------------------------
-      // NORMALIZE PHONE NUMBER
-      // ---------------------------------------------------------------------
-
-      final normalizedPhone = PhoneUtils.toE164(
-        _phoneController.text.trim(),
-      );
-
-      // ---------------------------------------------------------------------
-      // CHECK REGISTERED DRIVER
-      // ---------------------------------------------------------------------
-
-      if (!DriverSession.instance.isRegistered(normalizedPhone)) {
-        if (!mounted) return;
-
-        setState(() {
-          _isLoading = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "This number isn't registered. "
-              "Contact your operator to get a driver account.",
-            ),
-          ),
-        );
-
-        return;
-      }
-
-      // ---------------------------------------------------------------------
-      // VERIFY PASSWORD
-      // ---------------------------------------------------------------------
-
-      final credentialsValid =
-          DriverSession.instance.verifyCredentials(
-        mobileNumber: normalizedPhone,
-        password: _passwordController.text,
-      );
-
-      if (!credentialsValid) {
-        if (!mounted) return;
-
-        setState(() {
-          _isLoading = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Incorrect mobile number or password.',
-            ),
-          ),
-        );
-
-        return;
-      }
+      final driver = response['driver'] as Map<String, dynamic>;
 
       // ---------------------------------------------------------------------
       // SAVE DRIVER LOGIN
       // ---------------------------------------------------------------------
 
       await DriverSession.instance.logIn(
-        mobileNumber: normalizedPhone,
+        mobileNumber: driver['mobileNumber'] as String,
+        authToken: response['token'] as String,
+        driverId: driver['driverId'] as String,
+        fullName: driver['fullName'] as String,
+        plateNumber: driver['plateNumber'] as String,
+        password: _passwordController.text,
       );
 
       // ---------------------------------------------------------------------
@@ -184,7 +132,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
         ),
         (route) => false,
       );
-    } catch (e) {
+    } on ApiException catch (e) {
       if (!mounted) return;
 
       setState(() {
@@ -192,11 +140,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Login failed. Please try again.\n$e',
-          ),
-        ),
+        SnackBar(content: Text(e.message)),
       );
     }
   }

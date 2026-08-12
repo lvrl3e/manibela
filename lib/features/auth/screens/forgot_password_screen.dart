@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/services/user_session.dart';
-import '../../../core/services/driver_session.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'otp_verification_screen.dart';
 
@@ -55,52 +54,36 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _isLoading = true;
     });
 
-    // Simulate sending OTP
-    await Future.delayed(const Duration(seconds: 1));
-
-    if (!mounted) return;
-
-    // Make sure we're checking against whatever account is actually
-    // persisted on disk, not stale in-memory fields.
-    if (widget.isDriver) {
-      await DriverSession.instance.loadFromPrefs();
-    } else {
-      await UserSession.instance.loadFromPrefs();
-    }
-
     final normalizedPhone = PhoneUtils.toE164(_phoneController.text.trim());
+    final path = widget.isDriver
+        ? '/api/driver/forgot-password'
+        : '/api/commuter/forgot-password';
 
-    final isRegistered = widget.isDriver
-        ? DriverSession.instance.isRegistered(normalizedPhone)
-        : UserSession.instance.isRegistered(normalizedPhone);
+    try {
+      await ApiClient.post(path, {'mobileNumber': normalizedPhone});
 
-    if (!isRegistered) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This number is not registered. Please sign up first.',
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => OtpVerificationScreen(
+            mobileNumber: normalizedPhone,
+            isDriver: widget.isDriver,
           ),
         ),
       );
-      return;
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => OtpVerificationScreen(
-          mobileNumber: normalizedPhone,
-          isDriver: widget.isDriver,
-        ),
-      ),
-    );
   }
 
   InputDecoration _fieldDecoration({String? hintText}) {

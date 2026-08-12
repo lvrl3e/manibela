@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/services/user_session.dart';
-import '../../../core/services/driver_session.dart';
+import '../../../core/services/api_client.dart';
 import 'password_reset_success_screen.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({
     super.key,
     required this.mobileNumber,
+    required this.code,
     this.isDriver = false,
   });
 
@@ -16,9 +16,14 @@ class ResetPasswordScreen extends StatefulWidget {
   /// OtpVerificationScreen.
   final String mobileNumber;
 
-  /// Whether this flow is resetting a driver account (updates
-  /// [DriverSession]) instead of a commuter account (updates
-  /// [UserSession]).
+  /// The 6-digit code already verified on OtpVerificationScreen — the
+  /// backend re-checks it here too, so this screen stays safe to call on
+  /// its own.
+  final String code;
+
+  /// Whether this flow is resetting a driver account (hits
+  /// `/api/driver/reset-password`) instead of a commuter account (hits
+  /// `/api/commuter/reset-password`).
   final bool isDriver;
 
   @override
@@ -93,55 +98,36 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       _isLoading = true;
     });
 
-    // TODO: Replace with your API call once a backend exists.
-    await Future.delayed(const Duration(seconds: 1));
+    final path = widget.isDriver
+        ? '/api/driver/reset-password'
+        : '/api/commuter/reset-password';
 
-    if (!mounted) return;
+    try {
+      await ApiClient.post(path, {
+        'mobileNumber': widget.mobileNumber,
+        'code': widget.code,
+        'newPassword': _passwordController.text,
+      });
 
-    // Make sure we're updating whatever's actually persisted, not stale
-    // in-memory fields from earlier in the app's lifetime.
-    if (widget.isDriver) {
-      await DriverSession.instance.loadFromPrefs();
-    } else {
-      await UserSession.instance.loadFromPrefs();
-    }
+      if (!mounted) return;
 
-    final success = widget.isDriver
-        ? await DriverSession.instance.resetPassword(
-            mobileNumber: widget.mobileNumber,
-            newPassword: _passwordController.text,
-          )
-        : await UserSession.instance.resetPassword(
-            mobileNumber: widget.mobileNumber,
-            newPassword: _passwordController.text,
-          );
-
-    if (!mounted) return;
-
-    if (!success) {
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Something went wrong updating your password. Please try again.',
-          ),
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PasswordResetSuccessScreen(isDriver: widget.isDriver),
         ),
       );
-      return;
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PasswordResetSuccessScreen(isDriver: widget.isDriver),
-      ),
-    );
   }
 
   InputDecoration _inputDecoration({

@@ -1,19 +1,73 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/qr_constants.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 
-/// Shows the driver's scannable ID — conductors/inspectors (or a future
-/// commuter-facing verification flow) can scan this to confirm who's
-/// driving. There's no backend to issue a real encoded code yet, so the
-/// "QR" here is a deterministic decorative grid seeded from the driver's
-/// ID — visually a QR code, but not actually decodable. Swap
-/// [_QrPainter] for a real QR-generation package once a backend exists to
-/// give it something meaningful to encode.
-class DriverQrCodeScreen extends StatelessWidget {
+/// Shows the driver's scannable QR code — conductors/inspectors or a
+/// commuter's booking flow can scan this to confirm who's driving. The QR
+/// encodes an opaque token issued by the backend (`/api/driver/me/qr-token`),
+/// not the driverId directly, so a photo of it can't just be forged by
+/// writing a plausible-looking ID — only a token the backend actually
+/// issued verifies via `/api/driver/verify-qr/:token`.
+class DriverQrCodeScreen extends StatefulWidget {
   const DriverQrCodeScreen({super.key});
+
+  @override
+  State<DriverQrCodeScreen> createState() => _DriverQrCodeScreenState();
+}
+
+class _DriverQrCodeScreenState extends State<DriverQrCodeScreen> {
+  String? _qrToken;
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadQrToken();
+  }
+
+  Future<void> _loadQrToken() async {
+    // Permanent for the account's lifetime — once cached on this device,
+    // never needs fetching again.
+    final cached = DriverSession.instance.qrToken;
+    if (cached != null) {
+      setState(() {
+        _qrToken = cached;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final response = await ApiClient.get(
+        '/api/driver/me/qr-token',
+        token: DriverSession.instance.authToken,
+      );
+      final qrToken = response['qrToken'] as String;
+      await DriverSession.instance.cacheQrToken(qrToken);
+
+      if (!mounted) return;
+      setState(() {
+        _qrToken = qrToken;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,9 +111,7 @@ class DriverQrCodeScreen extends StatelessWidget {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: const Color(0xFFE1E4E8)),
                             ),
-                            child: CustomPaint(
-                              painter: _QrPainter(seed: driverId),
-                            ),
+                            child: _buildQrContent(),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -128,6 +180,40 @@ class DriverQrCodeScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildQrContent() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 32),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: _loadQrToken, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+
+    return QrImageView(
+      data: '$kDriverQrPrefix$_qrToken',
+      version: QrVersions.auto,
+      backgroundColor: Colors.white,
+    );
+  }
+
   Widget _buildHeader(BuildContext context) {
     return Container(
       width: double.infinity,
@@ -181,61 +267,4 @@ class DriverQrCodeScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Draws a deterministic QR-look-alike grid, complete with the three
-/// finder-pattern corner squares real QR codes use, seeded from [seed] so
-/// the same driver always sees the same pattern.
-class _QrPainter extends CustomPainter {
-  final String seed;
-
-  const _QrPainter({required this.seed});
-
-  static const int _modules = 21;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cell = size.width / _modules;
-    final random = Random(seed.hashCode);
-    final darkPaint = Paint()..color = Colors.black;
-
-    bool isInFinderZone(int row, int col) {
-      bool inCorner(int r0, int c0) =>
-          row >= r0 && row < r0 + 7 && col >= c0 && col < c0 + 7;
-      return inCorner(0, 0) ||
-          inCorner(0, _modules - 7) ||
-          inCorner(_modules - 7, 0);
-    }
-
-    for (int row = 0; row < _modules; row++) {
-      for (int col = 0; col < _modules; col++) {
-        if (isInFinderZone(row, col)) continue;
-        if (random.nextDouble() < 0.42) {
-          canvas.drawRect(
-            Rect.fromLTWH(col * cell, row * cell, cell, cell),
-            darkPaint,
-          );
-        }
-      }
-    }
-
-    void drawFinderPattern(double left, double top) {
-      canvas.drawRect(Rect.fromLTWH(left, top, cell * 7, cell * 7), darkPaint);
-      canvas.drawRect(
-        Rect.fromLTWH(left + cell, top + cell, cell * 5, cell * 5),
-        Paint()..color = Colors.white,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(left + cell * 2, top + cell * 2, cell * 3, cell * 3),
-        darkPaint,
-      );
-    }
-
-    drawFinderPattern(0, 0);
-    drawFinderPattern((_modules - 7) * cell, 0);
-    drawFinderPattern(0, (_modules - 7) * cell);
-  }
-
-  @override
-  bool shouldRepaint(covariant _QrPainter oldDelegate) => oldDelegate.seed != seed;
 }

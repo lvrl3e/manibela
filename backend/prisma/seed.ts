@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/lib/prisma';
+import { generateQrToken } from '../src/utils/qrToken';
 
 // Seeds one demo driver account so there's something real to log into
 // without having to run create-driver.ts by hand first.
@@ -21,6 +22,7 @@ async function main() {
       mobileNumber,
       passwordHash,
       plateNumber: 'NGP123',
+      qrToken: await generateQrToken(),
     },
   });
 

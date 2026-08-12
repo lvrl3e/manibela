@@ -8,9 +8,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/qr_constants.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/utils/fare_calculator.dart';
 import 'commuter_history_screen.dart';
 import 'notifications_screen.dart';
+import 'qr_scanner_screen.dart';
 
 /// Turns a [Placemark] into a short, human-readable label like
 /// "Ortigas Center, Pasig" or "Pasig City" — never raw coordinates.
@@ -250,6 +253,52 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       if (!mounted || _step != _BookingStep.findingJeepneys) return;
       setState(() {});
     });
+  }
+
+  // Opens the real camera scanner, then verifies whatever it decoded
+  // against the backend — a photo of someone else's QR, or a code from a
+  // completely unrelated app, won't verify. On success the (real, mocked-
+  // jeepney-list-independent) driver name/plate from the backend replace
+  // the placeholder ones on `_selectedJeepney` before continuing on to the
+  // existing "You're on Board!" flow.
+  Future<void> _handleScanQr() async {
+    final jeepney = _selectedJeepney;
+    if (jeepney == null) return;
+
+    final rawValue = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const QrScannerScreen()),
+    );
+    if (rawValue == null || !mounted) return;
+
+    if (!rawValue.startsWith(kDriverQrPrefix)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("That's not a ManibelApp driver QR code.")),
+      );
+      return;
+    }
+
+    final token = rawValue.substring(kDriverQrPrefix.length);
+
+    try {
+      final response = await ApiClient.get('/api/driver/verify-qr/$token');
+      final driver = response['driver'] as Map<String, dynamic>;
+
+      if (!mounted) return;
+      setState(() {
+        _selectedJeepney = _JeepneyOption(
+          plateNumber: driver['plateNumber'] as String,
+          driverName: driver['fullName'] as String,
+          etaMinutes: jeepney.etaMinutes,
+          seatsAvailable: jeepney.seatsAvailable,
+          driverRating: jeepney.driverRating,
+        );
+      });
+
+      _simulateQrScan();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   // Shows a compact "You're on Board!" popup right after the QR scan.
@@ -543,7 +592,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       case _BookingStep.scanQr:
         return _ScanQrStep(
           jeepney: _selectedJeepney!,
-          onScan: _simulateQrScan,
+          onScan: _handleScanQr,
           onBack: () => _goTo(_BookingStep.findingJeepneys),
         );
 

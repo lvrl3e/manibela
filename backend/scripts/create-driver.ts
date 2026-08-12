@@ -5,6 +5,7 @@ import { prisma } from '../src/lib/prisma';
 import { toE164 } from '../src/utils/phone';
 import { isValidPlateNumber, normalizePlateNumber } from '../src/utils/plate';
 import { generateDriverId } from '../src/utils/driverId';
+import { generateQrToken } from '../src/utils/qrToken';
 
 async function main() {
   const [fullName, rawMobileNumber, password, rawPlateNumber] = process.argv.slice(2);
@@ -43,6 +44,7 @@ async function main() {
       mobileNumber,
       passwordHash,
       plateNumber,
+      qrToken: await generateQrToken(),
     },
   });
 

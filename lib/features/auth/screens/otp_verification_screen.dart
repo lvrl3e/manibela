@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import 'reset_password_screen.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
@@ -83,27 +84,41 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _isLoading = true;
     });
 
-    // TODO: Replace with your actual OTP verification API call
-    await Future.delayed(const Duration(seconds: 1));
+    final path = widget.isDriver ? '/api/driver/verify-otp' : '/api/commuter/verify-otp';
 
-    if (!mounted) return;
+    try {
+      await ApiClient.post(path, {
+        'mobileNumber': widget.mobileNumber,
+        'code': _code,
+      });
 
-    setState(() {
-      _isLoading = false;
-    });
+      if (!mounted) return;
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ResetPasswordScreen(
-          mobileNumber: widget.mobileNumber,
-          isDriver: widget.isDriver,
+      setState(() {
+        _isLoading = false;
+      });
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResetPasswordScreen(
+            mobileNumber: widget.mobileNumber,
+            code: _code,
+            isDriver: widget.isDriver,
+          ),
         ),
-      ),
-    );
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _hasError = true;
+        _errorText = e.message;
+        _isLoading = false;
+      });
+    }
   }
 
-  void _handleResend() {
+  Future<void> _handleResend() async {
     for (var controller in _controllers) {
       controller.clear();
     }
@@ -113,9 +128,20 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
     FocusScope.of(context).requestFocus(_focusNodes[0]);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("OTP code resent.")),
-    );
+    final path = widget.isDriver
+        ? '/api/driver/forgot-password'
+        : '/api/commuter/forgot-password';
+
+    try {
+      await ApiClient.post(path, {'mobileNumber': widget.mobileNumber});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('OTP code resent.')),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   Widget _otpBox(int index) {

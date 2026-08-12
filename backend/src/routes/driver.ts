@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -7,19 +6,12 @@ import { prisma } from '../lib/prisma';
 import { toE164 } from '../utils/phone';
 import { isValidPlateNumber, normalizePlateNumber } from '../utils/plate';
 import { generateDriverId } from '../utils/driverId';
+import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
-
-async function generateQrToken(): Promise<string> {
-  for (;;) {
-    const candidate = randomBytes(24).toString('base64url');
-    const exists = await prisma.driver.findUnique({ where: { qrToken: candidate } });
-    if (!exists) return candidate;
-  }
-}
 
 function toPublicDriver(driver: {
   id: string;
@@ -81,6 +73,7 @@ router.post('/signup', async (req, res, next) => {
         mobileNumber,
         passwordHash,
         plateNumber: body.plateNumber,
+        qrToken: await generateQrToken(),
       },
     });
 
@@ -282,8 +275,9 @@ router.patch('/me/password', requireAuth('driver'), async (req, res, next) => {
 // The QR a driver shows encodes this opaque token, not their driverId
 // directly — anyone can forge a QR that *contains* a plausible-looking
 // "DR-00001", but only the backend can hand out a token that verify-qr
-// below will actually recognize. Rotating it invalidates any
-// previously-issued QR code (e.g. if a photo of it leaked).
+// below will actually recognize. It's assigned once at account creation
+// and never changes — permanent for the life of the account, no
+// self-serve rotation.
 
 router.get('/me/qr-token', requireAuth('driver'), async (req, res, next) => {
   try {
@@ -293,22 +287,14 @@ router.get('/me/qr-token', requireAuth('driver'), async (req, res, next) => {
       return;
     }
 
+    // Every driver gets a qrToken at creation now, but this covers
+    // accounts created before that was true (nothing to backfill).
     let { qrToken } = driver;
     if (!qrToken) {
       qrToken = await generateQrToken();
       await prisma.driver.update({ where: { id: driver.id }, data: { qrToken } });
     }
 
-    res.json({ qrToken });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/me/qr-token/rotate', requireAuth('driver'), async (req, res, next) => {
-  try {
-    const qrToken = await generateQrToken();
-    await prisma.driver.update({ where: { id: req.auth!.sub }, data: { qrToken } });
     res.json({ qrToken });
   } catch (err) {
     next(err);

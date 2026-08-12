@@ -2,9 +2,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Session store for the logged-in driver. Mirrors [UserSession] (the
 /// commuter equivalent) but keeps its own prefs keys/prefix so a driver
-/// account never collides with a commuter account on the same device —
-/// there's still no backend, so this is the source of truth for "is anyone
-/// signed in as a driver right now".
+/// account never collides with a commuter account on the same device.
+///
+/// Login/logout now goes through the real backend (see /backend and
+/// ApiClient) — [authToken] is the JWT returned from `/api/driver/login`,
+/// sent as a Bearer token on any authenticated request. Drivers still
+/// don't self-register in the app; accounts are created via the backend's
+/// seed script / an operator, not from here.
 class DriverSession {
   DriverSession._internal();
 
@@ -25,13 +29,25 @@ class DriverSession {
   String? plateNumber;
 
   /// Local filesystem path to the picked profile photo (from image_picker),
-  /// not a remote URL. Once a real backend/auth service exists, this
-  /// should probably become an uploaded photo URL instead.
+  /// not a remote URL. Once photo upload exists, this should become an
+  /// uploaded photo URL instead.
   String? photoPath;
 
-  // TODO: NEVER keep plaintext passwords once a backend exists. This only
-  // exists so driver login has something to check against while everything
-  // is still mocked locally.
+  /// JWT from a successful `/api/driver/login`, sent as a Bearer token on
+  /// authenticated backend requests.
+  String? authToken;
+
+  /// The token encoded into this driver's QR code (see
+  /// DriverQrCodeScreen). Permanent for the account's lifetime, so it's
+  /// fetched from `/api/driver/me/qr-token` once and cached here —
+  /// persisted like everything else below, so it survives logout and
+  /// doesn't need a fresh network call on every visit to the QR screen.
+  String? qrToken;
+
+  // Change-password (driver_change_password_screen.dart) still checks the
+  // "current password" locally rather than against the backend — this
+  // keeps that working. Set from whatever the driver last typed at
+  // login/signup, never returned by the backend itself.
   String? password;
 
   static const _kFullName = 'driver_session_fullName';
@@ -40,6 +56,8 @@ class DriverSession {
   static const _kDriverId = 'driver_session_driverId';
   static const _kPlateNumber = 'driver_session_plateNumber';
   static const _kPhotoPath = 'driver_session_photoPath';
+  static const _kAuthToken = 'driver_session_authToken';
+  static const _kQrToken = 'driver_session_qrToken';
   static const _kLoggedInFlag = 'driverLoggedIn';
 
   bool get isSignedIn => fullName != null;
@@ -55,20 +73,8 @@ class DriverSession {
     driverId = prefs.getString(_kDriverId);
     plateNumber = prefs.getString(_kPlateNumber);
     photoPath = prefs.getString(_kPhotoPath);
-  }
-
-  /// Drivers don't self-register in the app — an operator/admin creates
-  /// their account for them. Since there's no admin backend yet, this
-  /// stands in for that: it seeds one demo driver account (once) so the
-  /// login screen has something real to authenticate against. Call this
-  /// after [loadFromPrefs]; it's a no-op once any account is on file.
-  Future<void> ensureDemoAccountSeeded() async {
-    if (mobileNumber != null) return;
-    await signUp(
-      fullName: 'Juan Dela Cruz',
-      mobileNumber: '+639171234567',
-      password: 'Driver@123',
-    );
+    authToken = prefs.getString(_kAuthToken);
+    qrToken = prefs.getString(_kQrToken);
   }
 
   Future<void> _persist() async {
@@ -85,25 +91,18 @@ class DriverSession {
     } else {
       await prefs.remove(_kPhotoPath);
     }
+    if (authToken != null) {
+      await prefs.setString(_kAuthToken, authToken!);
+    } else {
+      await prefs.remove(_kAuthToken);
+    }
+    if (qrToken != null) await prefs.setString(_kQrToken, qrToken!);
   }
 
-  /// Called after a successful sign-up. [mobileNumber] should already be
-  /// normalized to `+63XXXXXXXXXX` (PhoneUtils.toE164).
-  ///
-  /// Always starts the account with a fresh driver ID and no photo — a
-  /// device's previous driver account must never leak its ID/photo into a
-  /// brand-new signup.
-  Future<void> signUp({
-    required String fullName,
-    required String mobileNumber,
-    required String password,
-  }) async {
-    this.fullName = fullName;
-    this.mobileNumber = mobileNumber;
-    this.password = password;
-    photoPath = null;
-    driverId = _generateDriverId();
-    plateNumber ??= _generatePlateNumber();
+  /// Caches the QR token fetched from `/api/driver/me/qr-token` so
+  /// DriverQrCodeScreen only needs to hit the network once per device.
+  Future<void> cacheQrToken(String token) async {
+    qrToken = token;
     await _persist();
   }
 
@@ -139,47 +138,23 @@ class DriverSession {
     return true;
   }
 
-  /// Whether [mobileNumber] (already normalized to `+63XXXXXXXXXX`) matches
-  /// the account currently on file. Since this app only stores one local
-  /// driver account, this is really "does *any* registered account match".
-  bool isRegistered(String mobileNumber) {
-    return this.mobileNumber != null && this.mobileNumber == mobileNumber;
-  }
-
-  /// Called from the forgot-password flow after OTP verification. Unlike
-  /// [updatePassword], this doesn't require the current password — OTP
-  /// verification is what proves ownership of the account here instead.
-  /// Returns false if [mobileNumber] doesn't match the account on file, so
-  /// the caller can show an error instead of silently doing nothing.
-  Future<bool> resetPassword({
+  /// Called after a successful `POST /api/driver/login`. [mobileNumber]
+  /// should already be normalized to `+63XXXXXXXXXX`; the rest of the
+  /// fields come straight from the backend's response body.
+  Future<void> logIn({
     required String mobileNumber,
-    required String newPassword,
+    required String authToken,
+    required String driverId,
+    required String fullName,
+    required String plateNumber,
+    String? password,
   }) async {
-    if (this.mobileNumber == null || this.mobileNumber != mobileNumber) {
-      return false;
-    }
-    password = newPassword;
-    await _persist();
-    return true;
-  }
-
-  /// Checks a login attempt against whatever account is on file.
-  /// [mobileNumber] should already be normalized to `+63XXXXXXXXXX`.
-  bool verifyCredentials({
-    required String mobileNumber,
-    required String password,
-  }) {
-    if (this.mobileNumber == null || this.password == null) return false;
-    return this.mobileNumber == mobileNumber && this.password == password;
-  }
-
-  /// Called after a successful login. Assumes [loadFromPrefs] has already
-  /// populated the account being logged into (or that [verifyCredentials]
-  /// was checked first).
-  Future<void> logIn({required String mobileNumber}) async {
     this.mobileNumber = mobileNumber;
-    driverId ??= _generateDriverId();
-    plateNumber ??= _generatePlateNumber();
+    this.authToken = authToken;
+    this.driverId = driverId;
+    this.fullName = fullName;
+    this.plateNumber = plateNumber;
+    if (password != null) this.password = password;
     await _persist();
 
     final prefs = await SharedPreferences.getInstance();
@@ -197,22 +172,10 @@ class DriverSession {
     driverId = null;
     plateNumber = null;
     photoPath = null;
+    authToken = null;
+    qrToken = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLoggedInFlag, false);
-  }
-
-  String _generateDriverId() {
-    final suffix = (DateTime.now().millisecondsSinceEpoch % 100000)
-        .toString()
-        .padLeft(5, '0');
-    return 'DR-$suffix';
-  }
-
-  String _generatePlateNumber() {
-    final suffix = (DateTime.now().millisecondsSinceEpoch % 10000)
-        .toString()
-        .padLeft(4, '0');
-    return 'NGP-$suffix';
   }
 }

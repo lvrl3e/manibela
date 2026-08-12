@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/platform_utils.dart';
 import 'commuter_verified_screen.dart';
 
 class CommuterFaceVerificationScreen extends StatefulWidget {
@@ -52,9 +53,13 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
     try {
       // Front camera, since this is a selfie for identity verification —
       // not a photo library pick, so the user can't submit an old/unrelated
-      // photo here the way they can for the ID front/back uploads.
+      // photo here the way they can for the ID front/back uploads. Desktop
+      // is the one exception: image_picker has no webcam support there at
+      // all (see isDesktopPlatform), so ImageSource.camera would just
+      // throw — fall back to a file pick so the flow is at least usable
+      // for local testing.
       final XFile? picked = await _picker.pickImage(
-        source: ImageSource.camera,
+        source: isDesktopPlatform ? ImageSource.gallery : ImageSource.camera,
         preferredCameraDevice: CameraDevice.front,
         imageQuality: 85,
       );

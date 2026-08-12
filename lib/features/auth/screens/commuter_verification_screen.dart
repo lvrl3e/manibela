@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/platform_utils.dart';
 import 'commuter_face_verification_screen.dart';
 
 const List<String> _idTypeOptions = [
@@ -91,11 +92,12 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
                 ),
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_rounded, color: AppColors.logoBlue),
-              title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
-            ),
+            if (!isDesktopPlatform)
+              ListTile(
+                leading: const Icon(Icons.photo_camera_rounded, color: AppColors.logoBlue),
+                title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded, color: AppColors.logoBlue),
               title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),

@@ -27,6 +27,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   // real backend/auth service exists, replace this with a proper fetch of
   // the authenticated user's profile.
   String _commuterName = UserSession.instance.fullName ?? 'Juan Dela Cruz';
+  String _commuterId = UserSession.instance.commuterId ?? '—';
   String _mobileNumber = UserSession.instance.mobileNumber ?? '';
   DateTime? _dateOfBirth = UserSession.instance.dateOfBirth;
   String? _photoUrl = UserSession.instance.photoUrl;
@@ -182,6 +183,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       backgroundColor: const Color(0xFFE9ECEE),
       drawer: CommuterMenuDrawer(
         commuterName: _commuterName,
+        commuterId: _commuterId,
         photoUrl: _photoUrl,
         onSettingsTap: () => _openSettings(context),
         onLogoutTap: () => _handleLogout(context),

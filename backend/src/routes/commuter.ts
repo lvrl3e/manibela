@@ -15,14 +15,20 @@ const router = Router();
 
 const PENDING_SIGNUP_TTL_MINUTES = 30;
 
+/**
+ * Next sequential CM-00001, CM-00002, ... id — mirrors generateDriverId
+ * (see /utils/driverId.ts). Starts from the current commuter count (fast
+ * path, no collision in the common case) and walks forward if that's
+ * already taken — covers gaps left by deleted commuters without needing
+ * to parse/max every existing id.
+ */
 async function generateCommuterId(): Promise<string> {
+  let next = (await prisma.commuter.count()) + 1;
   for (;;) {
-    const suffix = Math.floor(Math.random() * 100000)
-      .toString()
-      .padStart(5, '0');
-    const candidate = `CM-${suffix}`;
+    const candidate = `CM-${next.toString().padStart(5, '0')}`;
     const exists = await prisma.commuter.findUnique({ where: { commuterId: candidate } });
     if (!exists) return candidate;
+    next++;
   }
 }
 

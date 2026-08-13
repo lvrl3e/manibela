@@ -277,6 +277,10 @@ router.post('/signup', async (req, res, next) => {
         idFrontUrl: pending.idFrontUrl,
         idBackUrl: pending.idBackUrl,
         selfieUrl: pending.selfieUrl,
+        // Submitting docs is what puts an account in the admin review
+        // queue — no docs yet (null) is a different state from "waiting
+        // on a human," which is why this isn't just "always PENDING".
+        verificationStatus: pending.idFrontUrl ? 'PENDING' : null,
       },
     });
 

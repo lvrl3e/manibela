@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:4000/api/admin/activity -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:4000/api/admin/trends?days=7 -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:4000/api/admin/commuters?status=pending -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:4000/api/admin/commuters/cmspp1kzc0005uwl4sfpw3uil/verify -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"status\":\"APPROVED\"}')",
+      "Bash(curl -s http://localhost:4000/api/admin/stats -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X POST http://localhost:4000/api/admin/commuters/bogus-id/verify -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"status\":\"APPROVED\"}')",
+      "Bash(curl -s -X POST http://localhost:4000/api/admin/commuters/cmspp1kzc0005uwl4sfpw3uil/verify -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"status\":\"REJECTED\"}')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:4000/api/admin/me -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"fullName\":\"QA Test Admin Updated\"}')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:4000/api/admin/me/password -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"currentPassword\":\"wrong\",\"newPassword\":\"NewTestPass456!\"}')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' -X PATCH http://localhost:4000/api/admin/me/password -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"currentPassword\":\"TestPass123!\",\"newPassword\":\"NewTestPass456!\"}')"
+    ]
+  }
+}

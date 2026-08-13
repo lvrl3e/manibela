@@ -1,8 +1,9 @@
 # ManibelApp — Command Reference
 
-All backend commands are run from the `backend/` folder. All Flutter
-commands are run from the project root. PowerShell in VS Code is assumed;
-swap `curl.exe` quoting if you're on bash instead.
+All backend commands are run from the `backend/` folder. Admin website
+commands are run from the `admin/` folder. All Flutter commands are run
+from the project root. PowerShell in VS Code is assumed; swap `curl.exe`
+quoting if you're on bash instead.
 
 ## First-time setup
 
@@ -23,6 +24,14 @@ cd ..
 flutter pub get
 ```
 
+```powershell
+cd admin
+npm install
+```
+
+No admin account exists by default either — use `npm run create-admin`
+(below, run from `backend/`) to make one before you can sign in.
+
 ## Running things day-to-day
 
 ```powershell
@@ -32,6 +41,11 @@ npm run dev                   # backend on http://localhost:4000, auto-restarts 
 
 ```powershell
 flutter run -d windows        # or -d chrome, or a device id from `flutter devices`
+```
+
+```powershell
+cd admin
+npm run dev                   # admin website on http://localhost:5173
 ```
 
 ## Database
@@ -68,15 +82,29 @@ npm run create-driver -- "Full Name" "09XXXXXXXXX" "Password123!" "ABC123"
 
 Plate number must be exactly 3 letters + 3 numbers (standard PH format,
 no dash/space needed — `abc-123` or `abc 123` get auto-normalized to
-`ABC123` too).
+`ABC123` too).    # CAN BE 4 DIGITS
 
 Commuters self-register from the app's Sign Up screen — no manual step needed.
+
+Admins don't self-register either — there's no sign-up UI at all, only this:
+
+```powershell
+cd backend
+npm run create-admin -- "Full Name" "email@example.com" "Password123!"
+```
 
 ## Backend checks
 
 ```powershell
 npx tsc --noEmit               # typecheck
 curl.exe http://localhost:4000/api/health
+```
+
+## Admin website checks
+
+```powershell
+cd admin
+npm run build                  # typecheck (tsc -b) + production build
 ```
 
 ## Flutter checks
@@ -93,5 +121,10 @@ flutter devices                # list run targets (Windows, Chrome, connected ph
   of `localhost` (see `lib/core/services/api_client.dart`).
 - A physical Android device over USB needs `adb reverse tcp:4000 tcp:4000`
   once per debugging session for `localhost` to reach your machine.
-- The backend has no auth/admin gate yet — anything under `/api/driver/signup`
-  and the `create-driver` script are open on purpose, for local dev only.
+- `POST /api/driver/signup` is still open/unauthenticated on purpose, for
+  local dev and the `create-driver` script — the real, admin-gated way to
+  create a driver account is now the admin website's Drivers page (or
+  `POST /api/admin/drivers`), not this endpoint.
+- No email provider is wired up yet, same as SMS for OTP — the admin
+  forgot-password reset link is logged to the backend console
+  (`[ADMIN PASSWORD RESET] ...`) instead of actually being emailed.

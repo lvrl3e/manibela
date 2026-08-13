@@ -6,6 +6,7 @@ import cors from 'cors';
 import healthRouter from './routes/health';
 import commuterRouter from './routes/commuter';
 import driverRouter from './routes/driver';
+import adminRouter from './routes/admin';
 import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
@@ -27,6 +28,7 @@ app.get('/', (_req, res) => {
 app.use('/api/health', healthRouter);
 app.use('/api/commuter', commuterRouter);
 app.use('/api/driver', driverRouter);
+app.use('/api/admin', adminRouter);
 
 app.use(errorHandler);
 

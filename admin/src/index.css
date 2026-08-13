@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand — mirrors lib/core/constants/app_colors.dart on the Flutter
+     side, so the admin site reads as the same product. Blue is the one
+     used everywhere as an interactive/action color; yellow is reserved
+     for the logo mark itself, not scattered across the UI as decoration
+     (that read as "overly colorful" in the first pass). */
+  --color-brand-yellow: #eab308;
+  --color-brand-blue: #0b57d0;
+  --color-brand-blue-dark: #084298;
+  --color-brand-red: #dc2626;
+  --color-ink: #0a0f2c;
+
+  /* Status — reserved for actual state (verification review), never
+     reused as a generic accent. From the validated status palette:
+     good/warning/critical, each paired with an icon + label, never
+     color alone. */
+  --color-status-good: #0ca30c;
+  --color-status-good-bg: #eafbea;
+  --color-status-warning: #b45309;
+  --color-status-warning-bg: #fef3e2;
+  --color-status-critical: #d03b3b;
+  --color-status-critical-bg: #fdecec;
+
+  /* Chart series — validated categorical pair (blue, orange), fixed
+     order, distinct from the status colors above so a chart series
+     never impersonates a review state. */
+  --color-series-drivers: #2a78d6;
+  --color-series-commuters: #eb6834;
+
+  /* Neutral surfaces */
+  --color-surface-page: #f7f8fa;
+  --color-surface-card: #ffffff;
+  --color-border-subtle: #e5e7eb;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+/* Tabular figures for anything that must align in a column (table
+   numeric cells) — see dataviz skill: proportional for standalone
+   values, tabular only for columns. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

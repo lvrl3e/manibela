@@ -9,7 +9,7 @@ function requiredEnv(name: string): string {
 const JWT_SECRET = requiredEnv('JWT_SECRET');
 const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN ?? '7d') as SignOptions['expiresIn'];
 
-export type AuthRole = 'commuter' | 'driver';
+export type AuthRole = 'commuter' | 'driver' | 'admin';
 
 export interface AuthTokenPayload {
   sub: string;

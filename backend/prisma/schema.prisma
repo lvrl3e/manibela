@@ -13,6 +13,12 @@ enum OtpPurpose {
   PHONE_CHANGE
 }
 
+enum IdVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Commuter {
   id              String    @id @default(cuid())
   commuterId      String    @unique
@@ -37,6 +43,13 @@ model Commuter {
   idFrontUrl      String?
   idBackUrl       String?
   selfieUrl       String?
+
+  /// Null until ID/selfie is submitted (nothing to review yet); set to
+  /// PENDING the moment /signup redeems a ticket that has them, then
+  /// moved to APPROVED/REJECTED by an admin via POST
+  /// /api/admin/commuters/:id/verify. No automated face-match sets this
+  /// — it's purely a manual review outcome.
+  verificationStatus IdVerificationStatus?
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -101,4 +114,36 @@ model PendingCommuterSignup {
 
   expiresAt    DateTime
   createdAt    DateTime @default(now())
+}
+
+/// An operator/staff account for the admin web dashboard — separate from
+/// Commuter/Driver, logs in with email+password instead of a PH mobile
+/// number. Created via the create-admin CLI script (mirrors
+/// scripts/create-driver.ts); there's no self-registration for this role.
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// A forgot-password request for an Admin account. Deliberately separate
+/// from OtpCode/OtpPurpose — those are keyed by PH mobile number for
+/// SMS-style OTPs, while this is an email-addressed single-use link
+/// token, matching how admin auth works differently from
+/// commuter/driver. No email provider is wired up yet, so like OTP codes
+/// today, the token is logged to the server console instead of actually
+/// being emailed.
+model AdminPasswordReset {
+  id        String   @id @default(cuid())
+  adminId   String
+  token     String   @unique
+  consumed  Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
 }

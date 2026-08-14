@@ -6,8 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
-import 'driver_history_screen.dart';
-import 'driver_notifications_screen.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/driver_session.dart';
 
 /// ---------------------------------------------------------------------------
 /// ACTIVE TRIP CONTROLLER
@@ -43,6 +43,20 @@ class DriverActiveTrip {
   bool isActive = false;
   bool hasRealFix = false;
 
+  /// The backend Trip this local trip is mirrored to — null if the
+  /// start-trip call failed (bad connectivity shouldn't block a driver
+  /// from working locally) or hasn't happened yet. Location pings and
+  /// the end-trip call are no-ops without one; there's simply nothing on
+  /// the backend to update in that case.
+  String? _backendTripId;
+  DateTime? _lastLocationPingAt;
+
+  /// The real backend Trip id this active trip is mirrored to, if the
+  /// start-trip call succeeded — read this before calling [endTrip], which
+  /// clears it. Null means there's nothing on the backend to reference
+  /// (e.g. the start call failed while offline).
+  String? get backendTripId => _backendTripId;
+
   final ValueNotifier<int> updateNotifier = ValueNotifier<int>(0);
 
   Duration get elapsed {
@@ -72,11 +86,27 @@ class DriverActiveTrip {
     currentLocation = initialLocation;
     hasRealFix = false;
     isActive = true;
+    _backendTripId = null;
+    _lastLocationPingAt = null;
 
     updateNotifier.value++;
 
     _startElapsedTimer();
     await _startLocationTracking();
+
+    // Best-effort — a failed call here shouldn't stop the driver from
+    // working locally; it just means this trip won't show up on the
+    // admin live map (see _backendTripId's doc comment).
+    try {
+      final response = await ApiClient.post(
+        '/api/driver/trips/start',
+        {'route': route},
+        token: DriverSession.instance.authToken,
+      );
+      _backendTripId = (response['trip'] as Map<String, dynamic>)['id'] as String?;
+    } catch (_) {
+      _backendTripId = null;
+    }
   }
 
   void _startElapsedTimer() {
@@ -132,6 +162,7 @@ class DriverActiveTrip {
           hasRealFix = true;
 
           updateNotifier.value++;
+          _pingLocationToBackend(position);
         },
       );
     } catch (_) {
@@ -140,10 +171,41 @@ class DriverActiveTrip {
     }
   }
 
+  /// Reports the driver's current position to the backend so the admin
+  /// live map reflects it — throttled to at most once per 10 seconds
+  /// (GPS updates fire far more often than that, and the map doesn't
+  /// need finer resolution than "where roughly is this jeepney now").
+  Future<void> _pingLocationToBackend(Position position) async {
+    if (_backendTripId == null) return;
+
+    final now = DateTime.now();
+    if (_lastLocationPingAt != null && now.difference(_lastLocationPingAt!) < const Duration(seconds: 10)) {
+      return;
+    }
+    _lastLocationPingAt = now;
+
+    try {
+      await ApiClient.patch(
+        '/api/driver/trips/$_backendTripId/location',
+        {'lat': position.latitude, 'lng': position.longitude},
+        token: DriverSession.instance.authToken,
+      );
+    } catch (_) {
+      // Best-effort, same reasoning as startTrip's backend call.
+    }
+  }
+
   /// End the current trip.
   ///
   /// This is the ONLY method that should stop the active trip.
-  Future<void> endTrip() async {
+  ///
+  /// Returns the backend's trip record from the /end response — this is
+  /// what carries isShortTrip/flagReason, which only the backend ever
+  /// computes (see computeShortTripFlag in driver.ts). Null if there was
+  /// no backend trip id to end, or the call failed (best-effort, same as
+  /// startTrip) — Trip History reads this trip fresh from the backend on
+  /// its own next load, so there's nothing to reconcile here.
+  Future<Map<String, dynamic>?> endTrip() async {
     isActive = false;
 
     await _positionSubscription?.cancel();
@@ -152,7 +214,23 @@ class DriverActiveTrip {
     _elapsedTimer?.cancel();
     _elapsedTimer = null;
 
+    Map<String, dynamic>? tripJson;
+    if (_backendTripId != null) {
+      try {
+        final response = await ApiClient.post(
+          '/api/driver/trips/$_backendTripId/end',
+          {},
+          token: DriverSession.instance.authToken,
+        );
+        tripJson = response['trip'] as Map<String, dynamic>?;
+      } catch (_) {
+        // Best-effort, same reasoning as startTrip's backend call.
+      }
+      _backendTripId = null;
+    }
+
     updateNotifier.value++;
+    return tripJson;
   }
 
   /// Reconnect GPS tracking if needed.
@@ -306,30 +384,6 @@ class _DriverTripInProgressScreenState
     return '${minutes}m';
   }
 
-  String _formatDateTime(DateTime dt) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-    final period = dt.hour >= 12 ? 'PM' : 'AM';
-    final minute = dt.minute.toString().padLeft(2, '0');
-
-    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} · '
-        '$hour12:$minute $period';
-  }
-
   // -------------------------------------------------------------------------
   // BACK TO DASHBOARD
   // -------------------------------------------------------------------------
@@ -431,32 +485,13 @@ class _DriverTripInProgressScreenState
     final durationLabel =
         _formatDuration(now.difference(startTime));
 
-    // Stop the active trip.
+    // Stop the active trip — this is also what tells the backend the trip
+    // ended, which is what triggers the real "Trip Completed" notification
+    // (see DriverNotificationsScreen.fetchRemote(), polled elsewhere) — no
+    // local notification needed here anymore. Trip History reads this trip
+    // straight from the backend on its own next load, so nothing needs to
+    // be recorded locally either.
     await _activeTrip.endTrip();
-
-    // Save trip to history.
-    await DriverHistoryScreen.addTrip(
-      DriverTripHistoryItem(
-        tripId:
-            'TRP-${now.millisecondsSinceEpoch % 1000000}',
-        route: route,
-        plateNumber: plateNumber,
-        dateTime: _formatDateTime(startTime),
-        duration: durationLabel,
-        completedAt: now,
-      ),
-    );
-
-    // Push notification.
-    await DriverNotificationsScreen.push(
-      DriverAppNotification(
-        icon: Icons.check_circle_rounded,
-        iconBackground: AppColors.logoBlue,
-        title: 'Trip Completed',
-        message: '$route · $durationLabel',
-        time: now,
-      ),
-    );
 
     if (!mounted) return;
 

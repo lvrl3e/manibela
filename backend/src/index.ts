@@ -8,6 +8,7 @@ import commuterRouter from './routes/commuter';
 import driverRouter from './routes/driver';
 import adminRouter from './routes/admin';
 import { errorHandler } from './middleware/errorHandler';
+import { startDriverLogReminderJobs } from './jobs/driverLogReminders';
 
 const app = express();
 
@@ -36,3 +37,5 @@ const PORT = Number(process.env.PORT ?? 4000);
 app.listen(PORT, () => {
   console.log(`ManibelApp backend listening on http://localhost:${PORT}`);
 });
+
+startDriverLogReminderJobs();

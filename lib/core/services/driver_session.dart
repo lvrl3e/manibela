@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/date_only.dart';
+import 'api_client.dart';
 
 /// Session store for the logged-in driver. Mirrors [UserSession] (the
 /// commuter equivalent) but keeps its own prefs keys/prefix so a driver
@@ -61,6 +62,12 @@ class DriverSession {
   // login/signup, never returned by the backend itself.
   String? password;
 
+  /// True when the driver checked "Remember Me" at login — the splash
+  /// screen only auto-signs a cold-started app into the dashboard when
+  /// this is true *and* [authToken] is still on disk. Explicitly logging
+  /// out always clears both, regardless of this flag.
+  bool rememberMe = false;
+
   static const _kFullName = 'driver_session_fullName';
   static const _kMobileNumber = 'driver_session_mobileNumber';
   static const _kPassword = 'driver_session_password';
@@ -72,6 +79,7 @@ class DriverSession {
   static const _kAuthToken = 'driver_session_authToken';
   static const _kQrToken = 'driver_session_qrToken';
   static const _kLoggedInFlag = 'driverLoggedIn';
+  static const _kRememberMe = 'driver_session_rememberMe';
 
   bool get isSignedIn => fullName != null;
 
@@ -90,7 +98,12 @@ class DriverSession {
     authToken = prefs.getString(_kAuthToken);
     qrToken = prefs.getString(_kQrToken);
     dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
+    rememberMe = prefs.getBool(_kRememberMe) ?? false;
   }
+
+  /// True only when a cold-started app should skip straight to the
+  /// dashboard instead of role selection/login.
+  bool get hasRememberedSession => rememberMe && authToken != null;
 
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
@@ -122,6 +135,7 @@ class DriverSession {
     } else {
       await prefs.remove(_kDateOfBirth);
     }
+    await prefs.setBool(_kRememberMe, rememberMe);
   }
 
   /// Caches the QR token fetched from `/api/driver/me/qr-token` so
@@ -129,6 +143,22 @@ class DriverSession {
   Future<void> cacheQrToken(String token) async {
     qrToken = token;
     await _persist();
+  }
+
+  /// Re-fetches [plateNumber] from the backend. The plate is admin-managed
+  /// (see admin.ts's PATCH /drivers/:id/plate-number) and can change after
+  /// this driver already logged in, so DriverSettingsScreen calls this on
+  /// every visit rather than trusting whatever was cached at login.
+  Future<void> refreshPlateNumber() async {
+    if (authToken == null) return;
+    try {
+      final response = await ApiClient.get('/api/driver/me', token: authToken);
+      final driver = response['driver'] as Map<String, dynamic>;
+      plateNumber = driver['plateNumber'] as String?;
+      await _persist();
+    } catch (_) {
+      // Best-effort — keep whatever was cached if the network call fails.
+    }
   }
 
   /// Called from DriverSettingsScreen when the driver saves profile
@@ -187,6 +217,7 @@ class DriverSession {
     DateTime? dateOfBirth,
     String? photoUrl,
     String? password,
+    bool rememberMe = false,
   }) async {
     this.mobileNumber = mobileNumber;
     this.authToken = authToken;
@@ -195,6 +226,7 @@ class DriverSession {
     this.plateNumber = plateNumber;
     this.dateOfBirth = dateOfBirth;
     this.photoUrl = photoUrl;
+    this.rememberMe = rememberMe;
     if (password != null) this.password = password;
 
     final prefs = await SharedPreferences.getInstance();
@@ -210,9 +242,10 @@ class DriverSession {
   }
 
   /// Ends the current session WITHOUT deleting the account, so the next
-  /// login has something to verify against. Only the in-memory fields (so
-  /// [isSignedIn] flips to false right away) and the "logged in" flag get
-  /// cleared.
+  /// login has something to verify against. Most profile fields stay on
+  /// disk for a quick re-login, but [authToken] and [rememberMe] are
+  /// explicitly wiped from disk too, so "Log Out" always means the next
+  /// app launch asks for a password again, remember-me or not.
   Future<void> signOut() async {
     fullName = null;
     mobileNumber = null;
@@ -224,8 +257,11 @@ class DriverSession {
     photoUrl = null;
     authToken = null;
     qrToken = null;
+    rememberMe = false;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLoggedInFlag, false);
+    await prefs.remove(_kAuthToken);
+    await prefs.remove(_kRememberMe);
   }
 }

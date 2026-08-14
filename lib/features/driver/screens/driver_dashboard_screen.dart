@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/logout_confirmation_sheet.dart';
 import '../../auth/screens/driver_login_screen.dart';
 import 'driver_daily_operations_screen.dart';
 import 'driver_history_screen.dart';
@@ -54,10 +58,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   // Trip state — "online" now just means "currently on a trip" instead of a
   // manually-flipped switch, since Start/End Trip is what actually drives
-  // it. Today's Trips and Earnings both read live from persisted stores
-  // (DriverHistoryScreen / DriverOperationsLog) instead of local counters,
-  // so they survive app restarts and don't reset on every login.
+  // it.
   _ActiveTrip? _activeTrip;
+
+  // Backend-sourced today's-stats — authoritative across devices, and the
+  // only source for Today's Trips (shows 0 until this resolves, rather
+  // than a locally-cached guess). Earnings falls back to
+  // DriverOperationsLog's local store if this hasn't loaded yet/fails.
+  int? _tripsTodayRemote;
+  double? _earningsTodayRemote;
 
   bool get _isOnline => _activeTrip != null;
 
@@ -75,14 +84,54 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // FlutterMap instance owns exactly one controller for its whole lifetime.
   final MapController _previewMapController = MapController();
 
+  /// Re-fetches notifications on a timer so the bell badge picks up
+  /// admin-initiated events (e.g. a short-trip review) that happen
+  /// entirely outside this app while the driver is just sitting on the
+  /// dashboard — without this, nothing here would learn about them until
+  /// some other action happened to call fetchRemote() again. Same cadence
+  /// the admin site's own notification bell polls at.
+  Timer? _notificationPollTimer;
+
   @override
   void initState() {
     super.initState();
     _resolveCurrentLocation();
+    // So the bell badge reflects real unread notifications right away,
+    // not just after the bell is tapped.
+    DriverNotificationsScreen.fetchRemote().then((_) {
+      if (mounted) setState(() {});
+    });
+    _fetchTodayStats();
+    _notificationPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      DriverNotificationsScreen.fetchRemote().then((_) {
+        if (mounted) setState(() {});
+      });
+    });
+  }
+
+  /// Best-effort pull of today's trip count / earnings from the backend —
+  /// authoritative across devices, unlike the local stores this falls
+  /// back to. Never blocks the UI; a failure just leaves the fallback in
+  /// place.
+  Future<void> _fetchTodayStats() async {
+    final token = DriverSession.instance.authToken;
+    if (token == null) return;
+    try {
+      final response = await ApiClient.get('/api/driver/today-stats', token: token);
+      if (!mounted) return;
+      setState(() {
+        _tripsTodayRemote = response['tripsToday'] as int?;
+        final earnings = response['earningsToday'];
+        _earningsTodayRemote = earnings == null ? null : (earnings as num).toDouble();
+      });
+    } catch (_) {
+      // Keep whatever's currently shown (local fallback).
+    }
   }
 
   @override
   void dispose() {
+    _notificationPollTimer?.cancel();
     _mapController.dispose();
     _previewMapController.dispose();
     super.dispose();
@@ -159,19 +208,22 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Future<void> _handleLogout() async {
+    final confirmed = await showLogoutConfirmationSheet(context);
+    if (!confirmed || !mounted) return;
+
     // Navigate first, clear session second — even if signOut() somehow
     // throws (a corrupt SharedPreferences write, etc.), the driver still
     // ends up back at the login screen instead of silently staying on
     // the dashboard with no visible feedback.
-    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const DriverLoginScreen()),
       (route) => false,
     );
     try {
+      // Trip history and notifications persist across logout now, same as
+      // the rest of the account data DriverSession.signOut() already keeps
+      // on disk — they're account data, not session-scoped.
       await DriverSession.instance.signOut();
-      await DriverHistoryScreen.clearOnLogout();
-      await DriverNotificationsScreen.clearOnLogout();
     } catch (_) {
       // Already navigated away — nothing left to do but not crash.
     }
@@ -200,16 +252,33 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverQrCodeScreen()));
   }
 
-  void _openNotifications() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverNotificationsScreen()));
+  // Fetches first so mark-read covers anything that arrived since the
+  // last fetch, then marks everything read (clearing the bell badge)
+  // right away, rather than waiting for the feed screen to fully open.
+  Future<void> _openNotifications() async {
+    await DriverNotificationsScreen.fetchRemote();
+    await DriverNotificationsScreen.markAllRead();
+    if (!mounted) return;
+    setState(() {});
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverNotificationsScreen()));
+  }
+
+  Future<void> _openTripHistory() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverHistoryScreen()));
+    // Today's Trips comes from the backend (see _fetchTodayStats) — re-pull
+    // it once the driver's back, in case anything changed while this
+    // screen was open.
+    _fetchTodayStats();
   }
 
   Future<void> _openDailyOperations() async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverDailyOperationsScreen()));
     // The Earnings stat card reads DriverOperationsLog.todayEntry live, so
     // just refresh the build once the driver's back from logging today's
-    // numbers.
+    // numbers — and re-pull the backend figure too, since that's what the
+    // card prefers when available.
     if (mounted) setState(() {});
+    _fetchTodayStats();
   }
 
   void _openWeeklyAnalytics() {
@@ -244,19 +313,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
     setState(() => _activeTrip = trip);
 
-    await DriverNotificationsScreen.push(
-      DriverAppNotification(
-        icon: Icons.directions_bus_rounded,
-        iconBackground: AppColors.logoBlue,
-        title: 'Trip Started',
-        message: 'You started broadcasting ${result.route} (${result.plateNumber}).',
-        time: DateTime.now(),
-      ),
-    );
-
     // Start Trip immediately hands off to the dedicated live-tracking
     // screen — the vehicle marker actually moves there, and that's also
-    // the only place "End Trip" lives once a trip is underway.
+    // the only place "End Trip" lives once a trip is underway. That
+    // screen is what actually calls the backend's /trips/start (see
+    // DriverTripInProgressScreen._initializeTrip), which is what
+    // triggers the real "Trip Started" notification — no local push
+    // needed here anymore.
     await _openTripInProgress(trip);
   }
 
@@ -275,11 +338,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
     if (!mounted) return;
     if (ended == true) {
-      // The trip was already recorded into DriverHistoryScreen by the
-      // in-progress screen — the Today's Trips stat card reads that
-      // live, so this just needs to refresh the build and clear the
-      // active-trip state.
+      // The backend already has this trip (POST /trips/:id/end already
+      // ran) — re-pull today's-stats so the Today's Trips card reflects
+      // it, and clear the active-trip state.
       setState(() => _activeTrip = null);
+      _fetchTodayStats();
+      // Ending the trip also fired a "Trip Completed" notification
+      // server-side (see driver.ts's /trips/:id/end) — without this, the
+      // bell badge stays stale until the driver opens Notifications
+      // manually (which does its own fresh fetch) or logs out and back in.
+      DriverNotificationsScreen.fetchRemote().then((_) {
+        if (mounted) setState(() {});
+      });
     }
   }
 
@@ -316,6 +386,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         photoUrl: _photoUrl,
         onSettingsTap: _openSettings,
         onQrCodeTap: _openQrCode,
+        onTripHistoryTap: _openTripHistory,
         onLogoutTap: _handleLogout,
       ),
 
@@ -392,6 +463,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   ),
                   _RoundIconButton(
                     icon: Icons.notifications_none_rounded,
+                    badgeCount: DriverNotificationsScreen.unreadCount,
                     onTap: _openNotifications,
                   ),
                 ],
@@ -450,19 +522,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.85),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: _isOnline ? Colors.green : Colors.orange),
+                        border: Border.all(color: _isOnline ? Colors.green : AppColors.errorRed),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircleAvatar(radius: 4, backgroundColor: _isOnline ? Colors.green : Colors.orange),
+                          CircleAvatar(radius: 4, backgroundColor: _isOnline ? Colors.green : AppColors.errorRed),
                           const SizedBox(width: 6),
                           Text(
-                            _isOnline ? 'On Trip' : 'Awaiting Trip',
+                            _isOnline ? 'On Trip' : 'Offline',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: _isOnline ? Colors.green.shade800 : Colors.orange,
+                              color: _isOnline ? Colors.green.shade800 : AppColors.errorRed,
                             ),
                           ),
                         ],
@@ -585,7 +657,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       iconBg: const Color(0xFFDBEAFE),
                       iconColor: AppColors.logoBlue,
                       title: "Today's Trips",
-                      value: '${DriverHistoryScreen.todayTripsCount}',
+                      value: '${_tripsTodayRemote ?? 0}',
                       subtitle: 'Trips',
                     ),
                   ),
@@ -596,7 +668,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       iconBg: AppColors.qrTileBg,
                       iconColor: AppColors.qrIconColor,
                       title: 'Earnings',
-                      value: '₱${(DriverOperationsLog.todayEntry?.totalEarnings ?? 0).toStringAsFixed(0)}',
+                      value: '₱${(_earningsTodayRemote ?? DriverOperationsLog.todayEntry?.totalEarnings ?? 0).toStringAsFixed(0)}',
                       subtitle: 'Today',
                     ),
                   ),
@@ -861,24 +933,49 @@ class _LocationFailure {
 class _RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+  final int badgeCount;
 
-  const _RoundIconButton({required this.icon, required this.onTap});
+  const _RoundIconButton({required this.icon, required this.onTap, this.badgeCount = 0});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      shape: const CircleBorder(),
-      elevation: 3,
-      shadowColor: Colors.black26,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Icon(icon, size: 24, color: Colors.black87),
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          elevation: 3,
+          shadowColor: Colors.black26,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Icon(icon, size: 24, color: Colors.black87),
+            ),
+          ),
         ),
-      ),
+        if (badgeCount > 0)
+          Positioned(
+            top: -2,
+            right: -2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              constraints: const BoxConstraints(minWidth: 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE23F3F),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: Text(
+                badgeCount > 9 ? '9+' : '$badgeCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

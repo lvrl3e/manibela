@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/avatar_image.dart';
-import 'driver_history_screen.dart';
 
 class DriverMenuDrawer extends StatelessWidget {
   final String driverName;
@@ -11,6 +10,7 @@ class DriverMenuDrawer extends StatelessWidget {
 
   final VoidCallback? onSettingsTap;
   final VoidCallback? onQrCodeTap;
+  final VoidCallback? onTripHistoryTap;
   final VoidCallback? onLogoutTap;
 
   const DriverMenuDrawer({
@@ -20,6 +20,7 @@ class DriverMenuDrawer extends StatelessWidget {
     this.photoUrl,
     this.onSettingsTap,
     this.onQrCodeTap,
+    this.onTripHistoryTap,
     this.onLogoutTap,
   });
 
@@ -113,13 +114,9 @@ class DriverMenuDrawer extends StatelessWidget {
                       onTap: () {
                         Navigator.pop(context);
 
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const DriverHistoryScreen(),
-                          ),
-                        );
+                        if (onTripHistoryTap != null) {
+                          onTripHistoryTap!();
+                        }
                       },
                     ),
 

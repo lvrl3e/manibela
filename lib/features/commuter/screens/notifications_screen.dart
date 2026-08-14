@@ -1,19 +1,32 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/user_session.dart';
+import 'commuter_history_screen.dart';
 
-/// Real, app-generated notifications (trip completed, rating submitted,
-/// report submitted, etc.) — pushed here via [NotificationsScreen.push]
-/// whenever one of those events actually happens elsewhere in the app.
-/// Persisted to disk — logging out must never clear the feed.
-class NotificationsScreen extends StatelessWidget {
+/// Notifications feed — merges two sources:
+///  - Local, client-generated notifications (trip completed, rating
+///    submitted, etc.) pushed via [NotificationsScreen.push] the instant
+///    something happens in this session.
+///  - Server-triggered notifications for async events the commuter might
+///    not be looking at the app for (account deactivated, a complaint
+///    resolved/rejected — see Notification's doc comment in
+///    schema.prisma), fetched via [fetchRemote].
+/// Both persist across logout (they're account data, same as the rest of
+/// UserSession) and are shown together, sorted by time.
+const int _kNotificationsPageSize = 50;
+
+class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
   static const _kPrefsKey = 'commuter_notifications_v1';
 
   static final List<AppNotification> _notifications = [];
+  static List<_RemoteNotification> _remote = [];
   static bool _loaded = false;
 
   /// Loads whatever was previously persisted, once. Safe to call
@@ -45,14 +58,77 @@ class NotificationsScreen extends StatelessWidget {
     await _persist();
   }
 
-  /// Wipes notifications on logout, per request.
-  static Future<void> clearOnLogout() async {
-    _notifications.clear();
-    await _persist();
+  /// Whether page 1 (the [_remote] page — the only one [fetchRemote]
+  /// itself ever loads) has more notifications beyond it — read by the
+  /// Notifications screen to decide whether to show "Load More" before
+  /// the commuter has tapped it even once.
+  static bool hasMoreThanFirstPage = false;
+
+  /// Best-effort — pulls the latest server-triggered notifications (page
+  /// 1 only; see [_fetchPage] for later pages). Safe to call often
+  /// (dashboard load, opening the bell); failures just leave whatever
+  /// was fetched last in place.
+  static Future<void> fetchRemote() async {
+    final result = await _fetchPage(1);
+    if (result == null) return;
+    _remote = result.notifications;
+    hasMoreThanFirstPage = result.hasNextPage;
   }
 
-  static List<_NotificationGroup> get _groupedNotifications {
-    if (_notifications.isEmpty) return [];
+  /// Fetches one page of this commuter's server-triggered notifications
+  /// directly — used by [fetchRemote] for page 1 and by the Notifications
+  /// screen's own "Load More" for anything beyond it. Null on failure
+  /// (caller keeps whatever it already has).
+  static Future<_NotificationPage?> _fetchPage(int page) async {
+    final token = UserSession.instance.authToken;
+    if (token == null) return null;
+    try {
+      final response = await ApiClient.get(
+        '/api/commuter/notifications?page=$page&pageSize=$_kNotificationsPageSize',
+        token: token,
+      );
+      final raw = response['notifications'] as List<dynamic>? ?? const [];
+      return _NotificationPage(
+        notifications: raw.map((j) => _RemoteNotification._fromJson(j as Map<String, dynamic>)).toList(),
+        hasNextPage: response['hasNextPage'] as bool? ?? false,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// How many notifications haven't been seen yet — drives the badge on
+  /// the dashboard's bell icon.
+  static int get unreadCount =>
+      _notifications.where((n) => !n.isRead).length + _remote.where((n) => !n.isRead).length;
+
+  /// Marks every notification as read, clearing the badge. Called right
+  /// when the bell icon is tapped, before the feed screen even opens.
+  static Future<void> markAllRead() async {
+    for (final n in _notifications) {
+      n.isRead = true;
+    }
+    await _persist();
+
+    if (_remote.any((n) => !n.isRead)) {
+      for (final n in _remote) {
+        n.isRead = true;
+      }
+      final token = UserSession.instance.authToken;
+      if (token != null) {
+        unawaited(
+          ApiClient.post('/api/commuter/notifications/mark-read', {}, token: token).catchError(
+            (_) => <String, dynamic>{},
+          ),
+        );
+      }
+    }
+  }
+
+  static List<_NotificationGroup> _groupedNotifications(List<_RemoteNotification> remoteSource) {
+    final all = [..._notifications, ...remoteSource.map((r) => r._toAppNotification())]
+      ..sort((a, b) => b.time.compareTo(a.time));
+    if (all.isEmpty) return [];
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -70,7 +146,7 @@ class NotificationsScreen extends StatelessWidget {
     }
 
     final groups = <String, List<AppNotification>>{};
-    for (final notification in _notifications) {
+    for (final notification in all) {
       groups.putIfAbsent(labelFor(notification.time), () => []).add(notification);
     }
 
@@ -80,8 +156,66 @@ class NotificationsScreen extends StatelessWidget {
   }
 
   @override
+  State<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends State<NotificationsScreen> {
+  /// Pages beyond the first — [NotificationsScreen._remote] (page 1) stays
+  /// the dashboard-badge's own live cache, refreshed independently; this
+  /// screen layers "Load More" on top of it rather than owning page 1
+  /// itself, so the badge polling elsewhere keeps working unchanged.
+  final List<_RemoteNotification> _extra = [];
+  int _loadedPages = 1;
+  bool _hasNextPage = false;
+  bool _isLoadingMore = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The dashboard already kicks off a fetch+mark-read before pushing
+    // this screen, but re-fetching here catches anything that arrived in
+    // the gap and keeps this screen self-sufficient if reached another way.
+    NotificationsScreen.fetchRemote().then((_) {
+      if (!mounted) return;
+      setState(() => _hasNextPage = NotificationsScreen.hasMoreThanFirstPage);
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasNextPage) return;
+    setState(() => _isLoadingMore = true);
+    final nextPage = _loadedPages + 1;
+    final result = await NotificationsScreen._fetchPage(nextPage);
+    if (!mounted) return;
+    if (result == null) {
+      setState(() => _isLoadingMore = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't load more notifications. Please try again.")),
+      );
+      return;
+    }
+    setState(() {
+      _extra.addAll(result.notifications);
+      _loadedPages = nextPage;
+      _hasNextPage = result.hasNextPage;
+      _isLoadingMore = false;
+    });
+  }
+
+  /// Notification types with somewhere to navigate to — kept in sync with
+  /// what [_NotificationCard] draws as tappable, same "shared allowlist"
+  /// pattern as the driver app's own notifications screen.
+  static const _navigableTypes = {'TRIP_COMPLETED'};
+
+  void _openNotificationTarget(AppNotification item) {
+    if (item.type == 'TRIP_COMPLETED') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const CommuterHistoryScreen()));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final groups = _groupedNotifications;
+    final groups = NotificationsScreen._groupedNotifications([...NotificationsScreen._remote, ..._extra]);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6F8),
@@ -95,8 +229,30 @@ class NotificationsScreen extends StatelessWidget {
                   ? const _EmptyState()
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                      itemCount: groups.length,
-                      itemBuilder: (context, groupIndex) {
+                      itemCount: groups.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == groups.length) {
+                          if (!_hasNextPage) return const SizedBox.shrink();
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: OutlinedButton(
+                                onPressed: _isLoadingMore ? null : _loadMore,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.logoBlue,
+                                  side: const BorderSide(color: AppColors.logoBlue),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: Text(
+                                  _isLoadingMore ? 'Loading...' : 'Load More',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                        final groupIndex = index;
                         final group = groups[groupIndex];
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,7 +272,10 @@ class NotificationsScreen extends StatelessWidget {
                             ...group.items.map(
                               (item) => Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
-                                child: _NotificationCard(item: item),
+                                child: _NotificationCard(
+                                  item: item,
+                                  onTap: () => _openNotificationTarget(item),
+                                ),
                               ),
                             ),
                           ],
@@ -202,12 +361,30 @@ class AppNotification {
   final String message;
   final DateTime time;
 
-  const AppNotification({
+  /// What screen tapping this notification opens, e.g. "TRIP_COMPLETED"
+  /// (see Notification's doc comment in schema.prisma). Null for a
+  /// notification with nothing to navigate to — always null for the
+  /// local, client-generated notifications (rating/report confirmations),
+  /// which fire on the same screen the commuter is already looking at.
+  final String? type;
+
+  /// An id [type] tells the reader how to interpret. Null alongside a
+  /// null [type].
+  final String? referenceId;
+
+  /// Not final — flipped in place by [NotificationsScreen.markAllRead]
+  /// rather than reconstructing every entry in the feed.
+  bool isRead;
+
+  AppNotification({
     required this.icon,
     required this.iconBackground,
     required this.title,
     required this.message,
     required this.time,
+    this.type,
+    this.referenceId,
+    this.isRead = false,
   });
 
   String get timeLabel {
@@ -239,6 +416,9 @@ class AppNotification {
         'title': title,
         'message': message,
         'time': time.toIso8601String(),
+        'isRead': isRead,
+        'type': type,
+        'referenceId': referenceId,
       };
 
   static AppNotification _fromJson(Map<String, dynamic> json) => AppNotification(
@@ -247,6 +427,63 @@ class AppNotification {
         title: json['title'] as String,
         message: json['message'] as String,
         time: DateTime.parse(json['time'] as String),
+        isRead: json['isRead'] as bool? ?? false,
+        type: json['type'] as String?,
+        referenceId: json['referenceId'] as String?,
+      );
+}
+
+/// One page of GET /api/commuter/notifications — see
+/// [NotificationsScreen._fetchPage].
+class _NotificationPage {
+  final List<_RemoteNotification> notifications;
+  final bool hasNextPage;
+
+  const _NotificationPage({required this.notifications, required this.hasNextPage});
+}
+
+/// A server-triggered notification fetched from GET /api/commuter/
+/// notifications (see Notification's doc comment in schema.prisma) —
+/// converted to an [AppNotification] with a default icon/color for
+/// display, since the backend doesn't carry Flutter-specific styling.
+class _RemoteNotification {
+  final String id;
+  final String title;
+  final String message;
+  bool isRead;
+  final DateTime createdAt;
+  final String? type;
+  final String? referenceId;
+
+  _RemoteNotification({
+    required this.id,
+    required this.title,
+    required this.message,
+    required this.isRead,
+    required this.createdAt,
+    this.type,
+    this.referenceId,
+  });
+
+  factory _RemoteNotification._fromJson(Map<String, dynamic> json) => _RemoteNotification(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        message: json['message'] as String,
+        isRead: json['isRead'] as bool,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+        type: json['type'] as String?,
+        referenceId: json['referenceId'] as String?,
+      );
+
+  AppNotification _toAppNotification() => AppNotification(
+        icon: Icons.notifications_rounded,
+        iconBackground: AppColors.logoBlue,
+        title: title,
+        message: message,
+        time: createdAt,
+        isRead: isRead,
+        type: type,
+        referenceId: referenceId,
       );
 }
 
@@ -259,80 +496,99 @@ class _NotificationGroup {
 
 class _NotificationCard extends StatelessWidget {
   final AppNotification item;
+  final VoidCallback onTap;
 
-  const _NotificationCard({required this.item});
+  const _NotificationCard({required this.item, required this.onTap});
+
+  /// Kept in sync with [_NotificationsScreenState._navigableTypes] — a
+  /// type not in that set falls through to a no-op tap there, so it
+  /// shouldn't be drawn as tappable here either.
+  bool get _isNavigable =>
+      item.type != null && _NotificationsScreenState._navigableTypes.contains(item.type);
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: _isNavigable ? onTap : null,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.logoBlue,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(item.icon, color: AppColors.white, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.logoBlue,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(item.icon, color: AppColors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        item.title,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.black,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Text(
+                          item.timeLabel,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black45,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(height: 4),
                     Text(
-                      item.timeLabel,
+                      item.message,
                       style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
                         color: Colors.black45,
+                        height: 1.35,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  item.message,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black45,
-                    height: 1.35,
-                  ),
-                ),
+              ),
+              if (_isNavigable) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right_rounded, color: Colors.black26, size: 20),
               ],
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

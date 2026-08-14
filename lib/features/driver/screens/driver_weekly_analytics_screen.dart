@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -23,6 +25,31 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
   // 0 = the 7-day window ending today, -1 = the 7 days before that, etc.
   // Never allowed to go positive (into the future).
   int _weekOffset = 0;
+
+  /// Keeps this screen live while it's open — a day logged/edited/deleted
+  /// (including directly in the database) should show up here without
+  /// the driver having to leave and come back, same as every other
+  /// backend-synced list in this app.
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    DriverOperationsLog.syncFromBackend().then((_) {
+      if (mounted) setState(() {});
+    });
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      DriverOperationsLog.syncFromBackend().then((_) {
+        if (mounted) setState(() {});
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
 
   DateTime get _windowEnd {
     final today = DateTime.now();

@@ -46,6 +46,20 @@ class UserSession {
   // signup/login, never returned by the backend itself.
   String? password;
 
+  /// Set right after sign-up (or a login attempt blocked pending review)
+  /// and cleared once the commuter either logs in successfully or
+  /// explicitly backs out to role selection. Its presence is what lets
+  /// the splash screen send a cold-started app straight back to
+  /// AboutAppScreen instead of role selection — see LoadingScreen.
+  String? pendingVerificationMobileNumber;
+
+  /// True when the commuter checked "Remember Me" at login/signup — the
+  /// splash screen only auto-signs a cold-started app into the dashboard
+  /// when this is true *and* [authToken] is still on disk. Explicitly
+  /// logging out always clears both, regardless of this flag, so "log
+  /// out" reliably means "ask me to log in again next time."
+  bool rememberMe = false;
+
   static const _kFullName = 'session_fullName';
   static const _kMobileNumber = 'session_mobileNumber';
   static const _kPassword = 'session_password';
@@ -55,6 +69,8 @@ class UserSession {
   static const _kPhotoUrl = 'session_photoUrl';
   static const _kAuthToken = 'session_authToken';
   static const _kLoggedInFlag = 'commuterLoggedIn';
+  static const _kPendingVerificationMobileNumber = 'session_pendingVerificationMobileNumber';
+  static const _kRememberMe = 'session_rememberMe';
 
   bool get isSignedIn => fullName != null;
 
@@ -72,6 +88,29 @@ class UserSession {
     photoUrl = prefs.getString(_kPhotoUrl);
     authToken = prefs.getString(_kAuthToken);
     dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
+    pendingVerificationMobileNumber = prefs.getString(_kPendingVerificationMobileNumber);
+    rememberMe = prefs.getBool(_kRememberMe) ?? false;
+  }
+
+  /// True only when a cold-started app should skip straight to the
+  /// dashboard instead of role selection/login.
+  bool get hasRememberedSession => rememberMe && authToken != null;
+
+  /// Marks [mobileNumber] as awaiting ID verification, so a cold-started
+  /// app can be routed back to AboutAppScreen instead of role selection
+  /// until this is cleared (see [clearPendingVerification]).
+  Future<void> setPendingVerification(String mobileNumber) async {
+    pendingVerificationMobileNumber = mobileNumber;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPendingVerificationMobileNumber, mobileNumber);
+  }
+
+  /// Called once the commuter either logs in successfully (verification
+  /// is resolved) or explicitly chooses to go back to role selection.
+  Future<void> clearPendingVerification() async {
+    pendingVerificationMobileNumber = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kPendingVerificationMobileNumber);
   }
 
   Future<void> _persist() async {
@@ -102,6 +141,7 @@ class UserSession {
     } else {
       await prefs.remove(_kAuthToken);
     }
+    await prefs.setBool(_kRememberMe, rememberMe);
   }
 
   /// Called after a successful `POST /api/commuter/signup`. [mobileNumber]
@@ -139,6 +179,7 @@ class UserSession {
     DateTime? dateOfBirth,
     String? photoUrl,
     String? password,
+    bool rememberMe = false,
   }) async {
     this.mobileNumber = mobileNumber;
     this.authToken = authToken;
@@ -146,7 +187,13 @@ class UserSession {
     this.fullName = fullName;
     this.dateOfBirth = dateOfBirth;
     this.photoUrl = photoUrl;
+    this.rememberMe = rememberMe;
     if (password != null) this.password = password;
+
+    // A successful login only ever happens once verification is APPROVED
+    // (see POST /api/commuter/login), so any pending-verification marker
+    // from before is now stale.
+    await clearPendingVerification();
 
     // signOut() clears photoPath from memory (though not from disk) — so
     // without this, _persist() below would see photoPath == null and wipe
@@ -203,10 +250,12 @@ class UserSession {
     return true;
   }
 
-  /// Ends the current session WITHOUT deleting the account. Only the
-  /// in-memory fields (so `isSignedIn` flips to false right away) and the
-  /// "logged in" flag get cleared — the persisted copy stays on disk so
-  /// [loadFromPrefs] can find it again next time someone logs back in.
+  /// Ends the current session WITHOUT deleting the account. Most profile
+  /// fields stay on disk (name, mobile, DOB, photo) so a quick re-login
+  /// doesn't need retyping them — but [authToken] and [rememberMe] are
+  /// explicitly wiped from disk too, not just memory, so "Log Out" always
+  /// means the next app launch asks for a password again, remember-me or
+  /// not. [loadFromPrefs] on next login still finds the rest.
   Future<void> signOut() async {
     fullName = null;
     mobileNumber = null;
@@ -216,8 +265,11 @@ class UserSession {
     photoPath = null;
     photoUrl = null;
     authToken = null;
+    rememberMe = false;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLoggedInFlag, false);
+    await prefs.remove(_kAuthToken);
+    await prefs.remove(_kRememberMe);
   }
 }

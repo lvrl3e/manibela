@@ -5,11 +5,12 @@ import { StatCard } from '../components/StatCard';
 import { TrendChart, type TrendPoint } from '../components/TrendChart';
 import { VerificationBadge } from '../components/VerificationBadge';
 import { apiClient, ApiError } from '../lib/apiClient';
+import { usePolling } from '../lib/usePolling';
+import { formatManilaDate } from '../lib/formatDate';
 
 interface Stats {
   totalDrivers: number;
   totalCommuters: number;
-  commutersWithIdSubmitted: number;
   pendingVerifications: number;
   approvedVerifications: number;
   rejectedVerifications: number;
@@ -49,15 +50,6 @@ function PeopleIcon() {
   );
 }
 
-function BadgeCheckIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="m9 12 2 2 4-4" />
-      <circle cx="12" cy="12" r="9" />
-    </svg>
-  );
-}
-
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60_000);
@@ -67,7 +59,7 @@ function relativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatManilaDate(iso);
 }
 
 export default function DashboardPage() {
@@ -76,7 +68,7 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState<ActivityItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function fetchAll() {
     apiClient
       .get<Stats>('/api/admin/stats')
       .then(setStats)
@@ -89,7 +81,10 @@ export default function DashboardPage() {
       .get<{ activity: ActivityItem[] }>('/api/admin/activity?limit=8')
       .then((res) => setActivity(res.activity))
       .catch(() => {});
-  }, []);
+  }
+
+  useEffect(fetchAll, []);
+  usePolling(fetchAll, 8000);
 
   return (
     <DashboardLayout>
@@ -101,10 +96,9 @@ export default function DashboardPage() {
       {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
 
       {stats && (
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Total Drivers" value={stats.totalDrivers} icon={<DriverIcon />} />
           <StatCard label="Total Commuters" value={stats.totalCommuters} icon={<PeopleIcon />} />
-          <StatCard label="Commuters w/ ID Submitted" value={stats.commutersWithIdSubmitted} icon={<BadgeCheckIcon />} />
           <StatCard
             label="New Drivers (7d)"
             value={stats.newDriversThisWeek}

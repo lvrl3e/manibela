@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { toE164 } from '../utils/phone';
 import { isValidPlateNumber, normalizePlateNumber } from '../utils/plate';
+import { toTitleCase } from '../utils/text';
 import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
@@ -12,6 +13,7 @@ import { issueOtp, verifyOtp } from '../utils/otp';
 import { dateOnly, formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
 import { uploadPhoto, deleteUploadedPhoto } from '../middleware/upload';
+import { notifyDriver, notifyAdmin } from '../utils/notify';
 
 const router = Router();
 
@@ -35,6 +37,68 @@ function toPublicDriver(driver: {
   };
 }
 
+function toPublicTrip(trip: {
+  id: string;
+  driverId: string;
+  route: string | null;
+  status: string;
+  currentLat: number | null;
+  currentLng: number | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  isShortTrip: boolean;
+  flagReason: string | null;
+  driverExplanation: string | null;
+  explanationSubmittedAt: Date | null;
+  reviewStatus: string;
+  reviewedAt: Date | null;
+  adminReviewNote: string | null;
+}) {
+  return {
+    id: trip.id,
+    driverId: trip.driverId,
+    route: trip.route,
+    status: trip.status,
+    currentLat: trip.currentLat,
+    currentLng: trip.currentLng,
+    startedAt: trip.startedAt,
+    endedAt: trip.endedAt,
+    isShortTrip: trip.isShortTrip,
+    flagReason: trip.flagReason,
+    driverExplanation: trip.driverExplanation,
+    explanationSubmittedAt: trip.explanationSubmittedAt,
+    reviewStatus: trip.reviewStatus,
+    reviewedAt: trip.reviewedAt,
+    // reviewedBy (an admin id) is deliberately left out — the driver has
+    // no use for it and no visibility into the admin table.
+    adminReviewNote: trip.adminReviewNote,
+  };
+}
+
+// A trip lasting under a minute is far more likely to be an
+// accidental/test tap of Start Trip immediately followed by End Trip
+// than a real completed run. Distance would sharpen this (a short trip
+// that still covered real distance is probably genuine), but this app
+// doesn't track a trip's traveled distance anywhere yet — only a live
+// currentLat/currentLng snapshot, not a path — so duration is the only
+// honest signal available. Server-side and fixed, not client-supplied,
+// so neither the Flutter app nor any other caller can influence it.
+const SHORT_TRIP_THRESHOLD_MS = 60_000;
+
+function computeShortTripFlag(startedAt: Date, endedAt: Date): { isShortTrip: boolean; flagReason: string | null } {
+  const durationMs = endedAt.getTime() - startedAt.getTime();
+  if (durationMs >= SHORT_TRIP_THRESHOLD_MS) {
+    return { isShortTrip: false, flagReason: null };
+  }
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return {
+    isShortTrip: true,
+    flagReason: `Trip lasted ${minutes}m ${seconds}s, below the 60-second minimum.`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // SIGN UP
 // ---------------------------------------------------------------------------
@@ -45,7 +109,7 @@ function toPublicDriver(driver: {
 // operator role before this ever goes further than local dev.
 
 const signupSchema = z.object({
-  fullName: z.string().trim().min(1),
+  fullName: z.string().trim().min(1).transform(toTitleCase),
   mobileNumber: z.string().trim().min(1),
   password: z.string().min(8),
   plateNumber: z
@@ -54,7 +118,7 @@ const signupSchema = z.object({
     .min(1)
     .transform((value) => normalizePlateNumber(value))
     .refine(isValidPlateNumber, {
-      message: 'Plate number must be 3 letters followed by 3 numbers (e.g. ABC123).',
+      message: 'Plate number must be 3 letters followed by 3 or 4 numbers (e.g. ABC123 or ABC1234).',
     }),
 });
 
@@ -113,6 +177,11 @@ router.post('/login', async (req, res, next) => {
     const valid = await bcrypt.compare(body.password, driver.passwordHash);
     if (!valid) {
       res.status(401).json({ error: 'Incorrect password.' });
+      return;
+    }
+
+    if (!driver.isActive) {
+      res.status(403).json({ error: 'This account has been deactivated. Contact your operator for help.' });
       return;
     }
 
@@ -222,7 +291,12 @@ router.get('/me', requireAuth('driver'), async (req, res, next) => {
 });
 
 const updateProfileSchema = z.object({
-  fullName: z.string().trim().min(1).optional(),
+  fullName: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .transform((value) => (value === undefined ? undefined : toTitleCase(value))),
   dateOfBirth: dateOnly.nullable().optional(),
   photoUrl: z.string().trim().min(1).nullable().optional(),
 });
@@ -378,6 +452,287 @@ router.patch('/me/password', requireAuth('driver'), async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// TRIPS — start/end + periodic location pings while active. This is what
+// actually persists a trip server-side; DriverActiveTrip on the Flutter
+// side still owns the in-app GPS-following UI, but now also calls these
+// so the admin live map (and passenger boarding counts below) reflect
+// something real instead of only existing on the driver's own device.
+// ---------------------------------------------------------------------------
+
+const startTripSchema = z.object({ route: z.string().trim().min(1).nullable().optional() });
+
+router.post('/trips/start', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const body = startTripSchema.parse(req.body);
+
+    const existingActive = await prisma.trip.findFirst({
+      where: { driverId: req.auth!.sub, status: 'ACTIVE' },
+    });
+    if (existingActive) {
+      res.json({ trip: toPublicTrip(existingActive) });
+      return;
+    }
+
+    // No "Trip Started" notification — the driver just tapped the button
+    // that caused this, so they already know; a notification for it would
+    // just be an echo. "Trip Completed" (below, in /trips/:id/end) stays,
+    // since it doubles as a record that the trip was actually recorded.
+    const trip = await prisma.trip.create({
+      data: { driverId: req.auth!.sub, route: body.route ?? null },
+    });
+
+    res.status(201).json({ trip: toPublicTrip(trip) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/trips/active', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const trip = await prisma.trip.findFirst({
+      where: { driverId: req.auth!.sub, status: 'ACTIVE' },
+    });
+    res.json({ trip: trip ? toPublicTrip(trip) : null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const tripLocationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+
+router.patch('/trips/:id/location', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const body = tripLocationSchema.parse(req.body);
+
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip || trip.driverId !== req.auth!.sub) {
+      res.status(404).json({ error: 'Trip not found.' });
+      return;
+    }
+    if (trip.status !== 'ACTIVE') {
+      res.status(400).json({ error: 'This trip has already ended.' });
+      return;
+    }
+
+    const updated = await prisma.trip.update({
+      where: { id },
+      data: { currentLat: body.lat, currentLng: body.lng, locationUpdatedAt: new Date() },
+    });
+
+    res.json({ trip: toPublicTrip(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/trips/:id/end', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip || trip.driverId !== req.auth!.sub) {
+      res.status(404).json({ error: 'Trip not found.' });
+      return;
+    }
+    if (trip.status !== 'ACTIVE') {
+      res.json({ trip: toPublicTrip(trip) });
+      return;
+    }
+
+    const endedAt = new Date();
+    const { isShortTrip, flagReason } = computeShortTripFlag(trip.startedAt, endedAt);
+
+    const updated = await prisma.trip.update({
+      where: { id },
+      data: { status: 'COMPLETED', endedAt, isShortTrip, flagReason },
+    });
+
+    await notifyDriver({
+      recipientId: req.auth!.sub,
+      title: 'Trip Completed',
+      message: updated.route ? `${updated.route} has ended.` : 'Your trip has ended.',
+      type: 'TRIP_COMPLETED',
+      referenceId: updated.id,
+    });
+
+    if (isShortTrip) {
+      const routeLabel = updated.route ?? 'your trip';
+      await notifyDriver({
+        recipientId: req.auth!.sub,
+        title: 'Short Trip Flagged',
+        message: `${routeLabel} was flagged as unusually short (${flagReason}). Tap to explain what happened.`,
+        type: 'TRIP_SHORT_FLAGGED',
+        referenceId: updated.id,
+      });
+
+      // Admins otherwise only find out once a driver bothers to submit an
+      // explanation (see PATCH /trips/:id/explanation) — this way a
+      // flagged trip that never gets explained still surfaces for review.
+      const driver = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
+      await notifyAdmin({
+        title: 'Short trip flagged',
+        message: `${driver?.fullName ?? 'A driver'} (${driver?.plateNumber ?? '—'})'s trip on ${routeLabel} was flagged as unusually short — needs review.`,
+        type: 'TRIP_SHORT_FLAGGED',
+        referenceId: updated.driverId,
+      });
+    }
+
+    res.json({ trip: toPublicTrip(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The two fixed routes this fleet services — see DRIVER_ROUTES's doc
+// comment in admin.ts for why this is hardcoded rather than a `SELECT
+// DISTINCT route` per driver.
+const DRIVER_ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig'] as const;
+
+// Completed trips only — the app's own Trip History screen has nothing to
+// show for a still-ACTIVE trip (that's what the dashboard/in-progress
+// screen are for). Backs DriverHistoryScreen's paginated list — "Load 20
+// initially, Load More for 20 more" is just this driver tapping through
+// increasing `page` values with `limit` fixed at 20, same page/limit
+// pagination the admin site's equivalent view uses (as `page`/`pageSize`
+// there — named differently only because that's this app's existing
+// per-platform convention, see GET /admin/trips).
+const tripHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  dateFrom: z.coerce.date().optional(),
+  dateTo: z.coerce.date().optional(),
+  route: z.enum(DRIVER_ROUTES).optional(),
+  flag: z.enum(['all', 'normal', 'short']).default('all'),
+});
+
+router.get('/trips', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const query = tripHistoryQuerySchema.parse(req.query);
+
+    const where = {
+      driverId: req.auth!.sub,
+      status: 'COMPLETED' as const,
+      ...(query.dateFrom || query.dateTo
+        ? { startedAt: { ...(query.dateFrom ? { gte: query.dateFrom } : {}), ...(query.dateTo ? { lt: query.dateTo } : {}) } }
+        : {}),
+      ...(query.route ? { route: query.route } : {}),
+      ...(query.flag === 'short' ? { isShortTrip: true } : query.flag === 'normal' ? { isShortTrip: false } : {}),
+    };
+
+    const [trips, totalTrips] = await Promise.all([
+      prisma.trip.findMany({
+        where,
+        orderBy: { startedAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      prisma.trip.count({ where }),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalTrips / query.limit));
+
+    res.json({
+      trips: trips.map(toPublicTrip),
+      currentPage: query.page,
+      pageSize: query.limit,
+      totalTrips,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      routes: DRIVER_ROUTES,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Single-trip lookup, scoped to the calling driver — backs
+// DriverTripDetailsScreen/DriverTripExplanationScreen's own polling (an
+// admin can review this exact trip while the driver is sitting on one of
+// those screens) and the notifications screen's "open the trip this
+// notification points at" navigation. Replaces the old pattern of
+// re-syncing this driver's *entire* trip history just to refresh or look
+// up one trip by id — the whole reason Trip History is paginated now is
+// that a full sync doesn't scale, so nothing else should do one either.
+router.get('/trips/:id', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip || trip.driverId !== req.auth!.sub) {
+      res.status(404).json({ error: 'Trip not found.' });
+      return;
+    }
+    res.json({ trip: toPublicTrip(trip) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const submitExplanationSchema = z.object({
+  explanation: z.string().trim().min(1, 'Explanation cannot be empty.').max(1000),
+});
+
+// A driver explaining why one of their own trips came in under the
+// short-trip threshold. Resubmittable (each call overwrites the previous
+// explanation + explanationSubmittedAt) so a driver can correct/expand
+// it, but only for a trip that (a) is actually theirs — checked below,
+// same as /trips/:id/end and /trips/:id/location, (b) was actually
+// flagged, and (c) hasn't been reviewed yet — once an admin has acted on
+// it, the explanation that call was based on is locked, so the app's own
+// "Update Explanation" button being disabled can't be bypassed by calling
+// this directly. Nothing here is writable by the driver besides the
+// explanation text itself (isShortTrip, flagReason, reviewStatus,
+// reviewedAt, adminReviewNote all stay admin/backend-only, see PATCH
+// /api/admin/trips/:id/review).
+router.patch('/trips/:id/explanation', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const body = submitExplanationSchema.parse(req.body);
+
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip || trip.driverId !== req.auth!.sub) {
+      res.status(404).json({ error: 'Trip not found.' });
+      return;
+    }
+    if (!trip.isShortTrip) {
+      res.status(400).json({ error: 'This trip was not flagged, so there is nothing to explain.' });
+      return;
+    }
+    if (trip.reviewStatus !== 'PENDING') {
+      res.status(400).json({ error: 'This trip has already been reviewed and can no longer be explained.' });
+      return;
+    }
+
+    const updated = await prisma.trip.update({
+      where: { id },
+      data: { driverExplanation: body.explanation, explanationSubmittedAt: new Date() },
+    });
+
+    // Lets admins know there's something to review without having to poll
+    // every driver's Trip History for one — mirrors the other ADMIN
+    // notifications in this app (see e.g. "New severe complaint filed" in
+    // commuter.ts). The driver record is only needed for this message; no
+    // need to require it earlier since a missing driver here would mean
+    // req.auth's own token no longer resolves, which requireAuth already
+    // guards against.
+    const driver = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
+    await notifyAdmin({
+      title: 'Driver explanation submitted',
+      message: `${driver?.fullName ?? 'A driver'} (${driver?.plateNumber ?? '—'}) explained their short trip on ${updated.route ?? 'an unnamed route'} — needs review.`,
+      type: 'TRIP_EXPLANATION_SUBMITTED',
+      referenceId: req.auth!.sub,
+    });
+
+    res.json({ trip: toPublicTrip(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // QR CODE
 // ---------------------------------------------------------------------------
 // The QR a driver shows encodes this opaque token, not their driverId
@@ -419,7 +774,179 @@ router.get('/verify-qr/:token', async (req, res, next) => {
       res.status(404).json({ error: 'This QR code is not recognized.' });
       return;
     }
+
     res.json({ driver: toPublicDriver(driver) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DAILY OPERATIONS LOG — backs the Daily Operations / Weekly / Monthly
+// Analytics screens (see DriverDailyLog's doc comment in schema.prisma).
+// The app already has a local (SharedPreferences) version of this; these
+// endpoints let it sync instead of being the sole source of truth.
+// ---------------------------------------------------------------------------
+
+// Local getters deliberately, not UTC — this server is assumed to run in
+// PH time (see this file's other "today" comments), so the local
+// calendar day IS the PH calendar day. Built via Date.UTC (not
+// `new Date(y, m, d)`) so this round-trips losslessly through
+// DriverDailyLog.date, a `@db.Date` column: Prisma extracts a Date
+// object's UTC calendar components when writing one, and a plain local-
+// midnight Date is one UTC day *earlier* than intended for any positive
+// UTC offset (PH is UTC+8) — the exact class of bug `dateOnly` in
+// utils/date.ts already exists to avoid for dateOfBirth. Confirmed live:
+// this used to store "today's" log under yesterday's date every time.
+function todayDateOnly(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+function toPublicDailyLog(log: {
+  id: string;
+  date: Date;
+  startOdo: number;
+  endOdo: number;
+  earnings: number;
+  fuelExpense: number;
+  otherExpenses: number;
+}) {
+  return {
+    id: log.id,
+    date: formatDateOnly(log.date),
+    startOdo: log.startOdo,
+    endOdo: log.endOdo,
+    earnings: log.earnings,
+    fuelExpense: log.fuelExpense,
+    otherExpenses: log.otherExpenses,
+  };
+}
+
+const dailyLogSchema = z.object({
+  startOdo: z.number().min(0),
+  endOdo: z.number().min(0),
+  earnings: z.number().min(0),
+  fuelExpense: z.number().min(0).default(0),
+  otherExpenses: z.number().min(0).default(0),
+});
+
+// Always writes to *today's* row (server-side "today" — this machine runs
+// in PH time, matching the app's audience) — a driver can revise it as
+// many times as they like before the day is over, never picks a date.
+router.put('/daily-log', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const body = dailyLogSchema.parse(req.body);
+    if (body.endOdo < body.startOdo) {
+      res.status(400).json({ error: 'End odometer must be at least the start odometer.' });
+      return;
+    }
+
+    const date = todayDateOnly();
+    const log = await prisma.driverDailyLog.upsert({
+      where: { driverId_date: { driverId: req.auth!.sub, date } },
+      update: body,
+      create: { driverId: req.auth!.sub, date, ...body },
+    });
+
+    res.json({ dailyLog: toPublicDailyLog(log) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const dailyLogQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(366).default(31),
+});
+
+router.get('/daily-log', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const query = dailyLogQuerySchema.parse(req.query);
+    // UTC-constructed from local calendar components, same reasoning as
+    // todayDateOnly() above — filters a `@db.Date` column, so a plain
+    // local-midnight Date would cut the window off one day too early.
+    const localToday = new Date();
+    const since = new Date(
+      Date.UTC(localToday.getFullYear(), localToday.getMonth(), localToday.getDate() - query.days),
+    );
+
+    const logs = await prisma.driverDailyLog.findMany({
+      where: { driverId: req.auth!.sub, date: { gte: since } },
+      orderBy: { date: 'desc' },
+    });
+
+    res.json({ dailyLogs: logs.map(toPublicDailyLog) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/today-stats', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [tripsToday, todayLog] = await Promise.all([
+      prisma.trip.count({ where: { driverId: req.auth!.sub, startedAt: { gte: startOfToday } } }),
+      prisma.driverDailyLog.findUnique({
+        where: { driverId_date: { driverId: req.auth!.sub, date: todayDateOnly() } },
+      }),
+    ]);
+
+    res.json({
+      tripsToday,
+      earningsToday: todayLog?.earnings ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS — server-triggered async events (see Notification's doc
+// comment in schema.prisma), merged client-side with each app's own local
+// notifications.
+// ---------------------------------------------------------------------------
+
+const notificationsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+router.get('/notifications', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const query = notificationsQuerySchema.parse(req.query);
+    const where = { recipientId: req.auth!.sub };
+    const [notifications, totalNotifications] = await Promise.all([
+      prisma.driverNotification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      prisma.driverNotification.count({ where }),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(totalNotifications / query.pageSize));
+    res.json({
+      notifications,
+      currentPage: query.page,
+      pageSize: query.pageSize,
+      totalNotifications,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/notifications/mark-read', requireAuth('driver'), async (req, res, next) => {
+  try {
+    await prisma.driverNotification.updateMany({
+      where: { recipientId: req.auth!.sub, isRead: false },
+      data: { isRead: true },
+    });
+    res.json({ message: 'Marked read.' });
   } catch (err) {
     next(err);
   }

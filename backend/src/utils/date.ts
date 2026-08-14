@@ -34,3 +34,17 @@ export function formatDateOnly(date: Date): string {
   const day = date.getUTCDate().toString().padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+const manilaTimeFormatter = new Intl.DateTimeFormat('en-PH', {
+  timeZone: 'Asia/Manila',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+/** e.g. "7:25 AM" — for notification message text, pinned to PH-local
+ * time regardless of where the backend process happens to run (mirrors
+ * the admin site's own formatManilaTime in lib/formatDate.ts). */
+export function formatManilaTime(date: Date): string {
+  return manilaTimeFormatter.format(date);
+}

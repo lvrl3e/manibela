@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -7,8 +9,6 @@ import '../../../core/services/driver_session.dart';
 import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../driver/screens/driver_dashboard_screen.dart';
-import '../../driver/screens/driver_history_screen.dart';
-import '../../driver/screens/driver_notifications_screen.dart';
 import 'forgot_password_screen.dart';
 import 'role_selection_screen.dart';
 
@@ -30,6 +30,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
   bool _isPasswordObscured = true;
   bool _isLoading = false;
+  bool _rememberMe = true;
 
   final RegExp _phoneRegExp = RegExp(r'^\+63\d{10}$');
 
@@ -109,15 +110,15 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
         dateOfBirth: DateOnly.tryParse(dobRaw),
         photoUrl: driver['photoUrl'] as String?,
         password: _passwordController.text,
+        rememberMe: _rememberMe,
       );
 
       // ---------------------------------------------------------------------
       // LOAD DRIVER DATA
       // ---------------------------------------------------------------------
 
-      await DriverHistoryScreen.loadFromPrefs();
-      await DriverNotificationsScreen.loadFromPrefs();
       await DriverOperationsLog.loadFromPrefs();
+      unawaited(DriverOperationsLog.syncFromBackend());
 
       if (!mounted) return;
 
@@ -407,29 +408,57 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                   // FORGOT PASSWORD
                   // =========================================================
 
-                  Align(
-                    alignment: Alignment.centerRight,
-
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const ForgotPasswordScreen(
-                              isDriver: true,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      InkWell(
+                        onTap: () => setState(() => _rememberMe = !_rememberMe),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: Checkbox(
+                                value: _rememberMe,
+                                onChanged: (v) => setState(() => _rememberMe = v ?? true),
+                                activeColor: AppColors.logoBlue,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-
-                      child: const Text(
-                        'Forgot Password?',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.logoBlue,
+                            const SizedBox(width: 6),
+                            const Text(
+                              'Remember Me',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ForgotPasswordScreen(
+                                isDriver: true,
+                              ),
+                            ),
+                          );
+                        },
+
+                        child: const Text(
+                          'Forgot Password?',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.logoBlue,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 24),

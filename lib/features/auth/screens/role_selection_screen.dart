@@ -129,7 +129,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                   // Driver Option
                   RoleSelectionCard(
                     title: 'Driver',
-                    subtitle: 'Broadcast your route & passenger count',
+                    subtitle: 'Broadcast your live route',
                     icon: Icons.directions_car_filled_rounded,
                     isSelected: _selectedRole == UserRole.driver,
                     onTap: () {
@@ -143,7 +143,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                   // Commuter Option
                   RoleSelectionCard(
                     title: 'Commuter',
-                    subtitle: 'Broadcast your route & passenger count',
+                    subtitle: 'Broadcast your live route',
                     icon: Icons.groups_rounded,
                     isSelected: _selectedRole == UserRole.commuter,
                     onTap: () {

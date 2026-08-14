@@ -14,12 +14,16 @@ const String _baseUrl = 'http://localhost:4000';
 
 /// Thrown for any non-2xx response; [message] is the backend's own
 /// `{ "error": "..." }` text when available, so callers can show it
-/// directly instead of a generic "something went wrong".
+/// directly instead of a generic "something went wrong". [body] is the
+/// full decoded response, for the rarer case where an error response
+/// carries more than just the message (e.g. a login blocked pending
+/// verification also returns `verificationStatus`).
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(this.message, {this.statusCode, this.body});
 
   final String message;
   final int? statusCode;
+  final Map<String, dynamic>? body;
 
   @override
   String toString() => message;
@@ -29,6 +33,14 @@ class ApiException implements Exception {
 /// decoded `Map<String, dynamic>` and never touch `http` directly.
 class ApiClient {
   const ApiClient._();
+
+  /// Set once at app startup (see SessionGuard.install in main.dart) —
+  /// called whenever any response comes back with
+  /// `code: "ACCOUNT_DEACTIVATED"` (see requireAuth in the backend's
+  /// auth.ts), so a deactivation forces an immediate logout no matter
+  /// which screen — or background polling Timer, with no BuildContext of
+  /// its own — happened to be the one that discovered it.
+  static void Function()? onAccountDeactivated;
 
   static Future<Map<String, dynamic>> post(
     String path,
@@ -48,6 +60,22 @@ class ApiClient {
     String? token,
   }) {
     return _send('PATCH', path, body: body, token: token);
+  }
+
+  static Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, dynamic>? body,
+    String? token,
+  }) {
+    return _send('DELETE', path, body: body, token: token);
+  }
+
+  static Future<Map<String, dynamic>> put(
+    String path,
+    Map<String, dynamic> body, {
+    String? token,
+  }) {
+    return _send('PUT', path, body: body, token: token);
   }
 
   /// Turns a relative path the backend returned (e.g. a `photoUrl` like
@@ -147,6 +175,10 @@ class ApiClient {
           response = await http.post(uri, headers: headers, body: jsonEncode(body));
         case 'PATCH':
           response = await http.patch(uri, headers: headers, body: jsonEncode(body));
+        case 'PUT':
+          response = await http.put(uri, headers: headers, body: jsonEncode(body));
+        case 'DELETE':
+          response = await http.delete(uri, headers: headers, body: body != null ? jsonEncode(body) : null);
         default:
           response = await http.get(uri, headers: headers);
       }
@@ -171,7 +203,10 @@ class ApiClient {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = decoded?['error'] as String? ?? 'Something went wrong.';
-      throw ApiException(message, statusCode: response.statusCode);
+      if (decoded?['code'] == 'ACCOUNT_DEACTIVATED') {
+        onAccountDeactivated?.call();
+      }
+      throw ApiException(message, statusCode: response.statusCode, body: decoded);
     }
 
     return decoded ?? const {};

@@ -29,7 +29,7 @@ cd admin
 npm install
 ```
 
-No admin account exists by default either — use `npm run create-admin`
+No admin account exists by default either — use `npm run create-admin` "Full Name" "email@example.com" "Password123!"
 (below, run from `backend/`) to make one before you can sign in.
 
 ## Running things day-to-day
@@ -59,7 +59,7 @@ docker compose down           # stop Postgres (data persists in its volume)
 Schema changes: edit `backend/prisma/schema.prisma`, then either:
 
 ```powershell
-npx prisma migrate dev --name some_change   # interactive — only works in a real terminal
+npx prisma migrate dev --name some_change   # interactive # interactive — only works in a real terminal
 ```
 
 or, if that's non-interactive-blocked (e.g. run through an agent), write the

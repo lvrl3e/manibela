@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
@@ -112,6 +114,10 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
 
     _fullNameController.addListener(_onFieldChanged);
     _mobileNumberController.addListener(_onFieldChanged);
+
+    unawaited(DriverSession.instance.refreshPlateNumber().then((_) {
+      if (mounted) setState(() {});
+    }));
   }
 
   @override
@@ -434,6 +440,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
                       label: 'Full Name',
                       controller: _fullNameController,
                       hintText: 'Enter your full name',
+                      textCapitalization: TextCapitalization.words,
                       validator: _validateFullName,
                     ),
                     const SizedBox(height: 12),
@@ -660,6 +667,7 @@ class _SettingsField extends StatelessWidget {
     required this.hintText,
     this.keyboardType,
     this.validator,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   final String label;
@@ -667,6 +675,7 @@ class _SettingsField extends StatelessWidget {
   final String hintText;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
+  final TextCapitalization textCapitalization;
 
   @override
   Widget build(BuildContext context) {
@@ -692,6 +701,7 @@ class _SettingsField extends StatelessWidget {
           TextFormField(
             controller: controller,
             keyboardType: keyboardType,
+            textCapitalization: textCapitalization,
             validator: validator,
             style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
             decoration: InputDecoration(
@@ -880,12 +890,15 @@ class _SecurityItem extends StatelessWidget {
           children: [
             Icon(icon, size: 22, color: AppColors.secondary),
             const SizedBox(width: 14),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: Colors.black,
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black,
+                ),
               ),
             ),
           ],

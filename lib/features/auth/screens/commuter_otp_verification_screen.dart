@@ -112,7 +112,6 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
         MaterialPageRoute(
           builder: (_) => CommuterVerificationScreen(
             signupTicket: ticket,
-            password: widget.password,
           ),
         ),
       );

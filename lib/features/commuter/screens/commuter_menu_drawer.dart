@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/avatar_image.dart';
 import 'emergency_hotlines_screen.dart';
 import 'commuter_history_screen.dart';
+import 'file_complaint_screen.dart';
 
 class CommuterMenuDrawer extends StatelessWidget {
   final String commuterName;
@@ -98,6 +99,28 @@ class CommuterMenuDrawer extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (_) => const EmergencyHotlinesScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    _buildMenuDivider(),
+
+                    // =====================================================
+                    // FILE A COMPLAINT
+                    // =====================================================
+                    _buildMenuButton(
+                      context: context,
+                      icon: Icons.report_gmailerrorred_rounded,
+                      label: "File a Complaint",
+                      iconColor: AppColors.secondary,
+                      onTap: () {
+                        Navigator.pop(context);
+
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const FileComplaintScreen(),
                           ),
                         );
                       },

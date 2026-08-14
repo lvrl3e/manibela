@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { VerificationBadge, type VerificationStatus } from '../components/VerificationBadge';
+import { CommuterRideHistorySection } from '../components/CommuterRideHistorySection';
 import { apiClient, ApiError } from '../lib/apiClient';
 
 interface CommuterDetail {
@@ -17,6 +18,8 @@ interface CommuterDetail {
   idBackUrl: string | null;
   selfieUrl: string | null;
   verificationStatus: VerificationStatus;
+  isActive: boolean;
+  totalSignals: number;
   createdAt: string;
 }
 
@@ -65,6 +68,21 @@ export default function CommuterDetailPage() {
     }
   }
 
+  async function handleToggleStatus() {
+    if (!commuter || isSubmitting) return;
+    setActionError(null);
+    setIsSubmitting(true);
+    try {
+      const nextActive = !commuter.isActive;
+      await apiClient.patch(`/api/admin/commuters/${commuter.id}/status`, { isActive: nextActive });
+      setCommuter({ ...commuter, isActive: nextActive });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <DashboardLayout>
       <Link to="/commuters" className="text-sm font-medium text-brand-blue hover:underline">
@@ -93,10 +111,30 @@ export default function CommuterDetailPage() {
                 </p>
               </div>
             </div>
-            <VerificationBadge status={commuter.verificationStatus} notSubmitted={!commuter.idFrontUrl} />
+            <div className="flex items-center gap-3">
+              <span
+                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  commuter.isActive ? 'bg-status-good-bg text-status-good' : 'bg-status-critical-bg text-status-critical'
+                }`}
+              >
+                {commuter.isActive ? 'Active' : 'Inactive'}
+              </span>
+              <VerificationBadge status={commuter.verificationStatus} notSubmitted={!commuter.idFrontUrl} />
+              <button
+                onClick={handleToggleStatus}
+                disabled={isSubmitting}
+                className={`rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  commuter.isActive
+                    ? 'border border-status-critical text-status-critical hover:bg-status-critical-bg'
+                    : 'bg-brand-blue text-white hover:brightness-110'
+                }`}
+              >
+                {isSubmitting ? 'Please wait...' : commuter.isActive ? 'Deactivate' : 'Reactivate'}
+              </button>
+            </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 rounded-xl border border-border-subtle bg-surface-card p-5 sm:grid-cols-3">
+          <div className="mt-6 grid grid-cols-1 gap-4 rounded-xl border border-border-subtle bg-surface-card p-5 sm:grid-cols-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Date of Birth</p>
               <p className="mt-1 text-sm text-gray-800">{commuter.dateOfBirth ?? '—'}</p>
@@ -108,6 +146,10 @@ export default function CommuterDetailPage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">ID Type</p>
               <p className="mt-1 text-sm text-gray-800">{commuter.idType ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ride Requests</p>
+              <p className="mt-1 text-sm text-gray-800">{commuter.totalSignals}</p>
             </div>
           </div>
 
@@ -146,6 +188,8 @@ export default function CommuterDetailPage() {
             <PhotoTile label="ID Back" url={commuter.idBackUrl} />
             <PhotoTile label="Selfie" url={commuter.selfieUrl} />
           </div>
+
+          <CommuterRideHistorySection commuterId={commuter.id} />
         </>
       )}
     </DashboardLayout>

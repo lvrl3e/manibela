@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -23,6 +25,29 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
   // 0 = current month, -1 = one month back, etc. Never allowed to go
   // positive (into the future).
   int _monthOffset = 0;
+
+  /// Keeps this screen live while it's open — same reasoning as
+  /// DriverWeeklyAnalyticsScreen's own poll timer.
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    DriverOperationsLog.syncFromBackend().then((_) {
+      if (mounted) setState(() {});
+    });
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      DriverOperationsLog.syncFromBackend().then((_) {
+        if (mounted) setState(() {});
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
 
   DateTime get _selectedMonth {
     final now = DateTime.now();

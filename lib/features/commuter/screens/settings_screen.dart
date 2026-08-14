@@ -8,6 +8,7 @@ import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/platform_utils.dart';
 import '../../auth/screens/phone_change_otp_screen.dart';
+import '../../auth/screens/role_selection_screen.dart';
 import 'change_password_screen.dart';
 
 /// Value returned by [SettingsScreen] via `Navigator.pop` when the user
@@ -309,6 +310,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // TODO: navigate to the two-factor authentication setup screen.
   }
 
+  Future<void> _handleDeleteAccount() async {
+    final passwordController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Account?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This permanently deletes your account and all its data. This cannot be undone.',
+              style: TextStyle(fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Enter your password to confirm'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete', style: TextStyle(color: Color(0xFFE23F3F), fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    if (passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your password.')),
+      );
+      return;
+    }
+
+    try {
+      await ApiClient.delete(
+        '/api/commuter/me',
+        body: {'password': passwordController.text},
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted) return;
+
+      await UserSession.instance.signOut();
+      if (!mounted) return;
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+        (route) => false,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _handleSave() async {
     final formValid = _formKey.currentState?.validate() ?? false;
     final dobError = _validateDateOfBirth(_dateOfBirth);
@@ -457,6 +524,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: 'Full Name',
                       controller: _fullNameController,
                       hintText: 'Enter your full name',
+                      textCapitalization: TextCapitalization.words,
                       validator: _validateFullName,
                     ),
                     const SizedBox(height: 12),
@@ -493,6 +561,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _SaveButton(
                       enabled: _hasChanges && !_isSaving,
                       onTap: _handleSave,
+                    ),
+                    const SizedBox(height: 24),
+                    const _SectionTitle(title: 'Danger Zone'),
+                    const SizedBox(height: 12),
+                    _SecurityItem(
+                      icon: Icons.delete_outline_rounded,
+                      label: 'Delete Account',
+                      color: const Color(0xFFE23F3F),
+                      onTap: _handleDeleteAccount,
                     ),
                   ],
                 ),
@@ -708,6 +785,7 @@ class _SettingsField extends StatelessWidget {
     required this.hintText,
     this.keyboardType,
     this.validator,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   final String label;
@@ -715,6 +793,7 @@ class _SettingsField extends StatelessWidget {
   final String hintText;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
+  final TextCapitalization textCapitalization;
 
   @override
   Widget build(BuildContext context) {
@@ -740,6 +819,7 @@ class _SettingsField extends StatelessWidget {
           TextFormField(
             controller: controller,
             keyboardType: keyboardType,
+            textCapitalization: textCapitalization,
             validator: validator,
             style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
             decoration: InputDecoration(
@@ -873,11 +953,16 @@ class _SecurityItem extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.color,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
+  /// Overrides both the icon and label color — used for the destructive
+  /// "Delete Account" entry. Null keeps the default blue/black styling.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -894,14 +979,17 @@ class _SecurityItem extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(icon, size: 22, color: AppColors.secondary),
+            Icon(icon, size: 22, color: color ?? AppColors.secondary),
             const SizedBox(width: 14),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: Colors.black,
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: color ?? Colors.black,
+                ),
               ),
             ),
           ],

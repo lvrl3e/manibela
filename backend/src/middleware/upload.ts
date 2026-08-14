@@ -13,6 +13,9 @@ const SUBDIR_BY_FIELD: Record<string, string> = {
   front: 'id-photos',
   back: 'id-photos',
   selfie: 'selfies',
+  attachment: 'complaint-attachments',
+  licenseFront: 'license-photos',
+  licenseBack: 'license-photos',
 };
 
 for (const subdir of new Set(Object.values(SUBDIR_BY_FIELD))) {
@@ -68,6 +71,26 @@ export const uploadSelfie = multer({
   limits: IMAGE_LIMITS,
   fileFilter: imageFileFilter,
 }).single('selfie');
+
+/** Optional photo evidence attached to a complaint. */
+export const uploadComplaintAttachment = multer({
+  storage,
+  limits: IMAGE_LIMITS,
+  fileFilter: imageFileFilter,
+}).single('attachment');
+
+/** Front/back of a driver's license — uploaded by an admin from the
+ * Driver Detail Panel (drivers have no self-serve doc upload, unlike a
+ * commuter's KYC docs). Either field alone is accepted, so an admin can
+ * add or replace just one side without re-uploading both. */
+export const uploadLicensePhotos = multer({
+  storage,
+  limits: IMAGE_LIMITS,
+  fileFilter: imageFileFilter,
+}).fields([
+  { name: 'licenseFront', maxCount: 1 },
+  { name: 'licenseBack', maxCount: 1 },
+]);
 
 /** Deletes a previously-uploaded photo, keyed by its stored `/uploads/...`
  * path (e.g. `/uploads/profile-photos/xyz.jpg`) — silently no-ops if it's

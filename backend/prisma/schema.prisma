@@ -19,6 +19,29 @@ enum IdVerificationStatus {
   REJECTED
 }
 
+enum TripStatus {
+  ACTIVE
+  COMPLETED
+}
+
+/// Where a flagged trip stands in admin review. PENDING until an admin
+/// looks at it; REVIEWED is a neutral "looked at, no verdict yet" state
+/// distinct from the two verdicts (VALID/INVALID) — see POST
+/// /api/admin/trips/:id/review.
+enum TripReviewStatus {
+  PENDING
+  REVIEWED
+  VALID
+  INVALID
+}
+
+enum ComplaintStatus {
+  PENDING
+  INVESTIGATING
+  RESOLVED
+  REJECTED
+}
+
 model Commuter {
   id              String    @id @default(cuid())
   commuterId      String    @unique
@@ -51,6 +74,15 @@ model Commuter {
   /// — it's purely a manual review outcome.
   verificationStatus IdVerificationStatus?
 
+  /// Whether this account can log in — same enforcement point as
+  /// verificationStatus in POST /login. Defaults to false: a brand-new
+  /// signup isn't "active" until an admin approves its ID/selfie (see
+  /// POST /api/admin/commuters/:id/verify, which flips this to true
+  /// alongside verificationStatus). An admin can also flip it back to
+  /// false later to soft-disable an already-approved account without
+  /// deleting it.
+  isActive        Boolean   @default(false)
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
@@ -65,6 +97,13 @@ model Driver {
   dateOfBirth   DateTime? @db.Date
   photoUrl      String?
 
+  /// Front/back of this driver's license — unlike a commuter's KYC docs
+  /// (self-submitted at sign-up), drivers are admin-created with no
+  /// self-serve doc upload, so these are uploaded by an admin from the
+  /// Driver Detail Panel after the fact. Both null until then.
+  licenseFrontUrl String?
+  licenseBackUrl  String?
+
   /// Opaque random token encoded into this driver's QR code. Assigned
   /// once at account creation and permanent for the account's lifetime —
   /// no self-serve rotation. Nullable only so accounts created before
@@ -74,12 +113,195 @@ model Driver {
   /// encodes the driverId directly, which anyone could forge.
   qrToken       String?   @unique
 
+  /// Soft-disable — same as Commuter.isActive.
+  isActive      Boolean   @default(true)
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
 
+/// A single jeepney run — created when a driver taps "Start Trip" and
+/// closed when they end it. [currentLat]/[currentLng] are overwritten in
+/// place on each location ping while ACTIVE (no ping history table —
+/// this powers "where is this jeepney right now" on the admin live map,
+/// not a route-replay feature). There's deliberately no passenger count
+/// here — a jeepney's manifest isn't tracked per-person or per-boarding
+/// anywhere in this app, so a count would just be a guess dressed up as
+/// data.
+model Trip {
+  id         String     @id @default(cuid())
+  driverId   String
+  route      String?
+  status     TripStatus @default(ACTIVE)
+  currentLat Float?
+  currentLng Float?
+
+  /// Set alongside [currentLat]/[currentLng] on each real location ping
+  /// (see PATCH /api/driver/trips/:id/location) — never backfilled or
+  /// simulated. Powers Jeepney Monitoring's "Last Updated" column and
+  /// lets the admin map tell an actually-fresh position from a stale one,
+  /// since [currentLat]/[currentLng] alone don't carry a timestamp.
+  locationUpdatedAt DateTime?
+
+  startedAt  DateTime   @default(now())
+  endedAt    DateTime?
+
+  /// Set by the backend, never the client, the moment a trip ends (see
+  /// POST /api/driver/trips/:id/end) — an unusually short trip (currently:
+  /// under 60 seconds; would also weigh trip distance if this app ever
+  /// tracked one) is far more likely an accidental/test tap of Start Trip
+  /// immediately followed by End Trip than a real completed run. Flagged,
+  /// not hidden or auto-deleted — the record stays permanently and just
+  /// carries a review trail (see the fields below).
+  isShortTrip Boolean @default(false)
+
+  /// Auto-generated explanation of *why* the backend flagged this trip
+  /// (e.g. "Trip lasted 0m 34s, below the 60s minimum."). Distinct from
+  /// [driverExplanation] below, which is the driver's own account of what
+  /// happened. Null for trips that were never flagged.
+  flagReason String?
+
+  /// The flagged trip's driver's own account of what happened, submitted
+  /// via PATCH /api/driver/trips/:id/explanation. A driver may resubmit
+  /// to update it (each call overwrites both this and
+  /// [explanationSubmittedAt]) but can only ever do so for their own
+  /// trip — enforced by that endpoint checking driverId, not by anything
+  /// at this schema layer.
+  driverExplanation      String?
+  explanationSubmittedAt DateTime?
+
+  /// Admin review trail — set only via PATCH /api/admin/trips/:id/review,
+  /// never directly by a driver. [reviewedBy] is the reviewing Admin's id
+  /// (joined to a name/email at read time the same way driverId is
+  /// joined to a Driver elsewhere in this app — see loadDriversById).
+  /// [adminReviewNote] is required by that endpoint when [reviewStatus]
+  /// is set to INVALID, optional otherwise.
+  reviewStatus    TripReviewStatus @default(PENDING)
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  adminReviewNote String?
+
+  // Covers the dominant Trip History query shape on both platforms: "this
+  // driver's trips, optionally COMPLETED-only, newest first" — a leading
+  // driverId[, status] filter plus a startedAt-ordered scan, all from one
+  // index instead of a table scan, which is what actually keeps this fast
+  // once a driver has thousands/hundreds of thousands of trips. Replaces
+  // the old bare [driverId, status] index — any query that used to use
+  // that can use this one too (same leftmost columns), just faster once
+  // startedAt ordering/range-filtering is involved.
+  @@index([driverId, status, startedAt])
+  // Route/flag filtering (admin + driver Trip History) narrows within an
+  // already driverId-scoped query, so neither needs its own leading
+  // position — these cover "this driver's trips on this route" / "...
+  // that are/aren't flagged" without falling back to a full scan of one
+  // driver's (potentially huge) trip history.
+  @@index([driverId, route])
+  @@index([driverId, isShortTrip])
+  @@index([isShortTrip, reviewStatus])
+  // Also indexed, SQL-only (Prisma's schema DSL has no partial-index
+  // syntax): a `[driverId, startedAt DESC] WHERE "currentLat" IS NOT NULL`
+  // partial index for GET /admin/jeepneys's "most recently located trip
+  // per driver" query — see migration 20260814140000_pagination_indexes.
+}
+
+/// A commuter scanning a driver's QR code while that driver has an
+/// ACTIVE trip — the actual, honest signal that someone is riding
+/// (unlike the old anonymous per-scan counter this app used to have,
+/// which got removed because it wasn't tied to a real rider). "Currently
+/// on board" is read as: has a row here whose trip is still ACTIVE and
+/// [alightedAt] is still null — set when the commuter taps "Para Po" in
+/// the booking flow (see POST /api/commuter/alight), the app's existing
+/// "I'm about to get off" signal. A boarding is also implicitly over
+/// once the whole trip ends, Para Po or not.
+model TripBoarding {
+  id         String    @id @default(cuid())
+  tripId     String
+  commuterId String
+  boardedAt  DateTime  @default(now())
+  alightedAt DateTime?
+
+  @@unique([tripId, commuterId])
+  @@index([tripId])
+  // Widened from a bare [commuterId] index — covers GET
+  // /admin/commuters/:id/trips's "this commuter's ride history, newest
+  // first" query (filter + sort from one index) the same way Trip's
+  // [driverId, status, startedAt] does for Trip History.
+  @@index([commuterId, boardedAt])
+}
+
+/// A commuter tapping "request a ride here" — a point-in-time location,
+/// not a standing request that gets matched/fulfilled (there's no
+/// dispatch system). Read as a live/recent heatmap on the admin map, and
+/// as a per-day count for the Passenger Monitoring dashboard.
+model DemandSignal {
+  id         String   @id @default(cuid())
+  commuterId String
+  lat        Float
+  lng        Float
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// A commuter's complaint against a driver — plateNumber is what the
+/// commuter actually has on hand to identify who they're complaining
+/// about (there's no per-trip passenger manifest to pick from — see
+/// Trip's doc comment), resolved to a Driver row server-side at
+/// submission time.
+model Complaint {
+  id              String           @id @default(cuid())
+  complainantId   String
+  driverId        String
+  /// The specific ride this complaint is about, when filed from Trip
+  /// History (where the commuter picked one particular trip) rather than
+  /// the general "File a Complaint" flow (where they only know the
+  /// driver's plate). Null there since there's nothing to link — see
+  /// Trip's doc comment on why complaints aren't otherwise tied to a
+  /// trip. Only used to answer "have I already reported this trip?".
+  tripId          String?
+  complaintType   String
+  description     String
+  attachmentUrl   String?
+  status          ComplaintStatus  @default(PENDING)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Widened from a bare [status] index — covers GET /admin/complaints's
+  // paginated "optionally filtered by status, newest first" query (filter
+  // + sort from one index), same reasoning as Trip's
+  // [driverId, status, startedAt].
+  @@index([status, createdAt])
+  // Covers the same query's unfiltered ("All") case, where there's no
+  // status to lead with.
+  @@index([createdAt])
+  @@index([driverId])
+  @@index([tripId])
+}
+
+/// A commuter's 1-5 star rating of a driver for one specific ride —
+/// requires having actually boarded that trip (see TripBoarding), one
+/// rating per commuter per trip. [comment] mirrors the optional freeform
+/// note the app's rating sheet collects. Driver's average is computed
+/// on read (aggregate over this table), not denormalized anywhere.
+model Rating {
+  id         String   @id @default(cuid())
+  tripId     String
+  driverId   String
+  commuterId String
+  stars      Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@unique([tripId, commuterId])
+  @@index([driverId])
+}
+
 model OtpCode {
   id            String     @id @default(cuid())
+  /// A PH mobile number for commuter/driver purposes — or, for admin
+  /// PASSWORD_RESET, the admin's email. Just an opaque identifier string
+  /// as far as issueOtp/verifyOtp are concerned; not validated as a phone
+  /// number at this layer.
   mobileNumber  String
   code          String
   purpose       OtpPurpose
@@ -120,30 +342,141 @@ model PendingCommuterSignup {
 /// Commuter/Driver, logs in with email+password instead of a PH mobile
 /// number. Created via the create-admin CLI script (mirrors
 /// scripts/create-driver.ts); there's no self-registration for this role.
+/// Additional admins are created by the Main Admin from the Settings ->
+/// Admin Accounts UI (see POST /api/admin/admins) instead of the CLI once
+/// a Main Admin exists.
 model Admin {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   fullName     String
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  /// There is always exactly one MAIN_ADMIN (also enforced by a partial
+  /// unique index — see this model's migration) — full control over admin
+  /// accounts (create, change role, deactivate, reset password). Every
+  /// other account is a regular ADMIN, which has no admin-account-
+  /// management privileges of its own; see requireMainAdmin in
+  /// middleware/auth.ts, the only place this is ever checked. Bootstrapped
+  /// by scripts/create-admin.ts (the very first admin created becomes
+  /// MAIN_ADMIN); every admin created afterwards, from either the CLI or
+  /// the UI, is a regular ADMIN.
+  role         AdminRole @default(ADMIN)
+
+  /// Soft-disable — same as Driver/Commuter.isActive. The Main Admin can
+  /// never be deactivated (enforced in PATCH /admins/:id/status), so this
+  /// is only ever meaningful for a regular ADMIN.
+  isActive     Boolean   @default(true)
+
+  /// Set on every successful POST /login — surfaced in the Admin Accounts
+  /// table so the Main Admin can see who's actually using their access.
+  /// Null until an admin's first login.
+  lastLoginAt  DateTime?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
-/// A forgot-password request for an Admin account. Deliberately separate
-/// from OtpCode/OtpPurpose — those are keyed by PH mobile number for
-/// SMS-style OTPs, while this is an email-addressed single-use link
-/// token, matching how admin auth works differently from
-/// commuter/driver. No email provider is wired up yet, so like OTP codes
-/// today, the token is logged to the server console instead of actually
-/// being emailed.
-model AdminPasswordReset {
-  id        String   @id @default(cuid())
-  adminId   String
-  token     String   @unique
-  consumed  Boolean  @default(false)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+enum AdminRole {
+  MAIN_ADMIN
+  ADMIN
+}
 
-  @@index([adminId])
+/// A server-triggered notification for an async event the recipient
+/// might not be looking at the app for. Distinct from the purely local,
+/// client-generated notifications each app already keeps for in-session
+/// events (trip completed, trip started) — this is fetched from the
+/// backend and merged with those. Split into one table per recipient
+/// type (Driver/Commuter/Admin) rather than a single polymorphic table
+/// with a recipientType discriminator — each recipient's app only ever
+/// queries its own table, so there's no shared-table filtering, and each
+/// can evolve its own fields independently later without affecting the
+/// others.
+///
+/// [type]/[referenceId] let a client make a notification tappable — e.g.
+/// "TRIP_SHORT_FLAGGED", "TRIP_REVIEWED" (see notify*() call sites in
+/// utils/notify.ts for the full set in use). Both null for a notification
+/// with nothing to navigate to (e.g. "your plate number was updated").
+model DriverNotification {
+  id          String    @id @default(cuid())
+  recipientId String
+  title       String
+  message     String
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  type        String?
+  /// A Trip id — navigate to that trip's details.
+  referenceId String?
+
+  @@index([recipientId, isRead])
+  // Covers the paginated "this recipient's notifications, newest first"
+  // GET — [recipientId, isRead] above is for the mark-all-read bulk
+  // update, a different query shape.
+  @@index([recipientId, createdAt])
+}
+
+/// See DriverNotification's doc comment — same shape, commuter's own
+/// table.
+model CommuterNotification {
+  id          String    @id @default(cuid())
+  recipientId String
+  title       String
+  message     String
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  type        String?
+  referenceId String?
+
+  @@index([recipientId, isRead])
+  // Covers the paginated "this recipient's notifications, newest first"
+  // GET — [recipientId, isRead] above is for the mark-all-read bulk
+  // update, a different query shape.
+  @@index([recipientId, createdAt])
+}
+
+/// See DriverNotification's doc comment. No [recipientId] — admin's a
+/// small shared team, so every row broadcasts to all admins rather than
+/// targeting one; "mark read" is likewise a single shared flag per row,
+/// not per-admin.
+model AdminNotification {
+  id          String   @id @default(cuid())
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  type        String?
+  /// A Driver id — navigate to that driver's detail panel, since that's
+  /// where this app's trip review UI lives.
+  referenceId String?
+
+  @@index([isRead])
+  // Covers the paginated "all admin notifications, newest first" GET.
+  @@index([createdAt])
+}
+
+/// A driver's once-a-day self-reported summary — mirrors exactly what
+/// the Daily Operations screen already collects (start/end odometer,
+/// earnings, fuel, other expenses; distance/net-income/per-km figures
+/// are derived client-side from these, same as before). Earnings/fuel/
+/// expenses aren't tracked anywhere else in this app — jeepney fares
+/// are cash, collected continuously through a trip from many riders,
+/// not through any payment system — so this manual entry is the only
+/// honest source for them. Weekly/Monthly Analytics and the admin
+/// Operations Report are just date-range sums over these rows; trip
+/// *counts* for those same views come from the real Trip table instead,
+/// since those are honestly trackable. One row per driver per day —
+/// upserted, so a driver can revise today's entry before the day ends.
+model DriverDailyLog {
+  id            String   @id @default(cuid())
+  driverId      String
+  date          DateTime @db.Date
+  startOdo      Float
+  endOdo        Float
+  earnings      Float
+  fuelExpense   Float    @default(0)
+  otherExpenses Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([driverId, date])
+  @@index([driverId, date])
 }

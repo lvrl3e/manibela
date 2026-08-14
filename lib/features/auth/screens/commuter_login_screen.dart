@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
@@ -7,6 +9,7 @@ import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'commuter_signup_screen.dart';
+import 'commuter_verification_status_screen.dart';
 import 'forgot_password_screen.dart';
 import '../../commuter/screens/commuter_dashboard_screen.dart';
 import '../../commuter/screens/commuter_history_screen.dart';
@@ -27,6 +30,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
 
   bool obscurePassword = true;
   bool _isLoading = false;
+  bool _rememberMe = true;
 
   // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567)
   final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
@@ -89,6 +93,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
         dateOfBirth: DateOnly.tryParse(dobRaw),
         photoUrl: commuter['photoUrl'] as String?,
         password: passwordController.text,
+        rememberMe: _rememberMe,
       );
 
       final prefs = await SharedPreferences.getInstance();
@@ -99,6 +104,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
       // as empty.
       await CommuterHistoryScreen.loadFromPrefs();
       await NotificationsScreen.loadFromPrefs();
+      unawaited(CommuterHistoryScreen.syncFromBackend());
 
       if (!mounted) return;
 
@@ -122,6 +128,27 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
       setState(() {
         _isLoading = false;
       });
+
+      // Correct credentials, but the account isn't APPROVED yet — the
+      // backend withholds the token entirely in that case (see
+      // POST /api/commuter/login) rather than a generic error, so route
+      // to the status screen instead of just showing the message. This
+      // doubles as the "check again" flow: closing that screen comes
+      // back here, and trying to log in again re-runs this same check.
+      if (e.statusCode == 403 && e.body?.containsKey('verificationStatus') == true) {
+        await UserSession.instance.setPendingVerification(enteredPhoneE164);
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => CommuterVerificationStatusScreen(
+              status: e.body!['verificationStatus'] as String?,
+              mobileNumber: enteredPhoneE164,
+            ),
+          ),
+        );
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
@@ -301,24 +328,53 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
 
                       const SizedBox(height: 10),
 
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const ForgotPasswordScreen(),
-                              ),
-                            );
-                          },
-                          child: const Text(
-                            "Forgot Password?",
-                            style: TextStyle(
-                              color: AppColors.logoBlue,
-                              fontWeight: FontWeight.w600,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          InkWell(
+                            onTap: () => setState(() => _rememberMe = !_rememberMe),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: Checkbox(
+                                    value: _rememberMe,
+                                    onChanged: (v) => setState(() => _rememberMe = v ?? true),
+                                    activeColor: AppColors.logoBlue,
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Remember Me',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ForgotPasswordScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              "Forgot Password?",
+                              style: TextStyle(
+                                color: AppColors.logoBlue,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
 
                       const SizedBox(height: 10),

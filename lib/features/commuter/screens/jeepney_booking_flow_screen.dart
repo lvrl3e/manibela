@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/qr_constants.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/user_session.dart';
 import '../../../core/utils/fare_calculator.dart';
 import 'commuter_history_screen.dart';
 import 'notifications_screen.dart';
@@ -219,6 +220,11 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
 
   _JeepneyOption? _selectedJeepney;
 
+  // The real backend Trip id this booking was matched to, from /board's
+  // response — null if that call failed (offline, driver has no active
+  // trip, etc.), in which case this booking just won't sync anywhere.
+  String? _boardedTripId;
+
   bool _hasRated = false;
   bool _hasReported = false;
 
@@ -294,6 +300,27 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         );
       });
 
+      // Records the actual boarding (see TripBoarding's doc comment in
+      // schema.prisma) so admin's Passenger Monitoring can show who's
+      // really on board, and — via the returned tripId — so this booking's
+      // history entry, rating, and report all reference the real trip.
+      // Awaited (unlike a fire-and-forget best-effort call) purely to
+      // capture that id; a failure here still never blocks the "You're on
+      // Board!" UX below (e.g. the driver doesn't have an active trip
+      // right now, which is a real possibility this mocked flow doesn't
+      // check) — it just means this booking won't sync anywhere.
+      try {
+        final boardResponse = await ApiClient.post(
+          '/api/commuter/board',
+          {'qrToken': token},
+          token: UserSession.instance.authToken,
+        );
+        _boardedTripId = boardResponse['tripId'] as String?;
+      } catch (_) {
+        _boardedTripId = null;
+      }
+
+      if (!mounted) return;
       _simulateQrScan();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -335,6 +362,19 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
     final jeepney = _selectedJeepney;
     if (jeepney == null) return;
 
+    // Best-effort — this is the "I'm about to get off" signal (see
+    // TripBoarding.alightedAt's doc comment in schema.prisma), so admin's
+    // Passenger Monitoring drops this commuter from "Currently On Board"
+    // right away instead of waiting for the whole trip to end. Never
+    // blocks the dialog/UX below even if it fails.
+    unawaited(
+      ApiClient.post(
+        '/api/commuter/alight',
+        {},
+        token: UserSession.instance.authToken,
+      ).catchError((_) => <String, dynamic>{}),
+    );
+
     showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -354,7 +394,10 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
 
   // Adds this booking to the commuter's trip history as soon as the trip is
   // marked complete, so every booking — not just this session's view of it
-  // — shows up on the History screen afterwards.
+  // — shows up on the History screen afterwards. The "Trip Completed"
+  // notification itself now comes from the backend (triggered by the
+  // /alight call in _handleParaPo above), fetched the same way every other
+  // server-triggered notification is — no local push needed here anymore.
   void _recordTripInHistory() {
     final jeepney = _selectedJeepney;
     final route = _selectedRoute;
@@ -366,7 +409,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
 
     CommuterHistoryScreen.addTrip(
       TripHistoryItem(
-        tripId: 'TRIP-${now.millisecondsSinceEpoch}',
+        tripId: _boardedTripId ?? 'TRIP-${now.millisecondsSinceEpoch}',
         driverName: jeepney.driverName,
         plateNumber: jeepney.plateNumber,
         route: route,
@@ -376,16 +419,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         seniorRiders: fare.seniorRiders,
         dateTime: _formatHistoryDateTime(now),
         fare: fare.totalLabel,
-      ),
-    );
-
-    NotificationsScreen.push(
-      AppNotification(
-        icon: Icons.directions_bus_filled_rounded,
-        iconBackground: AppColors.logoBlue,
-        title: 'Trip Completed',
-        message: '$route trip completed. Fare: ${fare.totalLabel}.',
-        time: now,
+        boardedAt: now,
       ),
     );
   }
@@ -399,6 +433,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       isScrollControlled: true,
       builder: (ctx) => _RateDriverSheet(
         jeepney: jeepney,
+        tripId: _boardedTripId,
         onSubmit: (stars) {
           Navigator.of(ctx).pop();
           setState(() => _hasRated = true);
@@ -426,6 +461,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       isScrollControlled: true,
       builder: (ctx) => _ReportDriverSheet(
         jeepney: jeepney,
+        tripId: _boardedTripId,
         onSubmit: (reason, details, photo) {
           Navigator.of(ctx).pop();
           setState(() => _hasReported = true);
@@ -1863,9 +1899,10 @@ class _TripCompletedStep extends StatelessWidget {
 
 class _RateDriverSheet extends StatefulWidget {
   final _JeepneyOption jeepney;
+  final String? tripId;
   final ValueChanged<int> onSubmit;
 
-  const _RateDriverSheet({required this.jeepney, required this.onSubmit});
+  const _RateDriverSheet({required this.jeepney, required this.tripId, required this.onSubmit});
 
   @override
   State<_RateDriverSheet> createState() => _RateDriverSheetState();
@@ -1873,6 +1910,37 @@ class _RateDriverSheet extends StatefulWidget {
 
 class _RateDriverSheetState extends State<_RateDriverSheet> {
   int _stars = 5;
+  bool _isSubmitting = false;
+  String? _error;
+
+  Future<void> _handleSubmit() async {
+    final tripId = widget.tripId;
+    if (tripId == null) {
+      setState(() => _error = "This trip couldn't be verified — try rating it from Trip History instead.");
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+
+    try {
+      await ApiClient.post(
+        '/api/commuter/trips/$tripId/rating',
+        {'stars': _stars},
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted) return;
+      widget.onSubmit(_stars);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _error = e.message;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1920,10 +1988,18 @@ class _RateDriverSheetState extends State<_RateDriverSheet> {
                 );
               }),
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w600),
+              ),
+            ],
             const SizedBox(height: 20),
             _PrimaryButton(
-              label: 'Submit Rating',
-              onTap: () => widget.onSubmit(_stars),
+              label: _isSubmitting ? 'Submitting...' : 'Submit Rating',
+              onTap: _isSubmitting ? null : _handleSubmit,
             ),
           ],
         ),
@@ -1940,21 +2016,24 @@ class _RateDriverSheetState extends State<_RateDriverSheet> {
 
 class _ReportDriverSheet extends StatefulWidget {
   final _JeepneyOption jeepney;
+  final String? tripId;
   final void Function(String reason, String details, File? photo) onSubmit;
 
-  const _ReportDriverSheet({required this.jeepney, required this.onSubmit});
+  const _ReportDriverSheet({required this.jeepney, required this.tripId, required this.onSubmit});
 
   @override
   State<_ReportDriverSheet> createState() => _ReportDriverSheetState();
 }
 
 class _ReportDriverSheetState extends State<_ReportDriverSheet> {
+  // Matches the backend's COMPLAINT_TYPES enum exactly (see
+  // POST /api/commuter/complaints in commuter.ts) — sent as-is as
+  // complaintType, so this list can't drift from what the backend accepts.
   static const _reasons = [
-    'Reckless driving',
+    'Reckless Driving',
     'Overcharging',
-    'Rude behavior',
-    'Vehicle condition',
-    'Route violation',
+    'Rude Behavior',
+    'Route Deviation',
     'Other',
   ];
 
@@ -1962,6 +2041,8 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
   final TextEditingController _detailsController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   File? _photo;
+  bool _isSubmitting = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -2027,7 +2108,7 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
     );
   }
 
-  void _handleSubmit() {
+  Future<void> _handleSubmit() async {
     if (_selectedReason == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a reason.')),
@@ -2040,7 +2121,33 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
       );
       return;
     }
-    widget.onSubmit(_selectedReason!, _detailsController.text.trim(), _photo);
+
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+
+    try {
+      await ApiClient.uploadFiles(
+        '/api/commuter/complaints',
+        files: _photo != null ? {'attachment': _photo!.path} : {},
+        fields: {
+          'plateNumber': widget.jeepney.plateNumber,
+          if (widget.tripId != null) 'tripId': widget.tripId!,
+          'complaintType': _selectedReason!,
+          'description': _detailsController.text.trim(),
+        },
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted) return;
+      widget.onSubmit(_selectedReason!, _detailsController.text.trim(), _photo);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _error = e.message;
+      });
+    }
   }
 
   @override
@@ -2167,8 +2274,19 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
                         ),
                 ),
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w600),
+                ),
+              ],
               const SizedBox(height: 20),
-              _PrimaryButton(label: 'Submit Report', onTap: _handleSubmit),
+              _PrimaryButton(
+                label: _isSubmitting ? 'Submitting...' : 'Submit Report',
+                onTap: _isSubmitting ? null : _handleSubmit,
+              ),
             ],
           ),
         ),

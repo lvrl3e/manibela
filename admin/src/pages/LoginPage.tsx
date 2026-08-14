@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LogoMark } from '../components/Logo';
+import { EyeIcon } from '../components/EyeIcon';
 import { useAuth, ApiError } from '../lib/auth';
 
 function MailIcon() {
@@ -17,24 +18,6 @@ function LockIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <rect x="4" y="11" width="16" height="9" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  );
-}
-
-function EyeIcon({ open }: { open: boolean }) {
-  if (!open) {
-    return (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M3 3l18 18" />
-        <path d="M10.6 10.6a3 3 0 0 0 4.2 4.2" />
-        <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c5 0 9 4 10 7-.4 1.2-1.2 2.5-2.3 3.6M6.2 6.7C4.4 8 3.1 9.8 2 12c1 3 5 7 10 7 1.2 0 2.4-.2 3.5-.6" />
-      </svg>
-    );
-  }
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

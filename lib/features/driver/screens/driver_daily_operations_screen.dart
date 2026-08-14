@@ -21,6 +21,13 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
   late final TextEditingController _fuelController;
   late final TextEditingController _otherController;
 
+  /// True until the initial fresh sync (see initState) resolves — the
+  /// form is always built from whatever's cached locally (instant, never
+  /// blank on a slow connection); this only drives a small non-blocking
+  /// "Checking for updates..." hint so the driver isn't left wondering
+  /// why their fields briefly changed if the sync corrects something.
+  bool _isSyncing = true;
+
   @override
   void initState() {
     super.initState();
@@ -34,7 +41,34 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
     for (final c in [_startOdoController, _endOdoController, _earningsController, _fuelController, _otherController]) {
       c.addListener(_onFieldChanged);
     }
+
+    // A fresh sync before this form is really usable — if today's entry
+    // (or the lack of one) changed on the backend since the last sync
+    // (e.g. an admin deleted it directly in the database), the driver
+    // should see that reflected, not a stale local copy pre-filled into
+    // the fields they're about to edit. Only re-populates the fields if
+    // the driver hasn't already started typing (see _dirty) — a slow
+    // sync shouldn't be able to clobber input made in the meantime.
+    DriverOperationsLog.syncFromBackend().then((_) {
+      if (!mounted) return;
+      setState(() {
+        if (!_dirty) {
+          final refreshed = DriverOperationsLog.todayEntry;
+          _startOdoController.text = _numOrEmpty(refreshed?.startOdo);
+          _endOdoController.text = _numOrEmpty(refreshed?.endOdo);
+          _earningsController.text = _numOrEmpty(refreshed?.totalEarnings);
+          _fuelController.text = _numOrEmpty(refreshed?.fuelExpense);
+          _otherController.text = _numOrEmpty(refreshed?.otherExpenses);
+        }
+        _isSyncing = false;
+      });
+    });
   }
+
+  /// Whether the driver has touched any field since this screen opened —
+  /// checked by the post-sync refresh above so it never overwrites input
+  /// made while the sync was still in flight.
+  bool _dirty = false;
 
   String _numOrEmpty(double? value) {
     if (value == null || value == 0) return '';
@@ -50,7 +84,7 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
     super.dispose();
   }
 
-  void _onFieldChanged() => setState(() {});
+  void _onFieldChanged() => setState(() => _dirty = true);
 
   double _parse(TextEditingController c) => double.tryParse(c.text.trim()) ?? 0;
 
@@ -100,6 +134,14 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_isSyncing)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: Text(
+                        'Checking for updates...',
+                        style: TextStyle(fontSize: 10, color: Colors.black38, fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),

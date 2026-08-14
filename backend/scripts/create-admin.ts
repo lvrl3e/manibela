@@ -2,16 +2,18 @@ import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 
 import { prisma } from '../src/lib/prisma';
+import { toTitleCase } from '../src/utils/text';
 
 async function main() {
-  const [fullName, rawEmail, password] = process.argv.slice(2);
+  const [rawFullName, rawEmail, password] = process.argv.slice(2);
 
-  if (!fullName || !rawEmail || !password) {
+  if (!rawFullName || !rawEmail || !password) {
     console.error('Usage: npm run create-admin -- "Full Name" "email@example.com" "Password123!"');
     process.exitCode = 1;
     return;
   }
 
+  const fullName = toTitleCase(rawFullName);
   const email = rawEmail.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     console.error(`"${rawEmail}" isn't a valid email address.`);
@@ -32,14 +34,23 @@ async function main() {
     return;
   }
 
+  // The very first admin ever created becomes the Main Admin (see
+  // AdminRole's doc comment in schema.prisma) — there's no other bootstrap
+  // path, since admin accounts can't self-register. Every admin created
+  // afterwards, from here or from the Main Admin's own Settings ->
+  // Admin Accounts UI, is a regular ADMIN.
+  const adminCount = await prisma.admin.count();
+  const role = adminCount === 0 ? 'MAIN_ADMIN' : 'ADMIN';
+
   const passwordHash = await bcrypt.hash(password, 10);
   const admin = await prisma.admin.create({
-    data: { fullName, email, passwordHash },
+    data: { fullName, email, passwordHash, role },
   });
 
   console.log('Admin account created:');
   console.log(`  fullName: ${admin.fullName}`);
   console.log(`  email:    ${admin.email}`);
+  console.log(`  role:     ${admin.role}`);
 }
 
 main()

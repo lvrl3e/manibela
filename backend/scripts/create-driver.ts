@@ -6,11 +6,12 @@ import { toE164 } from '../src/utils/phone';
 import { isValidPlateNumber, normalizePlateNumber } from '../src/utils/plate';
 import { generateDriverId } from '../src/utils/driverId';
 import { generateQrToken } from '../src/utils/qrToken';
+import { toTitleCase } from '../src/utils/text';
 
 async function main() {
-  const [fullName, rawMobileNumber, password, rawPlateNumber] = process.argv.slice(2);
+  const [rawFullName, rawMobileNumber, password, rawPlateNumber] = process.argv.slice(2);
 
-  if (!fullName || !rawMobileNumber || !password || !rawPlateNumber) {
+  if (!rawFullName || !rawMobileNumber || !password || !rawPlateNumber) {
     console.error(
       'Usage: npm run create-driver -- "Full Name" "09XXXXXXXXX" "Password123!" "ABC123"',
     );
@@ -21,12 +22,13 @@ async function main() {
   const plateNumber = normalizePlateNumber(rawPlateNumber);
   if (!isValidPlateNumber(plateNumber)) {
     console.error(
-      `"${rawPlateNumber}" isn't a valid plate — expected 3 letters followed by 3 numbers (e.g. ABC123).`,
+      `"${rawPlateNumber}" isn't a valid plate — expected 3 letters followed by 3 or 4 numbers (e.g. ABC123 or ABC1234).`,
     );
     process.exitCode = 1;
     return;
   }
 
+  const fullName = toTitleCase(rawFullName);
   const mobileNumber = toE164(rawMobileNumber);
 
   const existing = await prisma.driver.findUnique({ where: { mobileNumber } });

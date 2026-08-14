@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,8 +10,8 @@ import 'jeepney_booking_flow_screen.dart';
 import 'commuter_menu_drawer.dart';
 import 'settings_screen.dart';
 import 'notifications_screen.dart';
-import 'commuter_history_screen.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/widgets/logout_confirmation_sheet.dart';
 import '../../auth/screens/commuter_login_screen.dart';
 
 const Color _kBlueDark = Color(0xFF0F3EA6);
@@ -42,10 +44,28 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   bool _locatingInProgress = true;
   String? _locationError;
 
+  /// Re-fetches notifications on a timer so the bell badge picks up
+  /// server-triggered events (e.g. a complaint resolution) that happen
+  /// while the commuter is just sitting on the dashboard — mirrors
+  /// DriverDashboardScreen's own polling timer, same reasoning: without
+  /// this, nothing here would learn about them until some other action
+  /// happened to call fetchRemote() again.
+  Timer? _notificationPollTimer;
+
   @override
   void initState() {
     super.initState();
     _resolveCurrentLocation();
+    // So the bell badge reflects real unread notifications right away,
+    // not just after the bell is tapped.
+    NotificationsScreen.fetchRemote().then((_) {
+      if (mounted) setState(() {});
+    });
+    _notificationPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      NotificationsScreen.fetchRemote().then((_) {
+        if (mounted) setState(() {});
+      });
+    });
   }
 
   Future<void> _resolveCurrentLocation({bool showErrors = false}) async {
@@ -121,9 +141,13 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   }
 
   Future<void> _handleLogout(BuildContext context) async {
+    final confirmed = await showLogoutConfirmationSheet(context);
+    if (!confirmed || !context.mounted) return;
+
+    // Trip history and notifications persist across logout now, same as
+    // the rest of the account data UserSession.signOut() already keeps on
+    // disk — they're account data, not session-scoped.
     await UserSession.instance.signOut();
-    await CommuterHistoryScreen.clearOnLogout();
-    await NotificationsScreen.clearOnLogout();
 
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -158,6 +182,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
     });
   }
 
+
   void _handleBook(BuildContext context) {
     Navigator.push(
       context,
@@ -165,6 +190,19 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
         builder: (_) => JeepneyBookingFlowScreen(commuterName: _commuterName),
       ),
     );
+  }
+
+  // Marks everything read (clearing the bell badge) right when it's
+  // tapped, rather than waiting for the feed screen to fully open.
+  Future<void> _openNotifications(BuildContext context) async {
+    // Fetch first so the "mark read" call below covers anything that
+    // arrived since the last fetch, not just what was already cached.
+    await NotificationsScreen.fetchRemote();
+    await NotificationsScreen.markAllRead();
+    if (!mounted) return;
+    setState(() {});
+    if (!context.mounted) return;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
   }
 
   void _recenterMap() {
@@ -243,12 +281,8 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
                   ),
                   _RoundIconButton(
                     icon: Icons.notifications_none_rounded,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const NotificationsScreen(),
-                      ),
-                    ),
+                    badgeCount: NotificationsScreen.unreadCount,
+                    onTap: () => _openNotifications(context),
                   ),
                 ],
               ),
@@ -332,6 +366,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
 
   @override
   void dispose() {
+    _notificationPollTimer?.cancel();
     _mapController.dispose();
     super.dispose();
   }
@@ -405,24 +440,49 @@ class _StatusPill extends StatelessWidget {
 class _RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+  final int badgeCount;
 
-  const _RoundIconButton({required this.icon, required this.onTap});
+  const _RoundIconButton({required this.icon, required this.onTap, this.badgeCount = 0});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      shape: const CircleBorder(),
-      elevation: 3,
-      shadowColor: Colors.black26,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Icon(icon, size: 22, color: Colors.black87),
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          elevation: 3,
+          shadowColor: Colors.black26,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Icon(icon, size: 22, color: Colors.black87),
+            ),
+          ),
         ),
-      ),
+        if (badgeCount > 0)
+          Positioned(
+            top: -2,
+            right: -2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              constraints: const BoxConstraints(minWidth: 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE23F3F),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: Text(
+                badgeCount > 9 ? '9+' : '$badgeCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

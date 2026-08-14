@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/user_session.dart';
 import '../../../core/utils/fare_calculator.dart';
 import 'notifications_screen.dart';
 
@@ -24,6 +26,19 @@ class TripHistoryItem {
   final String dateTime;
   final String fare;
 
+  /// Raw boarding timestamp — [dateTime] is a pre-formatted display string
+  /// that isn't safely re-parseable, so this is what merge/sort against
+  /// [syncFromBackend] actually uses.
+  final DateTime boardedAt;
+
+  /// The driver's average rating and how many ratings it's based on — from
+  /// the backend's real Rating table (see [CommuterHistoryScreen.syncFromBackend]),
+  /// null/0 until a sync has actually happened. Fare/rider counts stay
+  /// purely local (self-reported, no payment system to verify against),
+  /// but a rating is real, durable data once submitted, so this isn't.
+  final double? driverAverageRating;
+  final int driverRatingCount;
+
   const TripHistoryItem({
     required this.tripId,
     required this.driverName,
@@ -35,6 +50,9 @@ class TripHistoryItem {
     required this.seniorRiders,
     required this.dateTime,
     required this.fare,
+    required this.boardedAt,
+    this.driverAverageRating,
+    this.driverRatingCount = 0,
   });
 
   FareBreakdown get fareBreakdown => FareBreakdown(
@@ -56,6 +74,9 @@ class TripHistoryItem {
         'seniorRiders': seniorRiders,
         'dateTime': dateTime,
         'fare': fare,
+        'boardedAt': boardedAt.toIso8601String(),
+        'driverAverageRating': driverAverageRating,
+        'driverRatingCount': driverRatingCount,
       };
 
   static TripHistoryItem _fromJson(Map<String, dynamic> json) => TripHistoryItem(
@@ -69,6 +90,11 @@ class TripHistoryItem {
         seniorRiders: json['seniorRiders'] as int,
         dateTime: json['dateTime'] as String,
         fare: json['fare'] as String,
+        // Older persisted entries (from before this field existed) won't
+        // have it — fall back to "now" rather than crash on load.
+        boardedAt: json['boardedAt'] != null ? DateTime.parse(json['boardedAt'] as String) : DateTime.now(),
+        driverAverageRating: (json['driverAverageRating'] as num?)?.toDouble(),
+        driverRatingCount: json['driverRatingCount'] as int? ?? 0,
       );
 }
 
@@ -76,7 +102,7 @@ class TripHistoryItem {
 // COMMUTER HISTORY SCREEN
 // ===========================================================================
 
-class CommuterHistoryScreen extends StatelessWidget {
+class CommuterHistoryScreen extends StatefulWidget {
   const CommuterHistoryScreen({
     super.key,
   });
@@ -85,13 +111,22 @@ class CommuterHistoryScreen extends StatelessWidget {
   static const _kRatedPrefsKey = 'commuter_rated_trip_ids_v1';
   static const _kReportedPrefsKey = 'commuter_reported_trip_ids_v1';
 
-  // Mutable so completed bookings (see JeepneyBookingFlowScreen) can be
-  // appended here — this is the single source of truth for trip history.
-  // Starts empty; a trip only shows up once the commuter actually books one.
-  // Persisted to disk — logging out must never erase a commuter's trip
-  // history.
-  static final List<TripHistoryItem> _history = [];
+  // Keyed by tripId so a locally-recorded booking (added the instant a
+  // ride ends) and the same trip coming back from [syncFromBackend] merge
+  // into one row instead of duplicating — the local flow uses the real
+  // backend Trip id now (see JeepneyBookingFlowScreen's _boardedTripId),
+  // so the two always agree on a key once connectivity allows /board to
+  // succeed at all. Persisted to disk — logging out must never erase a
+  // commuter's trip history.
+  static final Map<String, TripHistoryItem> _byTripId = {};
   static bool _loaded = false;
+
+  /// All trips, most recently boarded first — what the UI reads.
+  static List<TripHistoryItem> get _history {
+    final list = _byTripId.values.toList();
+    list.sort((a, b) => b.boardedAt.compareTo(a.boardedAt));
+    return list;
+  }
 
   /// Loads whatever was previously persisted, once. Safe to call
   /// repeatedly — a no-op after the first successful load.
@@ -101,9 +136,11 @@ class CommuterHistoryScreen extends StatelessWidget {
     try {
       final rawHistory = prefs.getStringList(_kHistoryPrefsKey);
       if (rawHistory != null) {
-        _history
-          ..clear()
-          ..addAll(rawHistory.map((s) => TripHistoryItem._fromJson(jsonDecode(s) as Map<String, dynamic>)));
+        _byTripId.clear();
+        for (final s in rawHistory) {
+          final item = TripHistoryItem._fromJson(jsonDecode(s) as Map<String, dynamic>);
+          _byTripId[item.tripId] = item;
+        }
       }
       _ratedTripIds
         ..clear()
@@ -128,26 +165,125 @@ class CommuterHistoryScreen extends StatelessWidget {
     await prefs.setStringList(_kReportedPrefsKey, _reportedTripIds.toList());
   }
 
-  /// Records a just-completed booking at the top of the history list.
+  /// Records a just-completed booking (or overwrites the same tripId, e.g.
+  /// once [syncFromBackend] confirms it).
   static Future<void> addTrip(TripHistoryItem trip) async {
-    _history.insert(0, trip);
+    _byTripId[trip.tripId] = trip;
     await _persistHistory();
   }
 
-  /// Wipes trip history (and rated/reported markers) on logout, per request.
-  static Future<void> clearOnLogout() async {
-    _history.clear();
-    _ratedTripIds.clear();
-    _reportedTripIds.clear();
-    await _persistHistory();
-    await _persistRatedAndReported();
+  /// Pulls the commuter's real boardings from the backend and merges them
+  /// in — trip identity (driver, plate, route, timestamps, driver rating)
+  /// is authoritative from there; fare/rider counts on a matching local
+  /// entry are left untouched (self-reported, no backend equivalent — see
+  /// TripHistoryItem's doc comment). Also unions in which trips the
+  /// backend already knows this commuter rated/reported, so those stay
+  /// blocked across devices/reinstalls. Best-effort; a failed sync just
+  /// leaves the local cache as it was. Call after login/app-start, not on
+  /// every read.
+  static Future<void> syncFromBackend() async {
+    final token = UserSession.instance.authToken;
+    if (token == null) return;
+    const days = 366;
+    const pageSize = 100;
+    try {
+      final seenIds = <String>{};
+
+      // Walks every page within the window, not just the first — GET
+      // /api/commuter/trips is paginated now (see tripHistoryQuerySchema
+      // in commuter.ts), and stopping after one page used to silently cap
+      // this at 100 rides. That was worse than just "incomplete history":
+      // the reconcile-deletion pass below would then wrongly evict any
+      // older-than-100th ride still inside the window, since it looked
+      // exactly like a ride that no longer exists on the backend.
+      var page = 1;
+      while (true) {
+        final response = await ApiClient.get('/api/commuter/trips?days=$days&page=$page&pageSize=$pageSize', token: token);
+        final raw = response['trips'] as List<dynamic>? ?? const [];
+        for (final j in raw) {
+          final map = j as Map<String, dynamic>;
+          final tripId = map['tripId'] as String;
+          final boardedAt = DateTime.parse(map['boardedAt'] as String);
+          final existing = _byTripId[tripId];
+          seenIds.add(tripId);
+
+          _byTripId[tripId] = TripHistoryItem(
+            tripId: tripId,
+            driverName: map['driverName'] as String,
+            plateNumber: map['plateNumber'] as String,
+            route: (map['route'] as String?) ?? existing?.route ?? '—',
+            boardingPoint: existing?.boardingPoint ?? '—',
+            regularRiders: existing?.regularRiders ?? 1,
+            studentRiders: existing?.studentRiders ?? 0,
+            seniorRiders: existing?.seniorRiders ?? 0,
+            dateTime: existing?.dateTime ?? _formatBoardedAt(boardedAt),
+            fare: existing?.fare ?? '—',
+            boardedAt: boardedAt,
+            driverAverageRating: (map['driverAverageRating'] as num?)?.toDouble(),
+            driverRatingCount: map['driverRatingCount'] as int? ?? 0,
+          );
+
+          if (map['alreadyRated'] == true) _ratedTripIds.add(tripId);
+          if (map['alreadyReported'] == true) _reportedTripIds.add(tripId);
+        }
+
+        final hasNextPage = response['hasNextPage'] as bool? ?? false;
+        if (!hasNextPage) break;
+        page += 1;
+      }
+
+      // Reconcile deletions the same way DriverHistoryScreen does — a
+      // locally-cached trip inside the window just queried but missing
+      // from the response no longer exists on the backend. Entries older
+      // than the window are left alone; their current state is unknown.
+      final windowStart = DateTime.now().subtract(const Duration(days: days));
+      _byTripId.removeWhere(
+        (id, item) => !seenIds.contains(id) && item.boardedAt.isAfter(windowStart),
+      );
+
+      await _persistHistory();
+      await _persistRatedAndReported();
+    } catch (_) {
+      // Keep whatever's cached locally.
+    }
+  }
+
+  static String _formatBoardedAt(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} · $hour12:$minute $period';
   }
 
   // Tracks trips a commuter has already rated / reported, keyed by tripId,
   // so the Trip Details screen can block a second submission for the same
-  // trip even across screen re-entries within the session.
+  // trip even across screen re-entries within the session — now also kept
+  // in sync with the backend's real Rating/Complaint records (see
+  // [syncFromBackend]).
   static final Set<String> _ratedTripIds = <String>{};
   static final Set<String> _reportedTripIds = <String>{};
+
+  @override
+  State<CommuterHistoryScreen> createState() => _CommuterHistoryScreenState();
+}
+
+class _CommuterHistoryScreenState extends State<CommuterHistoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Re-syncs every time this screen is opened, not just once at
+    // login/app-start — otherwise a trip deleted server-side after login
+    // would never disappear from this screen until the commuter logged
+    // out and back in (see CommuterHistoryScreen.syncFromBackend's doc
+    // comment).
+    CommuterHistoryScreen.syncFromBackend().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   void _openTripDetails(
     BuildContext context,
@@ -173,7 +309,7 @@ class CommuterHistoryScreen extends StatelessWidget {
           children: [
             _buildHeader(context),
             Expanded(
-              child: _history.isEmpty
+              child: CommuterHistoryScreen._history.isEmpty
                   ? const _EmptyHistoryState()
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(
@@ -204,7 +340,7 @@ class CommuterHistoryScreen extends StatelessWidget {
 
                         const SizedBox(height: 16),
 
-                        ..._history.map(
+                        ...CommuterHistoryScreen._history.map(
                           (trip) => Padding(
                             padding: const EdgeInsets.only(
                               bottom: 12,
@@ -497,8 +633,10 @@ class _CommuterTripDetailsScreenState
     super.dispose();
   }
 
-  void _submitRating() {
-    if (_alreadyRated) return;
+  bool _isSubmittingRating = false;
+
+  Future<void> _submitRating() async {
+    if (_alreadyRated || _isSubmittingRating) return;
 
     if (_rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -512,8 +650,27 @@ class _CommuterTripDetailsScreenState
     }
 
     FocusScope.of(context).unfocus();
+    setState(() => _isSubmittingRating = true);
 
+    try {
+      await ApiClient.post(
+        '/api/commuter/trips/${widget.trip.tripId}/rating',
+        {
+          'stars': _rating,
+          if (_commentController.text.trim().isNotEmpty) 'comment': _commentController.text.trim(),
+        },
+        token: UserSession.instance.authToken,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmittingRating = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+
+    if (!mounted) return;
     setState(() {
+      _isSubmittingRating = false;
       CommuterHistoryScreen._ratedTripIds.add(widget.trip.tripId);
     });
     CommuterHistoryScreen._persistRatedAndReported();
@@ -693,19 +850,21 @@ class _CommuterTripDetailsScreenState
                           BorderRadius.circular(20),
                     ),
 
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.star_rounded,
                           color: AppColors.qrIconColor,
                           size: 14,
                         ),
 
-                        SizedBox(width: 2),
+                        const SizedBox(width: 2),
 
                         Text(
-                          '4.8',
-                          style: TextStyle(
+                          trip.driverAverageRating != null
+                              ? trip.driverAverageRating!.toStringAsFixed(1)
+                              : 'New',
+                          style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
                             color: AppColors.logoBlue,
@@ -1052,7 +1211,7 @@ class _CommuterTripDetailsScreenState
               height: 36,
 
               child: ElevatedButton(
-                onPressed: _alreadyRated ? null : _submitRating,
+                onPressed: (_alreadyRated || _isSubmittingRating) ? null : _submitRating,
 
                 style:
                     ElevatedButton.styleFrom(
@@ -1069,7 +1228,9 @@ class _CommuterTripDetailsScreenState
                 ),
 
                 child: Text(
-                  _alreadyRated ? 'Rating Submitted' : 'Submit Rating',
+                  _alreadyRated
+                      ? 'Rating Submitted'
+                      : (_isSubmittingRating ? 'Submitting...' : 'Submit Rating'),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
@@ -1202,14 +1363,18 @@ class _ReportDriverScreenState
   final ImagePicker _picker = ImagePicker();
   File? _proofImage;
 
+  // Matches the backend's COMPLAINT_TYPES enum exactly (see
+  // POST /api/commuter/complaints in commuter.ts) — sent as-is as
+  // complaintType, so this list can't drift from what the backend accepts.
   static const List<String> _reasons = [
-    'Reckless driving',
+    'Reckless Driving',
     'Overcharging',
-    'Rude behavior',
-    'Vehicle condition',
-    'Unsafe driving',
+    'Rude Behavior',
+    'Route Deviation',
     'Other',
   ];
+
+  bool _isSubmitting = false;
 
   bool get _alreadyReported =>
       CommuterHistoryScreen._reportedTripIds.contains(widget.trip.tripId);
@@ -1282,8 +1447,8 @@ class _ReportDriverScreenState
     );
   }
 
-  void _submitReport() {
-    if (_alreadyReported) return;
+  Future<void> _submitReport() async {
+    if (_alreadyReported || _isSubmitting) return;
 
     if (_selectedReason == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1308,8 +1473,30 @@ class _ReportDriverScreenState
     }
 
     FocusScope.of(context).unfocus();
+    setState(() => _isSubmitting = true);
 
+    try {
+      await ApiClient.uploadFiles(
+        '/api/commuter/complaints',
+        files: _proofImage != null ? {'attachment': _proofImage!.path} : {},
+        fields: {
+          'plateNumber': widget.trip.plateNumber,
+          'tripId': widget.trip.tripId,
+          'complaintType': _selectedReason!,
+          'description': _detailsController.text.trim(),
+        },
+        token: UserSession.instance.authToken,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+
+    if (!mounted) return;
     setState(() {
+      _isSubmitting = false;
       CommuterHistoryScreen._reportedTripIds.add(widget.trip.tripId);
     });
     CommuterHistoryScreen._persistRatedAndReported();
@@ -1628,7 +1815,7 @@ class _ReportDriverScreenState
               },
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 22),
 
             // =========================================================
             // DETAILS
@@ -1797,7 +1984,7 @@ class _ReportDriverScreenState
               height: 48,
 
               child: ElevatedButton(
-                onPressed: _alreadyReported ? null : _submitReport,
+                onPressed: (_alreadyReported || _isSubmitting) ? null : _submitReport,
 
                 style:
                     ElevatedButton.styleFrom(
@@ -1817,7 +2004,9 @@ class _ReportDriverScreenState
                 ),
 
                 child: Text(
-                  _alreadyReported ? 'Report Submitted' : 'Submit Report',
+                  _alreadyReported
+                      ? 'Report Submitted'
+                      : (_isSubmitting ? 'Submitting...' : 'Submit Report'),
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight:

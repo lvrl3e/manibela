@@ -405,12 +405,15 @@ class _SubmitButton extends StatelessWidget {
           children: [
             Icon(Icons.lock_reset_rounded, size: 20, color: AppColors.onPrimary),
             SizedBox(width: 10),
-            Text(
-              'Update Password',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: AppColors.onPrimary,
+            Flexible(
+              child: Text(
+                'Update Password',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.onPrimary,
+                ),
               ),
             ),
           ],

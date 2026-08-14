@@ -9,7 +9,16 @@ import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { dateOnly, formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
-import { uploadPhoto, uploadIdPhotos, uploadSelfie, deleteUploadedPhoto } from '../middleware/upload';
+import {
+  uploadPhoto,
+  uploadIdPhotos,
+  uploadSelfie,
+  uploadComplaintAttachment,
+  deleteUploadedPhoto,
+} from '../middleware/upload';
+import { normalizePlateNumber } from '../utils/plate';
+import { toTitleCase } from '../utils/text';
+import { notifyDriver, notifyCommuter, notifyAdmin } from '../utils/notify';
 
 const router = Router();
 
@@ -100,7 +109,7 @@ async function generateSignupTicket(): Promise<string> {
 }
 
 const verifySignupOtpSchema = z.object({
-  fullName: z.string().trim().min(1),
+  fullName: z.string().trim().min(1).transform(toTitleCase),
   mobileNumber: z.string().trim().min(1),
   password: z.string().min(8),
   code: z.string().length(6),
@@ -286,8 +295,26 @@ router.post('/signup', async (req, res, next) => {
 
     await prisma.pendingCommuterSignup.delete({ where: { id: pending.id } });
 
-    const token = signAuthToken({ sub: commuter.id, role: 'commuter' });
-    res.status(201).json({ token, commuter: toPublicCommuter(commuter) });
+    if (commuter.verificationStatus === 'PENDING') {
+      await notifyAdmin({
+        title: 'New ID verification submitted',
+        message: `${commuter.fullName} (${commuter.commuterId}) is waiting for review.`,
+        type: 'ID_VERIFICATION_SUBMITTED',
+        referenceId: commuter.id,
+      });
+    }
+
+    // No token here — a brand-new account is never APPROVED yet (that
+    // can only happen after an admin reviews it, which can't have
+    // happened in the moments since this row was just created), so
+    // handing out a session here would let a fresh sign-up skip the
+    // exact gate /login enforces. The app sends them to the
+    // verification-status screen instead, the same place a blocked
+    // /login attempt does.
+    res.status(201).json({
+      commuter: toPublicCommuter(commuter),
+      verificationStatus: commuter.verificationStatus,
+    });
   } catch (err) {
     next(err);
   }
@@ -319,8 +346,57 @@ router.post('/login', async (req, res, next) => {
       return;
     }
 
+    // Correct credentials, but no session is issued until an admin has
+    // approved the ID/selfie submitted at sign-up — the app shows the
+    // verification-status screen instead of logging them in. No token
+    // means no way into anything else the API protects, so this is a
+    // real gate, not just a client-side redirect. Checked before isActive
+    // below: isActive only means something once an account is APPROVED
+    // (see its doc comment in schema.prisma), so a still-pending account
+    // must get "awaiting verification," never a misleading "deactivated."
+    if (commuter.verificationStatus !== 'APPROVED') {
+      res.status(403).json({
+        error: 'Your account is awaiting identity verification.',
+        verificationStatus: commuter.verificationStatus,
+      });
+      return;
+    }
+
+    if (!commuter.isActive) {
+      res.status(403).json({ error: 'This account has been deactivated.' });
+      return;
+    }
+
     const token = signAuthToken({ sub: commuter.id, role: 'commuter' });
     res.json({ token, commuter: toPublicCommuter(commuter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const verificationStatusQuerySchema = z.object({
+  mobileNumber: z.string().trim().min(1),
+});
+
+// Public on purpose — lets the app poll for a status change (approved /
+// rejected) without needing the account's password on hand, which is
+// what a full login re-check would require. Returns only the review
+// state, nothing else about the account.
+router.get('/verification-status', async (req, res, next) => {
+  try {
+    const query = verificationStatusQuerySchema.parse(req.query);
+    const mobileNumber = toE164(query.mobileNumber);
+
+    const commuter = await prisma.commuter.findUnique({ where: { mobileNumber } });
+    if (!commuter) {
+      res.status(404).json({ error: 'This number is not registered.' });
+      return;
+    }
+
+    res.json({
+      verificationStatus: commuter.verificationStatus,
+      isActive: commuter.isActive,
+    });
   } catch (err) {
     next(err);
   }
@@ -427,7 +503,12 @@ router.get('/me', requireAuth('commuter'), async (req, res, next) => {
 });
 
 const updateProfileSchema = z.object({
-  fullName: z.string().trim().min(1).optional(),
+  fullName: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .transform((value) => (value === undefined ? undefined : toTitleCase(value))),
   dateOfBirth: dateOnly.nullable().optional(),
   photoUrl: z.string().trim().min(1).nullable().optional(),
 });
@@ -577,6 +658,405 @@ router.patch('/me/password', requireAuth('commuter'), async (req, res, next) => 
     await prisma.commuter.update({ where: { id: commuter.id }, data: { passwordHash } });
 
     res.json({ message: 'Password updated.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const deleteAccountSchema = z.object({
+  password: z.string().min(1),
+});
+
+// Permanently erases the account — a real delete, not the isActive
+// soft-disable admins use. Requires the current password as confirmation
+// since this can't be undone. Trips/complaints/demand signals this
+// commuter is referenced from aren't cascaded (they're plain string refs,
+// not relations — see schema.prisma) and just display "Unknown commuter"
+// afterward, same as any other missing-reference case in the admin UI.
+router.delete('/me', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const body = deleteAccountSchema.parse(req.body);
+
+    const commuter = await prisma.commuter.findUnique({ where: { id: req.auth!.sub } });
+    if (!commuter) {
+      res.status(404).json({ error: 'Account not found.' });
+      return;
+    }
+
+    const valid = await bcrypt.compare(body.password, commuter.passwordHash);
+    if (!valid) {
+      res.status(400).json({ error: 'Incorrect password.' });
+      return;
+    }
+
+    await prisma.commuter.delete({ where: { id: commuter.id } });
+
+    res.json({ message: 'Account deleted.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DEMAND SIGNALS — "request a ride here". A point-in-time location, not a
+// standing request that gets matched to a driver (there's no dispatch
+// system) — read by the admin dashboard as a live/recent heatmap.
+// ---------------------------------------------------------------------------
+
+const demandSignalSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+
+router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const body = demandSignalSchema.parse(req.body);
+    const signal = await prisma.demandSignal.create({
+      data: { commuterId: req.auth!.sub, lat: body.lat, lng: body.lng },
+    });
+    res.status(201).json({ demandSignal: { id: signal.id, lat: signal.lat, lng: signal.lng, createdAt: signal.createdAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// BOARDING — a commuter scanning a driver's QR code while logged in. This
+// is the real "I'm on this jeepney" signal (see TripBoarding's doc comment
+// in schema.prisma); GET /api/driver/verify-qr/:token stays public/anonymous
+// for just previewing who a QR belongs to before deciding to ride.
+// ---------------------------------------------------------------------------
+
+const boardSchema = z.object({
+  qrToken: z.string().trim().min(1),
+});
+
+router.post('/board', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const body = boardSchema.parse(req.body);
+
+    const driver = await prisma.driver.findUnique({ where: { qrToken: body.qrToken } });
+    if (!driver) {
+      res.status(404).json({ error: 'This QR code is not recognized.' });
+      return;
+    }
+
+    const trip = await prisma.trip.findFirst({ where: { driverId: driver.id, status: 'ACTIVE' } });
+    if (!trip) {
+      res.status(409).json({ error: "This driver doesn't have an active trip right now." });
+      return;
+    }
+
+    // Upsert, not create — scanning the same driver's QR again mid-ride
+    // (re-confirming, accidental double-scan) shouldn't error or duplicate.
+    // Resets alightedAt too: re-scanning after tapping Para Po (e.g. a
+    // quick stop, or an accidental tap) is a fresh boarding signal.
+    await prisma.tripBoarding.upsert({
+      where: { tripId_commuterId: { tripId: trip.id, commuterId: req.auth!.sub } },
+      update: { alightedAt: null },
+      create: { tripId: trip.id, commuterId: req.auth!.sub },
+    });
+
+    res.json({ boarded: true, tripId: trip.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Tapping "Para Po" in the booking flow — the app's existing "I'm about to
+// get off" signal. Marks this commuter's current boarding(s) as alighted
+// so they drop off the admin's "Currently On Board" list right away,
+// instead of only when the whole trip ends. No trip id is required from
+// the client — a commuter can only realistically be on one active trip's
+// boarding list at a time, so this just clears whichever one(s) match.
+router.post('/alight', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const activeTripIds = (await prisma.trip.findMany({ where: { status: 'ACTIVE' }, select: { id: true } })).map(
+      (t) => t.id,
+    );
+    const openBoardings = await prisma.tripBoarding.findMany({
+      where: { commuterId: req.auth!.sub, tripId: { in: activeTripIds }, alightedAt: null },
+      select: { tripId: true },
+    });
+    const updated = await prisma.tripBoarding.updateMany({
+      where: { commuterId: req.auth!.sub, tripId: { in: activeTripIds }, alightedAt: null },
+      data: { alightedAt: new Date() },
+    });
+
+    // Only when this call actually closed out a boarding — a stray/repeat
+    // "Para Po" tap with nothing open shouldn't notify.
+    if (updated.count > 0) {
+      await notifyCommuter({
+        recipientId: req.auth!.sub,
+        title: 'Trip Completed',
+        message: 'Your trip has ended. Thanks for riding with ManibelApp!',
+        type: 'TRIP_COMPLETED',
+        referenceId: openBoardings[0]?.tripId,
+      });
+    }
+
+    res.json({ alighted: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// TRIP HISTORY — the commuter's own real boardings (see TripBoarding's doc
+// comment in schema.prisma), joined with the trip/driver they rode with.
+// Backs CommuterHistoryScreen, which used to be SharedPreferences-only.
+// Fare/rider-count breakdown stays purely client-side — see FareBreakdown
+// on the Flutter side; there's nothing honestly trackable about it
+// server-side (same reasoning as DriverDailyLog's earnings: cash, no
+// payment system), so this only syncs *which trip, which driver, when*.
+// ---------------------------------------------------------------------------
+
+const tripHistoryQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(366).default(90),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(100),
+});
+
+router.get('/trips', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const query = tripHistoryQuerySchema.parse(req.query);
+    const since = new Date();
+    since.setDate(since.getDate() - query.days);
+    const where = { commuterId: req.auth!.sub, boardedAt: { gte: since } };
+
+    const [boardings, totalTrips] = await Promise.all([
+      prisma.tripBoarding.findMany({
+        where,
+        orderBy: { boardedAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      prisma.tripBoarding.count({ where }),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(totalTrips / query.pageSize));
+    if (boardings.length === 0) {
+      res.json({ trips: [], currentPage: query.page, pageSize: query.pageSize, totalTrips, totalPages, hasNextPage: false });
+      return;
+    }
+
+    const tripIds = boardings.map((b) => b.tripId);
+    const trips = await prisma.trip.findMany({ where: { id: { in: tripIds } } });
+    const tripsById = new Map(trips.map((t) => [t.id, t]));
+
+    const driverIds = [...new Set(trips.map((t) => t.driverId))];
+    const drivers = await prisma.driver.findMany({ where: { id: { in: driverIds } } });
+    const driversById = new Map(drivers.map((d) => [d.id, d]));
+
+    const [ratingAgg, myRatings, myComplaints] = await Promise.all([
+      prisma.rating.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds } }, _avg: { stars: true }, _count: { stars: true } }),
+      prisma.rating.findMany({ where: { tripId: { in: tripIds }, commuterId: req.auth!.sub }, select: { tripId: true } }),
+      prisma.complaint.findMany({ where: { tripId: { in: tripIds }, complainantId: req.auth!.sub }, select: { tripId: true } }),
+    ]);
+    const ratingByDriver = new Map(ratingAgg.map((r) => [r.driverId, { avg: r._avg.stars, count: r._count.stars }]));
+    const ratedTripIds = new Set(myRatings.map((r) => r.tripId));
+    const reportedTripIds = new Set(myComplaints.map((c) => c.tripId).filter((id): id is string => id !== null));
+
+    const result = boardings
+      .map((b) => {
+        const trip = tripsById.get(b.tripId);
+        if (!trip) return null;
+        const driver = driversById.get(trip.driverId);
+        const ratingInfo = ratingByDriver.get(trip.driverId);
+        return {
+          tripId: trip.id,
+          driverId: trip.driverId,
+          driverName: driver?.fullName ?? 'Unknown driver',
+          plateNumber: driver?.plateNumber ?? '—',
+          route: trip.route,
+          boardedAt: b.boardedAt,
+          alightedAt: b.alightedAt,
+          driverAverageRating: ratingInfo?.avg ?? null,
+          driverRatingCount: ratingInfo?.count ?? 0,
+          alreadyRated: ratedTripIds.has(trip.id),
+          alreadyReported: reportedTripIds.has(trip.id),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    res.json({
+      trips: result,
+      currentPage: query.page,
+      pageSize: query.pageSize,
+      totalTrips,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// RATINGS — a commuter rating the driver of one specific trip they actually
+// boarded (see Rating's doc comment in schema.prisma). One per trip.
+// ---------------------------------------------------------------------------
+
+const ratingSchema = z.object({
+  stars: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(500).optional(),
+});
+
+router.post('/trips/:tripId/rating', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const tripId: string = Array.isArray(req.params.tripId) ? req.params.tripId[0] : req.params.tripId;
+    const body = ratingSchema.parse(req.body);
+
+    const boarding = await prisma.tripBoarding.findUnique({
+      where: { tripId_commuterId: { tripId, commuterId: req.auth!.sub } },
+    });
+    if (!boarding) {
+      res.status(404).json({ error: "You didn't board this trip." });
+      return;
+    }
+
+    const existing = await prisma.rating.findUnique({
+      where: { tripId_commuterId: { tripId, commuterId: req.auth!.sub } },
+    });
+    if (existing) {
+      res.status(409).json({ error: "You've already rated this trip." });
+      return;
+    }
+
+    const trip = await prisma.trip.findUnique({ where: { id: tripId } });
+    if (!trip) {
+      res.status(404).json({ error: 'Trip not found.' });
+      return;
+    }
+
+    const rating = await prisma.rating.create({
+      data: {
+        tripId,
+        driverId: trip.driverId,
+        commuterId: req.auth!.sub,
+        stars: body.stars,
+        comment: body.comment ?? null,
+      },
+    });
+
+    res.status(201).json({ rating: { id: rating.id, stars: rating.stars, comment: rating.comment, createdAt: rating.createdAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COMPLAINTS — filed against a driver by plate number, since there's no
+// per-trip passenger manifest to pick a driver from (see Trip's doc
+// comment in schema.prisma). multipart/form-data so an optional photo can
+// ride along with it, same reasoning as the photo-upload endpoints above.
+// [tripId] is optional — set when filed from Trip History (where the
+// commuter picked one particular ride), left out from the general "File a
+// Complaint" flow (where they only know the driver's plate).
+// ---------------------------------------------------------------------------
+
+const COMPLAINT_TYPES = ['Reckless Driving', 'Overcharging', 'Rude Behavior', 'Route Deviation', 'Other'] as const;
+
+const complaintSchema = z.object({
+  plateNumber: z.string().trim().min(1),
+  tripId: z.string().trim().min(1).optional(),
+  complaintType: z.enum(COMPLAINT_TYPES),
+  description: z.string().trim().min(1).max(2000),
+});
+
+router.post('/complaints', requireAuth('commuter'), (req, res, next) => {
+  uploadComplaintAttachment(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+      return;
+    }
+
+    try {
+      const body = complaintSchema.parse(req.body);
+      const plateNumber = normalizePlateNumber(body.plateNumber);
+
+      const driver = await prisma.driver.findFirst({ where: { plateNumber } });
+      if (!driver) {
+        res.status(404).json({ error: `No driver found with plate number ${plateNumber}.` });
+        return;
+      }
+
+      const complaint = await prisma.complaint.create({
+        data: {
+          complainantId: req.auth!.sub,
+          driverId: driver.id,
+          tripId: body.tripId ?? null,
+          complaintType: body.complaintType,
+          description: body.description,
+          attachmentUrl: req.file ? `/uploads/complaint-attachments/${req.file.filename}` : null,
+        },
+      });
+
+      await notifyDriver({
+        recipientId: driver.id,
+        title: 'A complaint was filed against you',
+        message: `${body.complaintType} — plate ${plateNumber}.`,
+      });
+
+      await notifyAdmin({
+        title: 'New complaint filed',
+        message: `${body.complaintType} against ${plateNumber} — needs review.`,
+        type: 'COMPLAINT_FILED',
+        referenceId: complaint.id,
+      });
+
+      res.status(201).json({ complaint: { id: complaint.id, status: complaint.status, createdAt: complaint.createdAt } });
+    } catch (err2) {
+      next(err2);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS — server-triggered async events (see Notification's doc
+// comment in schema.prisma). Kept separate from each app's own local,
+// client-generated notifications (trip completed, etc.) — the app merges
+// both feeds together.
+// ---------------------------------------------------------------------------
+
+const notificationsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+router.get('/notifications', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const query = notificationsQuerySchema.parse(req.query);
+    const where = { recipientId: req.auth!.sub };
+    const [notifications, totalNotifications] = await Promise.all([
+      prisma.commuterNotification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      prisma.commuterNotification.count({ where }),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(totalNotifications / query.pageSize));
+    res.json({
+      notifications,
+      currentPage: query.page,
+      pageSize: query.pageSize,
+      totalNotifications,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/notifications/mark-read', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    await prisma.commuterNotification.updateMany({
+      where: { recipientId: req.auth!.sub, isRead: false },
+      data: { isRead: true },
+    });
+    res.json({ message: 'Marked read.' });
   } catch (err) {
     next(err);
   }

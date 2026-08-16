@@ -5,6 +5,7 @@ import { MoneyTrendChart, type MoneyPoint } from '../components/MoneyTrendChart'
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { manilaDateRangeForCustom } from '../lib/formatDate';
+import { formatPhone } from '../lib/formatPhone';
 import {
   createReportWorkbook,
   addReportSheet,
@@ -170,9 +171,13 @@ function formatPeso(n: number): string {
 
 /** "August 14, 2026" — the exported reports' own "Generated" line, spelled
  * out in full rather than the abbreviated "Aug 14, 2026" the rest of this
- * site's on-screen dates use, matching the format the report spec asks for. */
+ * site's on-screen dates use, matching the format the report spec asks for.
+ * Pinned to Asia/Manila explicitly, like every other date on this site
+ * (see formatDate.ts) — otherwise this would render in the admin's own
+ * browser timezone, showing a different "Generated" date to an admin
+ * opening the site from outside PH. */
 function formatLongDate(date: Date): string {
-  return date.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+  return date.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila' });
 }
 
 /** "2026-08-14" — for filenames, timezone-naive (local calendar date). */
@@ -584,7 +589,7 @@ export default function ReportsPage() {
           const dataRows: CellValue[][] = res.rows.map((r) => [
             r.fullName,
             r.driverId,
-            r.mobileNumber,
+            formatPhone(r.mobileNumber),
             r.plateNumber,
             r.route,
             r.licenseVerified ? 'Verified' : 'Pending',
@@ -650,7 +655,7 @@ export default function ReportsPage() {
           const dataRows: CellValue[][] = res.rows.map((r) => [
             r.fullName,
             r.commuterId,
-            r.mobileNumber,
+            formatPhone(r.mobileNumber),
             r.phoneVerified ? 'Verified' : 'Not Verified',
             r.verificationStatus ? capitalize(r.verificationStatus) : 'Not Submitted',
             r.isActive ? 'Active' : 'Inactive',

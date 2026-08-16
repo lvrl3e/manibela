@@ -306,10 +306,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _handleTwoFactorAuth() {
-    // TODO: navigate to the two-factor authentication setup screen.
-  }
-
   Future<void> _handleDeleteAccount() async {
     final passwordController = TextEditingController();
 
@@ -531,7 +527,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _SettingsField(
                       label: 'Mobile Number',
                       controller: _mobileNumberController,
-                      hintText: '+63 XXX XXX XXXX',
+                      hintText: '09XXXXXXXXX',
                       keyboardType: TextInputType.phone,
                       validator: _validateMobileNumber,
                     ),
@@ -551,19 +547,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: 'Change Password',
                       onTap: _handleChangePassword,
                     ),
-                    const SizedBox(height: 12),
-                    _SecurityItem(
-                      icon: Icons.verified_user_outlined,
-                      label: 'Two Factor Authentication',
-                      onTap: _handleTwoFactorAuth,
-                    ),
                     const SizedBox(height: 24),
                     _SaveButton(
                       enabled: _hasChanges && !_isSaving,
                       onTap: _handleSave,
                     ),
                     const SizedBox(height: 24),
-                    const _SectionTitle(title: 'Danger Zone'),
+                    const _SectionTitle(title: 'Account Settings'),
                     const SizedBox(height: 12),
                     _SecurityItem(
                       icon: Icons.delete_outline_rounded,

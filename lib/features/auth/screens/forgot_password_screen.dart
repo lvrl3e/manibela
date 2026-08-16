@@ -18,13 +18,14 @@ class ForgotPasswordScreen extends StatefulWidget {
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _phoneController = TextEditingController(text: '+63');
+  final TextEditingController _phoneController = TextEditingController();
 
   bool _isLoading = false;
   bool _isSubmitted = false;
 
-  // Philippine mobile format: +63 followed by 10 digits (e.g. +639171234567)
-  final RegExp _phoneRegExp = RegExp(r'^\+63\d{10}$');
+  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) —
+  // matches CommuterLoginScreen's own _phoneRegExp exactly.
+  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
 
   @override
   void dispose() {
@@ -38,11 +39,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (phone.isEmpty) {
       return 'Please enter your mobile number';
     }
-    if (!phone.startsWith('+63')) {
-      return 'Mobile number must start with +63';
-    }
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid 10-digit mobile number';
+      return 'Enter a valid number, e.g. 09171234567';
     }
     return null;
   }
@@ -203,7 +201,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         fontWeight: FontWeight.w700,
                         color: Colors.black87,
                       ),
-                      decoration: _fieldDecoration(hintText: 'Mobile Number'),
+                      decoration: _fieldDecoration(hintText: '09XXXXXXXXX'),
                       validator: _validatePhone,
                     ),
                     const SizedBox(height: 24),

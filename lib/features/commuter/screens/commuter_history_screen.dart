@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/avatar_image.dart';
 import '../../../core/utils/fare_calculator.dart';
+import '../../../core/utils/manila_date_range.dart';
 import 'notifications_screen.dart';
 
 // ===========================================================================
@@ -18,8 +20,12 @@ class TripHistoryItem {
   final String tripId;
   final String driverName;
   final String plateNumber;
+
+  /// The driver's profile photo — resolve with [avatarImageProvider]
+  /// before handing it to an Image widget, same as everywhere else in the
+  /// app that shows one. Null falls back to an initial-letter avatar.
+  final String? photoUrl;
   final String route;
-  final String boardingPoint;
   final int regularRiders;
   final int studentRiders;
   final int seniorRiders;
@@ -39,12 +45,20 @@ class TripHistoryItem {
   final double? driverAverageRating;
   final int driverRatingCount;
 
+  /// The stars *this commuter* gave this trip, from the backend's Rating
+  /// table — null until rated. Distinct from [driverAverageRating] (that
+  /// driver's rating across everyone). Lets Trip Details redraw the exact
+  /// rating given after the app's been closed and reopened, rather than
+  /// just remembering *that* it was rated (see
+  /// [CommuterHistoryScreen.syncFromBackend]).
+  final int? myRating;
+
   const TripHistoryItem({
     required this.tripId,
     required this.driverName,
     required this.plateNumber,
+    this.photoUrl,
     required this.route,
-    required this.boardingPoint,
     required this.regularRiders,
     required this.studentRiders,
     required this.seniorRiders,
@@ -53,6 +67,7 @@ class TripHistoryItem {
     required this.boardedAt,
     this.driverAverageRating,
     this.driverRatingCount = 0,
+    this.myRating,
   });
 
   FareBreakdown get fareBreakdown => FareBreakdown(
@@ -67,8 +82,8 @@ class TripHistoryItem {
         'tripId': tripId,
         'driverName': driverName,
         'plateNumber': plateNumber,
+        'photoUrl': photoUrl,
         'route': route,
-        'boardingPoint': boardingPoint,
         'regularRiders': regularRiders,
         'studentRiders': studentRiders,
         'seniorRiders': seniorRiders,
@@ -77,14 +92,15 @@ class TripHistoryItem {
         'boardedAt': boardedAt.toIso8601String(),
         'driverAverageRating': driverAverageRating,
         'driverRatingCount': driverRatingCount,
+        'myRating': myRating,
       };
 
   static TripHistoryItem _fromJson(Map<String, dynamic> json) => TripHistoryItem(
         tripId: json['tripId'] as String,
         driverName: json['driverName'] as String,
         plateNumber: json['plateNumber'] as String,
+        photoUrl: json['photoUrl'] as String?,
         route: json['route'] as String,
-        boardingPoint: json['boardingPoint'] as String,
         regularRiders: json['regularRiders'] as int,
         studentRiders: json['studentRiders'] as int,
         seniorRiders: json['seniorRiders'] as int,
@@ -95,7 +111,50 @@ class TripHistoryItem {
         boardedAt: json['boardedAt'] != null ? DateTime.parse(json['boardedAt'] as String) : DateTime.now(),
         driverAverageRating: (json['driverAverageRating'] as num?)?.toDouble(),
         driverRatingCount: json['driverRatingCount'] as int? ?? 0,
+        myRating: (json['myRating'] as num?)?.toInt(),
       );
+}
+
+/// A driver's real profile photo when there is one, otherwise a colored
+/// circle with their name's first initial — used everywhere Trip History
+/// shows who drove, so a missing photo never means a blank/broken avatar.
+class _DriverAvatarCircle extends StatelessWidget {
+  final String? photoUrl;
+  final String driverName;
+  final double size;
+  final Color backgroundColor;
+
+  const _DriverAvatarCircle({
+    required this.photoUrl,
+    required this.driverName,
+    required this.size,
+    this.backgroundColor = AppColors.logoBlue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final image = avatarImageProvider(photoUrl: photoUrl);
+
+    return Semantics(
+      label: image != null ? 'Photo of $driverName' : 'No photo for $driverName',
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          shape: BoxShape.circle,
+          image: image != null ? DecorationImage(image: image, fit: BoxFit.cover) : null,
+        ),
+        alignment: Alignment.center,
+        // Jeepney icon, not a generic person — matches every other driver
+        // marker in the app (nearby-jeepney pins, the driver's own
+        // position marker, demand-signal clusters).
+        child: image == null
+            ? Icon(Icons.directions_bus_filled_rounded, size: size * 0.5, color: Colors.white)
+            : null,
+      ),
+    );
+  }
 }
 
 // ===========================================================================
@@ -211,16 +270,19 @@ class CommuterHistoryScreen extends StatefulWidget {
             tripId: tripId,
             driverName: map['driverName'] as String,
             plateNumber: map['plateNumber'] as String,
+            photoUrl: (map['photoUrl'] as String?) ?? existing?.photoUrl,
             route: (map['route'] as String?) ?? existing?.route ?? '—',
-            boardingPoint: existing?.boardingPoint ?? '—',
-            regularRiders: existing?.regularRiders ?? 1,
-            studentRiders: existing?.studentRiders ?? 0,
-            seniorRiders: existing?.seniorRiders ?? 0,
+            regularRiders: (map['regularRiders'] as num?)?.toInt() ?? existing?.regularRiders ?? 1,
+            studentRiders: (map['studentRiders'] as num?)?.toInt() ?? existing?.studentRiders ?? 0,
+            seniorRiders: (map['seniorRiders'] as num?)?.toInt() ?? existing?.seniorRiders ?? 0,
             dateTime: existing?.dateTime ?? _formatBoardedAt(boardedAt),
-            fare: existing?.fare ?? '—',
+            fare: (map['fare'] as num?) != null
+                ? '₱${(map['fare'] as num).toStringAsFixed(2)}'
+                : (existing?.fare ?? '—'),
             boardedAt: boardedAt,
             driverAverageRating: (map['driverAverageRating'] as num?)?.toDouble(),
             driverRatingCount: map['driverRatingCount'] as int? ?? 0,
+            myRating: (map['myRating'] as num?)?.toInt() ?? existing?.myRating,
           );
 
           if (map['alreadyRated'] == true) _ratedTripIds.add(tripId);
@@ -248,11 +310,12 @@ class CommuterHistoryScreen extends StatefulWidget {
     }
   }
 
-  static String _formatBoardedAt(DateTime dt) {
+  static String _formatBoardedAt(DateTime utcInstant) {
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
+    final dt = toManilaWallClock(utcInstant);
     final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final period = dt.hour >= 12 ? 'PM' : 'AM';
     final minute = dt.minute.toString().padLeft(2, '0');
@@ -480,10 +543,6 @@ class _TripHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initial = trip.driverName.trim().isEmpty
-        ? 'D'
-        : trip.driverName.trim()[0].toUpperCase();
-
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
@@ -505,25 +564,13 @@ class _TripHistoryCard extends StatelessWidget {
 
           child: Row(
             children: [
-              Container(
-                width: 42,
-                height: 42,
-
-                decoration: const BoxDecoration(
-                  color: AppColors.logoBlue,
-                  shape: BoxShape.circle,
-                ),
-
-                alignment: Alignment.center,
-
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+              // No real photo on the list itself, only once a specific
+              // trip is opened (see the Trip Detail / Report screens
+              // below) — just the initial-letter placeholder here.
+              _DriverAvatarCircle(
+                photoUrl: null,
+                driverName: trip.driverName,
+                size: 42,
               ),
 
               const SizedBox(width: 12),
@@ -616,7 +663,7 @@ class CommuterTripDetailsScreen extends StatefulWidget {
 
 class _CommuterTripDetailsScreenState
     extends State<CommuterTripDetailsScreen> {
-  int _rating = 0;
+  late int _rating = widget.trip.myRating ?? 0;
 
   final TextEditingController _commentController =
       TextEditingController();
@@ -682,6 +729,11 @@ class _CommuterTripDetailsScreenState
         title: 'Thank You For Rating!',
         message: 'Thank you! Your rating helps improve our service.',
         time: DateTime.now(),
+        // Matches the server's own notifyCommuter call in POST
+        // /trips/:tripId/rating — lets the feed de-dup this local copy
+        // against that durable one once it syncs in.
+        type: 'RATING_SUBMITTED',
+        referenceId: widget.trip.tripId,
       ),
     );
 
@@ -718,10 +770,6 @@ class _CommuterTripDetailsScreenState
   @override
   Widget build(BuildContext context) {
     final trip = widget.trip;
-
-    final initial = trip.driverName.trim().isEmpty
-        ? 'D'
-        : trip.driverName.trim()[0].toUpperCase();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6F8),
@@ -786,26 +834,11 @@ class _CommuterTripDetailsScreenState
 
               child: Row(
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-
-                    decoration:
-                        const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-
-                    alignment: Alignment.center,
-
-                    child: Text(
-                      initial,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                  _DriverAvatarCircle(
+                    photoUrl: trip.photoUrl,
+                    driverName: trip.driverName,
+                    size: 44,
+                    backgroundColor: AppColors.primary,
                   ),
 
                   const SizedBox(width: 10),
@@ -952,14 +985,6 @@ class _CommuterTripDetailsScreenState
                         _ReceiptRow(
                           label: 'Route',
                           value: trip.route,
-                        ),
-
-                        const SizedBox(height: 9),
-
-                        _ReceiptRow(
-                          label: 'Boarding point',
-                          value:
-                              trip.boardingPoint,
                         ),
 
                         const SizedBox(height: 9),
@@ -1135,9 +1160,7 @@ class _CommuterTripDetailsScreenState
                         Icons.star_rounded,
                         size: 27,
                         color: number <= _rating
-                            ? (_alreadyRated
-                                ? const Color(0xFFB9B9B9)
-                                : AppColors.splashBackground)
+                            ? AppColors.splashBackground
                             : const Color(0xFFDDE1E7),
                       ),
                     ),
@@ -1475,8 +1498,9 @@ class _ReportDriverScreenState
     FocusScope.of(context).unfocus();
     setState(() => _isSubmitting = true);
 
+    String complaintId;
     try {
-      await ApiClient.uploadFiles(
+      final response = await ApiClient.uploadFiles(
         '/api/commuter/complaints',
         files: _proofImage != null ? {'attachment': _proofImage!.path} : {},
         fields: {
@@ -1487,6 +1511,7 @@ class _ReportDriverScreenState
         },
         token: UserSession.instance.authToken,
       );
+      complaintId = (response['complaint'] as Map<String, dynamic>)['id'] as String;
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
@@ -1508,6 +1533,11 @@ class _ReportDriverScreenState
         title: 'Report Received',
         message: 'Your report has been received. Thank you for helping us improve.',
         time: DateTime.now(),
+        // Matches the server's own notifyCommuter call in POST
+        // /complaints — lets the feed de-dup this local copy against
+        // that durable one once it syncs in.
+        type: 'COMPLAINT_FILED',
+        referenceId: complaintId,
       ),
     );
 
@@ -1524,10 +1554,6 @@ class _ReportDriverScreenState
   @override
   Widget build(BuildContext context) {
     final trip = widget.trip;
-
-    final initial = trip.driverName.trim().isEmpty
-        ? 'D'
-        : trip.driverName.trim()[0].toUpperCase();
 
     return Scaffold(
       backgroundColor:
@@ -1569,29 +1595,10 @@ class _ReportDriverScreenState
 
               child: Row(
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-
-                    decoration:
-                        const BoxDecoration(
-                      color: AppColors.logoBlue,
-                      shape: BoxShape.circle,
-                    ),
-
-                    alignment:
-                        Alignment.center,
-
-                    child: Text(
-                      initial,
-                      style:
-                          const TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight:
-                            FontWeight.w800,
-                      ),
-                    ),
+                  _DriverAvatarCircle(
+                    photoUrl: trip.photoUrl,
+                    driverName: trip.driverName,
+                    size: 48,
                   ),
 
                   const SizedBox(width: 12),

@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LiveMap, type JeepneyMarker } from '../components/LiveMap';
+import { LiveMap, clusterDemandSignals, type JeepneyMarker } from '../components/LiveMap';
 import { LogoMark } from '../components/Logo';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
+
+interface DemandSignalRow {
+  id: string;
+  lat: number;
+  lng: number;
+  createdAt: string;
+}
 
 interface ActiveTripRow {
   id: string;
@@ -30,6 +37,7 @@ function BackIcon() {
 export default function PassengerLiveMapPage() {
   const [trips, setTrips] = useState<ActiveTripRow[]>([]);
   const [onboard, setOnboard] = useState<OnboardPassenger[]>([]);
+  const [demandSignals, setDemandSignals] = useState<DemandSignalRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   function fetchTrips() {
@@ -46,12 +54,27 @@ export default function PassengerLiveMapPage() {
       .catch(() => {});
   }
 
+  // Raw pings from the last 15 minutes (see DEMAND_SIGNAL_WINDOW_MS in
+  // admin.ts, and DemandSignal's doc comment in schema.prisma) — clustered
+  // client-side below, same as the driver app's own copy of this logic.
+  function fetchDemandSignals() {
+    apiClient
+      .get<{ signals: DemandSignalRow[] }>('/api/admin/demand-signals')
+      .then((res) => setDemandSignals(res.signals))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     fetchTrips();
     fetchOnboard();
+    fetchDemandSignals();
   }, []);
   usePolling(fetchTrips, 5000);
   usePolling(fetchOnboard, 5000);
+  // Matches the other feeds on this page — demand signals are exactly as
+  // "live" a concern as jeepney positions, so there's no reason for this
+  // one to lag behind on its own slower clock.
+  usePolling(fetchDemandSignals, 5000);
 
   const passengersByTrip = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -87,6 +110,8 @@ export default function PassengerLiveMapPage() {
     return selected ? [selected.lat, selected.lng] : null;
   }, [markers, selectedId]);
 
+  const demandMarkers = useMemo(() => clusterDemandSignals(demandSignals), [demandSignals]);
+
   return (
     <div className="flex h-screen w-full flex-col bg-surface-page">
       <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
@@ -101,7 +126,9 @@ export default function PassengerLiveMapPage() {
         <LogoMark size={26} />
         <div>
           <p className="text-sm font-bold text-gray-900">Live Passenger Map</p>
-          <p className="text-xs text-gray-500">{markers.length} jeepney(s) currently carrying passengers</p>
+          <p className="text-xs text-gray-500">
+            {markers.length} jeepney(s) currently carrying passengers · {demandSignals.length} ride request(s) in the last 15 minutes
+          </p>
         </div>
       </header>
 
@@ -128,10 +155,27 @@ export default function PassengerLiveMapPage() {
               </button>
             ))}
           </div>
+
+          <div className="border-y border-gray-100 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ride Requests (last 15 min)</p>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {demandMarkers.length === 0 && <p className="p-4 text-sm text-gray-400">No ride requests right now.</p>}
+            {demandMarkers.map((d) => (
+              <div key={d.id} className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+                <span className="text-xs text-gray-600">
+                  {d.lat.toFixed(4)}, {d.lng.toFixed(4)}
+                </span>
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                  {d.count} request{d.count === 1 ? '' : 's'}
+                </span>
+              </div>
+            ))}
+          </div>
         </aside>
 
         <div className="flex-1">
-          <LiveMap jeepneys={markers} zoom={14} focusPosition={focusPosition} />
+          <LiveMap jeepneys={markers} demandSignals={demandMarkers} zoom={14} focusPosition={focusPosition} />
         </div>
       </div>
     </div>

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 
 /// The only two routes this fleet actually services.
@@ -40,28 +43,55 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
   String? _selectedRoute;
   final MapController _mapController = MapController();
 
+  // Clustered demand-signal pings (see GET /api/driver/demand-signals and
+  // DemandSignal's doc comment in schema.prisma) — same real data and
+  // clustering as the dashboard's own map and the "View Trip" screen; this
+  // screen used to show fixed, made-up pins here instead.
+  List<_WaitingStop> _demandStops = [];
+  Timer? _demandPollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDemandSignals();
+    _demandPollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchDemandSignals());
+  }
+
   @override
   void dispose() {
+    _demandPollTimer?.cancel();
     _mapController.dispose();
     super.dispose();
   }
 
-  // A few nearby points, offset from the current location, standing in for
-  // passengers waiting along the route until a real feed is wired up.
-  List<_WaitingStop> get _waitingStops => [
-        _WaitingStop(
-          point: LatLng(widget.currentLocation.latitude + 0.004, widget.currentLocation.longitude + 0.003),
-          count: 5,
-        ),
-        _WaitingStop(
-          point: LatLng(widget.currentLocation.latitude - 0.003, widget.currentLocation.longitude - 0.004),
-          count: 8,
-        ),
-        _WaitingStop(
-          point: LatLng(widget.currentLocation.latitude + 0.002, widget.currentLocation.longitude - 0.005),
-          count: 3,
-        ),
-      ];
+  Future<void> _fetchDemandSignals() async {
+    final route = _selectedRoute;
+    // Nothing to filter by yet — showing everyone regardless of route
+    // would be exactly the "not actually for this route" noise the filter
+    // exists to avoid, so the default (no route picked) is just the map
+    // and this jeepney's own position, no passenger markers at all.
+    if (route == null) {
+      if (_demandStops.isNotEmpty) setState(() => _demandStops = []);
+      return;
+    }
+    final token = DriverSession.instance.authToken;
+    if (token == null) return;
+    try {
+      final response = await ApiClient.get(
+        '/api/driver/demand-signals?route=${Uri.encodeQueryComponent(route)}',
+        token: token,
+      );
+      if (!mounted) return;
+      final raw = response['signals'] as List<dynamic>? ?? const [];
+      final points = raw.map((s) {
+        final map = s as Map<String, dynamic>;
+        return LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble());
+      }).toList();
+      setState(() => _demandStops = _clusterDemandSignals(points));
+    } catch (_) {
+      // Best-effort — the map just keeps showing whatever it last had.
+    }
+  }
 
   void _confirm() {
     if (_selectedRoute == null) {
@@ -101,7 +131,10 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                             child: _RouteChoiceChip(
                               label: kDriverRoutes[i],
                               selected: _selectedRoute == kDriverRoutes[i],
-                              onTap: () => setState(() => _selectedRoute = kDriverRoutes[i]),
+                              onTap: () {
+                                setState(() => _selectedRoute = kDriverRoutes[i]);
+                                _fetchDemandSignals();
+                              },
                             ),
                           ),
                         ),
@@ -160,8 +193,8 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                             markers: [
                               Marker(
                                 point: widget.currentLocation,
-                                width: 24,
-                                height: 24,
+                                width: 30,
+                                height: 30,
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: widget.hasRealFix ? AppColors.logoBlue : Colors.black38,
@@ -175,9 +208,11 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                                       ),
                                     ],
                                   ),
+                                  alignment: Alignment.center,
+                                  child: const Icon(Icons.directions_bus_filled_rounded, size: 16, color: Colors.white),
                                 ),
                               ),
-                              for (final stop in _waitingStops)
+                              for (final stop in _demandStops)
                                 Marker(
                                   point: stop.point,
                                   width: 34,
@@ -345,6 +380,44 @@ class _WaitingStop {
   const _WaitingStop({required this.point, required this.count});
 }
 
+class _DemandBucket {
+  double latSum = 0;
+  double lngSum = 0;
+  int count = 0;
+}
+
+/// Buckets raw demand-signal pings into ~0.001°-square cells (~100m at
+/// this latitude) — same logic as driver_dashboard_screen.dart's and
+/// driver_trip_in_progress_screen.dart's own copies (kept duplicated
+/// rather than shared since each is a private, file-scoped class) and
+/// admin's clusterDemandSignals (admin/src/components/LiveMap.tsx), so
+/// every surface agrees on where passengers are from the same raw rows.
+List<_WaitingStop> _clusterDemandSignals(List<LatLng> points) {
+  const cellSize = 0.001;
+  final buckets = <String, _DemandBucket>{};
+
+  for (final point in points) {
+    final cellLat = (point.latitude / cellSize).floor();
+    final cellLng = (point.longitude / cellSize).floor();
+    final key = '$cellLat:$cellLng';
+    final bucket = buckets.putIfAbsent(key, () => _DemandBucket());
+    bucket.latSum += point.latitude;
+    bucket.lngSum += point.longitude;
+    bucket.count += 1;
+  }
+
+  return buckets.values
+      .map((b) => _WaitingStop(
+            point: LatLng(b.latSum / b.count, b.lngSum / b.count),
+            count: b.count,
+          ))
+      .toList();
+}
+
+/// A person-icon pin for a demand-signal cluster — matches every other
+/// copy of this widget across the driver app (driver_dashboard_screen.dart,
+/// driver_trip_in_progress_screen.dart): red once several pings stack in
+/// one cell, yellow (brand color) for a lone ping, count always badged.
 class _WaitingStopPin extends StatelessWidget {
   final int count;
 
@@ -352,17 +425,41 @@ class _WaitingStopPin extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CircleAvatar(
-      radius: 17,
-      backgroundColor: AppColors.logoRed,
-      child: CircleAvatar(
-        radius: 15,
-        backgroundColor: AppColors.splashBackground,
-        child: Text(
-          '$count',
-          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13),
+    final color = count > 1 ? const Color(0xFFE23F3F) : AppColors.primary;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: [
+              BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, spreadRadius: 1),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: const Icon(Icons.person_rounded, size: 17, color: Colors.white),
         ),
-      ),
+        Positioned(
+          right: -4,
+          top: -4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            constraints: const BoxConstraints(minWidth: 15),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: color, width: 1.2),
+            ),
+            child: Text(
+              '$count',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: color),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

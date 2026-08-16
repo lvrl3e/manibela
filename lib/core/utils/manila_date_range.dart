@@ -1,3 +1,17 @@
+/// Converts a real instant (e.g. `DateTime.parse` of a backend 'Z'-suffixed
+/// ISO timestamp, which keeps its fields in UTC) into a DateTime whose
+/// y/m/d/h/m/s fields read as Asia/Manila's wall clock would at that
+/// moment. Reading `.hour`/`.day`/etc. directly off a UTC-typed DateTime
+/// shows UTC time, not Manila time, regardless of the device's own
+/// timezone — a real bug this app hit (Trip History showing a time 8
+/// hours behind the admin site's, which correctly pins to Asia/Manila).
+/// Use this before reading any display field off a backend-sourced
+/// timestamp. Safe as plain +8h arithmetic because Manila has a fixed
+/// +08:00 offset with no DST (see [ManilaDateRange]'s own doc comment).
+DateTime toManilaWallClock(DateTime instant) {
+  return instant.toUtc().add(const Duration(hours: 8));
+}
+
 /// Builds `dateFrom`/`dateTo` boundaries for Trip History's Date filter,
 /// pinned to Asia/Manila regardless of the device's own timezone — mirrors
 /// the admin site's `manilaDateRangeForPreset`/`manilaDateRangeForCustom`

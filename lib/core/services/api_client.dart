@@ -5,12 +5,18 @@ import 'package:http_parser/http_parser.dart';
 
 /// Base URL for the ManibelApp backend (see /backend in the repo).
 ///
-/// `localhost` works for the Windows desktop build and iOS simulator, and
-/// for a USB-connected Android device once you've run
+/// Defaults to `localhost`, which works for the Windows desktop build and
+/// iOS simulator, and for a USB-connected Android device once you've run
 /// `adb reverse tcp:4000 tcp:4000`. The Android *emulator* needs
-/// `10.0.2.2` instead (its alias for the host machine's loopback) — swap
-/// this constant if you're running against the emulator.
-const String _baseUrl = 'http://localhost:4000';
+/// `10.0.2.2` instead (its alias for the host machine's loopback) — pass
+/// `--dart-define=API_BASE_URL=http://10.0.2.2:4000` when running against
+/// the emulator, and the real production URL the same way for release
+/// builds (e.g. `flutter build apk --release
+/// --dart-define=API_BASE_URL=https://api.manibelapp.example`).
+const String _baseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://localhost:4000',
+);
 
 /// Thrown for any non-2xx response; [message] is the backend's own
 /// `{ "error": "..." }` text when available, so callers can show it

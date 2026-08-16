@@ -1,5 +1,5 @@
 name: manibelapp_frontend
-description: "A new Flutter project."
+description: "ManibelApp — Pasig-Quiapo jeepney commuter and driver app."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -32,13 +32,12 @@ dependencies:
     sdk: flutter
   image_picker: ^1.1.2
   shared_preferences: ^2.5.3
+  flutter_secure_storage: ^9.2.2
   mobile_scanner: ^7.4.0
-  google_maps_flutter: ^2.9.0
   geolocator: ^14.0.2
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   url_launcher: ^6.3.2
-  geocoding: ^4.0.0
   http: ^1.2.0
   http_parser: ^4.0.2
   qr_flutter: ^4.1.0

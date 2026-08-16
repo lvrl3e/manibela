@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/manila_date_range.dart';
 import 'commuter_history_screen.dart';
 
 /// Notifications feed — merges two sources:
@@ -125,16 +126,49 @@ class NotificationsScreen extends StatefulWidget {
     }
   }
 
+  /// A real delete, not a soft-dismiss — there's no undo (matches the
+  /// backend's own DELETE /notifications, and the rest of this app's
+  /// delete actions). Clears both the locally-cached copy and, if signed
+  /// in, this commuter's server-side notifications too. Throws
+  /// [ApiException] on a server failure — the local clear only commits
+  /// once that succeeds, so a failed clear doesn't make the local and
+  /// server copies disagree.
+  static Future<void> clearAll() async {
+    final token = UserSession.instance.authToken;
+    if (token != null) {
+      await ApiClient.delete('/api/commuter/notifications', token: token);
+    }
+    _notifications.clear();
+    _remote = [];
+    await _persist();
+  }
+
   static List<_NotificationGroup> _groupedNotifications(List<_RemoteNotification> remoteSource) {
-    final all = [..._notifications, ...remoteSource.map((r) => r._toAppNotification())]
-      ..sort((a, b) => b.time.compareTo(a.time));
+    final remote = remoteSource.map((r) => r._toAppNotification()).toList();
+
+    // A (type, referenceId) pair the server already has a real record
+    // for — e.g. this trip's TRIP_COMPLETED. Locally-persisted entries
+    // never expire on their own (SharedPreferences just keeps them), so
+    // a notification later confirmed to exist server-side is dropped
+    // from the local copy here to avoid showing the same event twice.
+    final remoteKeys = remote
+        .where((n) => n.type != null && n.referenceId != null)
+        .map((n) => '${n.type}:${n.referenceId}')
+        .toSet();
+    final localOnly = _notifications.where((n) {
+      if (n.type == null || n.referenceId == null) return true;
+      return !remoteKeys.contains('${n.type}:${n.referenceId}');
+    });
+
+    final all = [...localOnly, ...remote]..sort((a, b) => b.time.compareTo(a.time));
     if (all.isEmpty) return [];
 
-    final now = DateTime.now();
+    final now = toManilaWallClock(DateTime.now());
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
 
-    String labelFor(DateTime time) {
+    String labelFor(DateTime utcInstant) {
+      final time = toManilaWallClock(utcInstant);
       final day = DateTime(time.year, time.month, time.day);
       if (day == today) return 'Today';
       if (day == yesterday) return 'Yesterday';
@@ -202,6 +236,42 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
+  bool _isClearing = false;
+
+  Future<void> _handleClearAll() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear All Notifications?'),
+        content: const Text('This removes every notification in your feed. This can\'t be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Clear All', style: TextStyle(color: Color(0xFFE23F3F))),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isClearing = true);
+    try {
+      await NotificationsScreen.clearAll();
+      if (!mounted) return;
+      setState(() {
+        _extra.clear();
+        _loadedPages = 1;
+        _hasNextPage = false;
+        _isClearing = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isClearing = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   /// Notification types with somewhere to navigate to — kept in sync with
   /// what [_NotificationCard] draws as tappable, same "shared allowlist"
   /// pattern as the driver app's own notifications screen.
@@ -223,7 +293,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         bottom: false,
         child: Column(
           children: [
-            _buildHeader(context),
+            _buildHeader(context, hasNotifications: groups.isNotEmpty),
             Expanded(
               child: groups.isEmpty
                   ? const _EmptyState()
@@ -297,7 +367,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   // Emergency Hotlines, History). Fixed (not scrolling) since the body
   // below it swaps between a list and a centered empty state.
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, {required bool hasNotifications}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 16, 20, 20),
@@ -329,23 +399,36 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
           const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Notifications',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-              ],
+          const Expanded(
+            child: Text(
+              'Notifications',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: AppColors.onPrimary,
+              ),
             ),
           ),
+          if (hasNotifications)
+            Material(
+              color: Colors.white,
+              shape: const CircleBorder(),
+              elevation: 2,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _isClearing ? null : _handleClearAll,
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: _isClearing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black87),
+                        )
+                      : const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.black87),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -388,9 +471,10 @@ class AppNotification {
   });
 
   String get timeLabel {
-    final hour12 = time.hour % 12 == 0 ? 12 : time.hour % 12;
-    final period = time.hour >= 12 ? 'PM' : 'AM';
-    final minute = time.minute.toString().padLeft(2, '0');
+    final dt = toManilaWallClock(time);
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    final minute = dt.minute.toString().padLeft(2, '0');
     return '$hour12:$minute $period';
   }
 

@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/date_only.dart';
@@ -7,12 +8,18 @@ import '../utils/date_only.dart';
 /// Signup/login now go through the real backend (see /backend and
 /// ApiClient) — [authToken] is the JWT returned from `/api/commuter/login`
 /// or `/api/commuter/signup`, sent as a Bearer token on any authenticated
-/// request. This still persists to on-device storage via shared_preferences
-/// so the session survives closing and reopening the app.
+/// request. Most fields persist to plain SharedPreferences so the session
+/// survives closing and reopening the app; [password] and [authToken] are
+/// actual credentials, so those two specifically go through
+/// [FlutterSecureStorage] (Android Keystore / iOS Keychain-backed
+/// encryption) instead — SharedPreferences is just unencrypted on-device
+/// storage, fine for a cached display name but not for a login credential.
 class UserSession {
   UserSession._internal();
 
   static final UserSession instance = UserSession._internal();
+
+  static const _secureStorage = FlutterSecureStorage();
 
   String? fullName;
 
@@ -82,12 +89,30 @@ class UserSession {
     final prefs = await SharedPreferences.getInstance();
     fullName = prefs.getString(_kFullName);
     mobileNumber = prefs.getString(_kMobileNumber);
-    password = prefs.getString(_kPassword);
     commuterId = prefs.getString(_kCommuterId);
     photoPath = prefs.getString(_kPhotoPath);
     photoUrl = prefs.getString(_kPhotoUrl);
-    authToken = prefs.getString(_kAuthToken);
     dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
+
+    // One-time migration for a device that logged in before password/
+    // authToken moved to secure storage — a leftover plaintext value in
+    // SharedPreferences is migrated over (and wiped from the old, insecure
+    // spot) instead of just silently signing them out.
+    password = await _secureStorage.read(key: _kPassword);
+    final legacyPassword = prefs.getString(_kPassword);
+    if (password == null && legacyPassword != null) {
+      password = legacyPassword;
+      await _secureStorage.write(key: _kPassword, value: legacyPassword);
+    }
+    if (legacyPassword != null) await prefs.remove(_kPassword);
+
+    authToken = await _secureStorage.read(key: _kAuthToken);
+    final legacyAuthToken = prefs.getString(_kAuthToken);
+    if (authToken == null && legacyAuthToken != null) {
+      authToken = legacyAuthToken;
+      await _secureStorage.write(key: _kAuthToken, value: legacyAuthToken);
+    }
+    if (legacyAuthToken != null) await prefs.remove(_kAuthToken);
     pendingVerificationMobileNumber = prefs.getString(_kPendingVerificationMobileNumber);
     rememberMe = prefs.getBool(_kRememberMe) ?? false;
   }
@@ -119,7 +144,7 @@ class UserSession {
     if (mobileNumber != null) {
       await prefs.setString(_kMobileNumber, mobileNumber!);
     }
-    if (password != null) await prefs.setString(_kPassword, password!);
+    if (password != null) await _secureStorage.write(key: _kPassword, value: password!);
     if (commuterId != null) await prefs.setString(_kCommuterId, commuterId!);
     if (photoPath != null) {
       await prefs.setString(_kPhotoPath, photoPath!);
@@ -137,9 +162,9 @@ class UserSession {
       await prefs.remove(_kDateOfBirth);
     }
     if (authToken != null) {
-      await prefs.setString(_kAuthToken, authToken!);
+      await _secureStorage.write(key: _kAuthToken, value: authToken!);
     } else {
-      await prefs.remove(_kAuthToken);
+      await _secureStorage.delete(key: _kAuthToken);
     }
     await prefs.setBool(_kRememberMe, rememberMe);
   }
@@ -269,7 +294,7 @@ class UserSession {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLoggedInFlag, false);
-    await prefs.remove(_kAuthToken);
     await prefs.remove(_kRememberMe);
+    await _secureStorage.delete(key: _kAuthToken);
   }
 }

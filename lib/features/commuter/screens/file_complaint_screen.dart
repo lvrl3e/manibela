@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/platform_utils.dart';
+import 'commuter_history_screen.dart';
 
 const List<String> _complaintTypes = [
   'Reckless Driving',
@@ -168,6 +169,42 @@ class _FileComplaintScreenState extends State<FileComplaintScreen> {
                       ),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Reporting a ride the commuter actually took doesn't need a
+              // remembered plate number at all — Trip History already
+              // knows the driver for every past boarding (see
+              // ReportDriverScreen in commuter_history_screen.dart). This
+              // form stays for the other case: flagging a jeepney whose
+              // plate is on hand but was never actually boarded.
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CommuterHistoryScreen()),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFEDEDED)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.history_rounded, color: AppColors.logoBlue, size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Don't know the plate number? Report from a specific ride in your Trip History instead.",
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: Colors.black38, size: 20),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 20),

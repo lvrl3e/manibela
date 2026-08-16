@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { formatManilaDate } from '../lib/formatDate';
+import { formatPhone } from '../lib/formatPhone';
 import { usePolling } from '../lib/usePolling';
 import { DriverTripHistorySection } from './DriverTripHistorySection';
 
@@ -18,6 +19,11 @@ interface DriverDetail {
   qrToken: string | null;
   isActive: boolean;
   reportCount: number;
+  /** This driver's live average across every commuter rating they've
+   * received (see Rating's doc comment in schema.prisma) — null until
+   * they have at least one. */
+  averageRating: number | null;
+  ratingCount: number;
   createdAt: string;
 }
 
@@ -271,7 +277,7 @@ export function DriverDetailPanel({
               </div>
               <div>
                 <p className="font-semibold text-gray-900">{driver.fullName}</p>
-                <p className="text-xs text-gray-500">{driver.mobileNumber}</p>
+                <p className="text-xs text-gray-500">{formatPhone(driver.mobileNumber)}</p>
                 <span
                   className={`mt-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                     driver.isActive ? 'bg-status-good-bg text-status-good' : 'bg-status-critical-bg text-status-critical'
@@ -283,9 +289,21 @@ export function DriverDetailPanel({
             </div>
 
             <div className="flex items-center justify-between rounded-xl border border-border-subtle p-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Report Count</p>
-                <p className="mt-1 text-2xl font-semibold text-gray-900">{driver.reportCount}</p>
+              <div className="flex gap-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Rating</p>
+                  <p className="mt-1 flex items-baseline gap-1 text-2xl font-semibold text-gray-900">
+                    {driver.averageRating != null ? driver.averageRating.toFixed(1) : '—'}
+                    {driver.averageRating != null && <span className="text-sm font-medium text-gray-400">/5</span>}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {driver.ratingCount > 0 ? `${driver.ratingCount} rating${driver.ratingCount === 1 ? '' : 's'}` : 'No ratings yet'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Report Count</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-900">{driver.reportCount}</p>
+                </div>
               </div>
               {driver.qrToken && (
                 <div className="rounded-lg border border-border-subtle bg-white p-2">

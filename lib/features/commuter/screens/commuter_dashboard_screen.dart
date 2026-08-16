@@ -10,6 +10,7 @@ import 'jeepney_booking_flow_screen.dart';
 import 'commuter_menu_drawer.dart';
 import 'settings_screen.dart';
 import 'notifications_screen.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/widgets/logout_confirmation_sheet.dart';
 import '../../auth/screens/commuter_login_screen.dart';
@@ -52,10 +53,17 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   /// happened to call fetchRemote() again.
   Timer? _notificationPollTimer;
 
+  /// Set when this commuter has an open boarding somewhere (see GET
+  /// /api/commuter/active-trip) — surfaced as a banner offering to jump
+  /// straight into the live boarding-status view, for a trip that was
+  /// boarded in another session rather than this one.
+  ResumedTrip? _activeTrip;
+
   @override
   void initState() {
     super.initState();
     _resolveCurrentLocation();
+    _fetchActiveTrip();
     // So the bell badge reflects real unread notifications right away,
     // not just after the bell is tapped.
     NotificationsScreen.fetchRemote().then((_) {
@@ -66,6 +74,46 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
         if (mounted) setState(() {});
       });
     });
+  }
+
+  Future<void> _fetchActiveTrip() async {
+    try {
+      final response = await ApiClient.get(
+        '/api/commuter/active-trip',
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted) return;
+      final raw = response['activeTrip'] as Map<String, dynamic>?;
+      setState(() {
+        _activeTrip = raw == null
+            ? null
+            : ResumedTrip(
+                tripId: raw['tripId'] as String,
+                route: raw['route'] as String? ?? '—',
+                driverName: raw['driverName'] as String,
+                plateNumber: raw['plateNumber'] as String,
+                photoUrl: raw['photoUrl'] as String?,
+                driverRating: (raw['averageRating'] as num?)?.toDouble() ?? 0,
+                ratingCount: raw['ratingCount'] as int? ?? 0,
+                regularRiders: raw['regularRiders'] as int? ?? 1,
+                studentRiders: raw['studentRiders'] as int? ?? 0,
+                seniorRiders: raw['seniorRiders'] as int? ?? 0,
+              );
+      });
+    } catch (_) {
+      // Best-effort — no banner if this fails, same as everything else here.
+    }
+  }
+
+  void _resumeActiveTrip() {
+    final resumed = _activeTrip;
+    if (resumed == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => JeepneyBookingFlowScreen(commuterName: _commuterName, resumedTrip: resumed),
+      ),
+    ).then((_) => _fetchActiveTrip());
   }
 
   Future<void> _resolveCurrentLocation({bool showErrors = false}) async {
@@ -184,12 +232,23 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
 
 
   void _handleBook(BuildContext context) {
+    // No demand signal fired here anymore — the route isn't known yet at
+    // this point, and GET /driver/demand-signals needs one to filter by
+    // (see its own doc comment in driver.ts). The signal now fires once a
+    // route is actually picked, inside JeepneyBookingFlowScreen itself
+    // (see _startDemandSignalKeepAlive in jeepney_booking_flow_screen.dart).
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => JeepneyBookingFlowScreen(commuterName: _commuterName),
       ),
-    );
+      // Re-check active-trip on return, same as _resumeActiveTrip below —
+      // without this, closing the booking flow mid-ride (X button, system
+      // back) leaves this screen showing whatever it looked like *before*
+      // "Sakay na" was tapped (no active trip), even though the trip is
+      // still genuinely open server-side. Looks exactly like the trip
+      // ended when it didn't.
+    ).then((_) => _fetchActiveTrip());
   }
 
   // Marks everything read (clearing the bell badge) right when it's
@@ -309,7 +368,9 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
                     ),
                   ],
                 ),
-                child: Column(
+                child: _activeTrip != null
+                    ? _ActiveTripBanner(trip: _activeTrip!, onTap: _resumeActiveTrip)
+                    : Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -375,6 +436,63 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
 class _LocationFailure {
   final String message;
   const _LocationFailure(this.message);
+}
+
+/// Replaces the "Find Nearby Jeepneys" / "Sakay na" card when this
+/// commuter already has an open boarding elsewhere (see
+/// [_CommuterDashboardScreenState._fetchActiveTrip]) — starting a new
+/// booking wouldn't make sense while already mid-trip, so this offers to
+/// resume the live boarding-status view for the real one instead.
+class _ActiveTripBanner extends StatelessWidget {
+  final ResumedTrip trip;
+  final VoidCallback onTap;
+
+  const _ActiveTripBanner({required this.trip, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.directions_bus_filled_rounded, color: AppColors.logoBlue, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "You're currently on a trip",
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${trip.plateNumber} · ${trip.driverName} · ${trip.route}',
+          style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: onTap,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+              elevation: 0,
+            ),
+            child: const Text(
+              'View Trip',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _kBlueDark),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _StatusPill extends StatelessWidget {
@@ -487,8 +605,12 @@ class _RoundIconButton extends StatelessWidget {
   }
 }
 
-/// Real, pannable/zoomable OpenStreetMap tile view (via flutter_map), with
-/// jeepney and POI markers layered on top.
+/// Real, pannable/zoomable OpenStreetMap tile view (via flutter_map) —
+/// just the commuter's own position. Nearby jeepneys deliberately don't
+/// show here anymore: they only appear once the commuter has actually
+/// committed to looking for a ride (tapped "Sakay na" and picked a route),
+/// inside JeepneyBookingFlowScreen's own map/list — see that screen's
+/// _startFindingJeepneys.
 class _LiveMap extends StatelessWidget {
   final MapController mapController;
   final LatLng currentLocation;
@@ -501,14 +623,6 @@ class _LiveMap extends StatelessWidget {
     required this.hasRealFix,
     required this.onRecenter,
   });
-
-  // A few nearby points, offset from the current location, standing in for
-  // live jeepney/driver positions until a real feed is wired up.
-  List<LatLng> get _jeepneyPositions => [
-        LatLng(currentLocation.latitude + 0.004, currentLocation.longitude + 0.003),
-        LatLng(currentLocation.latitude - 0.003, currentLocation.longitude - 0.004),
-        LatLng(currentLocation.latitude + 0.002, currentLocation.longitude - 0.005),
-      ];
 
   @override
   Widget build(BuildContext context) {
@@ -541,8 +655,8 @@ class _LiveMap extends StatelessWidget {
                 // Current location — greyed out until we have a real GPS fix.
                 Marker(
                   point: currentLocation,
-                  width: 24,
-                  height: 24,
+                  width: 30,
+                  height: 30,
                   child: Container(
                     decoration: BoxDecoration(
                       color: hasRealFix
@@ -561,47 +675,8 @@ class _LiveMap extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                ),
-
-                // Nearby jeepneys.
-                for (int i = 0; i < _jeepneyPositions.length; i++)
-                  Marker(
-                    point: _jeepneyPositions[i],
-                    width: 18,
-                    height: 18,
-                    child: _JeepneyPin(
-                      color: [
-                        AppColors.logoBlue,
-                        AppColors.splashBackground,
-                        AppColors.settingsIconColor,
-                      ][i % 3],
-                    ),
-                  ),
-
-                // A couple of points of interest.
-                Marker(
-                  point: LatLng(
-                    currentLocation.latitude + 0.006,
-                    currentLocation.longitude - 0.001,
-                  ),
-                  width: 30,
-                  height: 30,
-                  child: const _PoiPin(
-                    icon: Icons.restaurant,
-                    background: AppColors.splashBackground,
-                  ),
-                ),
-                Marker(
-                  point: LatLng(
-                    currentLocation.latitude - 0.001,
-                    currentLocation.longitude + 0.006,
-                  ),
-                  width: 30,
-                  height: 30,
-                  child: const _PoiPin(
-                    icon: Icons.lock,
-                    background: AppColors.logoBlue,
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.person_rounded, size: 16, color: Colors.white),
                   ),
                 ),
               ],
@@ -630,51 +705,3 @@ class _LiveMap extends StatelessWidget {
   }
 }
 
-class _JeepneyPin extends StatelessWidget {
-  final Color color;
-  const _JeepneyPin({required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.15),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PoiPin extends StatelessWidget {
-  final IconData icon;
-  final Color background;
-
-  const _PoiPin({required this.icon, required this.background});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: background,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Icon(icon, size: 15, color: Colors.white),
-    );
-  }
-}

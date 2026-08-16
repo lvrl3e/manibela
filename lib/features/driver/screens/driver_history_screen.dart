@@ -15,7 +15,8 @@ const List<String> _kMonthAbbrev = [
 /// Matches the format the trip-in-progress screen builds locally, so a
 /// backend-synced entry displays identically to one recorded on this
 /// device the moment a trip ended.
-String _formatHistoryDateTime(DateTime dt) {
+String _formatHistoryDateTime(DateTime utcInstant) {
+  final dt = toManilaWallClock(utcInstant);
   final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
   final period = dt.hour >= 12 ? 'PM' : 'AM';
   final minute = dt.minute.toString().padLeft(2, '0');

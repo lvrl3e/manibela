@@ -3,6 +3,7 @@ import { VerificationBadge, type VerificationStatus } from './VerificationBadge'
 import { CommuterRideHistorySection } from './CommuterRideHistorySection';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { formatManilaDate } from '../lib/formatDate';
+import { formatPhone } from '../lib/formatPhone';
 
 interface CommuterDetail {
   id: string;
@@ -124,7 +125,7 @@ export function CommuterDetailPanel({
               <div>
                 <p className="font-semibold text-gray-900">{commuter.fullName}</p>
                 <p className="text-xs text-gray-500">
-                  {commuter.commuterId} · {commuter.mobileNumber}
+                  {commuter.commuterId} · {formatPhone(commuter.mobileNumber)}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <span

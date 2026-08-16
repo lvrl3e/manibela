@@ -48,3 +48,25 @@ const manilaTimeFormatter = new Intl.DateTimeFormat('en-PH', {
 export function formatManilaTime(date: Date): string {
   return manilaTimeFormatter.format(date);
 }
+
+const manilaDayKeyFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' });
+
+/** "2026-08-15" — the Asia/Manila calendar day a real instant falls on,
+ * via Intl rather than fixed-offset arithmetic on `.toISOString()` (which
+ * is always UTC) — mirrors the admin frontend's own manilaDateString in
+ * lib/formatDate.ts. Use this whenever bucketing timestamps by day for a
+ * PH-facing chart/report; GET /admin/trends used to bucket by UTC day,
+ * which misplaced a signup from the early hours of a Manila day into the
+ * previous day's bar regardless of the server's own local timezone. */
+export function manilaDayKey(date: Date): string {
+  return manilaDayKeyFormatter.format(date);
+}
+
+/** Manila midnight for a given Manila calendar day ("2026-08-15") as a
+ * real UTC instant — the "+08:00" offset makes the string unambiguous
+ * regardless of the parsing machine's own timezone (Manila has no DST,
+ * so this fixed offset is always correct). Mirrors the admin frontend's
+ * own manilaMidnight in lib/formatDate.ts. */
+export function manilaMidnight(isoDay: string): Date {
+  return new Date(`${isoDay}T00:00:00+08:00`);
+}

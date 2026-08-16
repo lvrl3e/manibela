@@ -9,6 +9,7 @@ import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { formatManilaDate } from '../lib/formatDate';
+import { formatPhone } from '../lib/formatPhone';
 
 interface Driver {
   id: string;
@@ -354,7 +355,7 @@ export default function DriversPage() {
                     </div>
                   </td>
                   <td className="px-5 py-3 text-gray-600">{driver.driverId}</td>
-                  <td className="px-5 py-3 text-gray-600">{driver.mobileNumber}</td>
+                  <td className="px-5 py-3 text-gray-600">{formatPhone(driver.mobileNumber)}</td>
                   <td className="px-5 py-3 text-gray-600">{driver.plateNumber}</td>
                   <td className="px-5 py-3">
                     <span

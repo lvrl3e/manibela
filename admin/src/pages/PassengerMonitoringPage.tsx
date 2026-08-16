@@ -11,6 +11,7 @@ interface PassengerStats {
   activeCommuters: number;
   inactiveCommuters: number;
   currentlyOnBoard: number;
+  demandSignalsToday: number;
   totalCommutersChangePercent: number | null;
 }
 
@@ -63,6 +64,15 @@ function ExpandIcon() {
   );
 }
 
+function PinIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12Z" />
+      <circle cx="12" cy="9" r="2.5" />
+    </svg>
+  );
+}
+
 export default function PassengerMonitoringPage() {
   const [stats, setStats] = useState<PassengerStats | null>(null);
   const [onboard, setOnboard] = useState<OnboardPassenger[]>([]);
@@ -105,7 +115,7 @@ export default function PassengerMonitoringPage() {
       </div>
 
       {stats && (
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Currently On Board" value={stats.currentlyOnBoard} icon={<BusPersonIcon />} />
           <StatCard
             label="Total Commuters"
@@ -115,6 +125,7 @@ export default function PassengerMonitoringPage() {
             changeLabel="vs last month"
           />
           <StatCard label="Active Commuters" value={stats.activeCommuters} icon={<CheckIcon />} />
+          <StatCard label="Ride Requests Today" value={stats.demandSignalsToday} icon={<PinIcon />} />
         </div>
       )}
 
@@ -124,7 +135,7 @@ export default function PassengerMonitoringPage() {
       </div>
       <p className="mt-1 text-sm text-gray-500">
         Recorded whenever a commuter scans a driver's QR code while that driver has an active trip — cleared once the
-        driver ends the trip, or the commuter taps Para Po.
+        driver ends the trip, or the commuter taps End Trip.
       </p>
 
       {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}

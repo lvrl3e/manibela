@@ -4,6 +4,7 @@ import { LiveMap, type JeepneyMarker } from '../components/LiveMap';
 import { LogoMark } from '../components/Logo';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
+import { isManilaToday } from '../lib/formatDate';
 
 interface JeepneyRow {
   driverId: string;
@@ -34,12 +35,15 @@ function SearchIcon() {
   );
 }
 
-/** Every jeepney with a known last position — online (currently on a
- * trip, live-ish position) and offline (showing wherever it last
- * reported from) alike, since "View Location" from Jeepney Monitoring
- * needs to work for both. Sourced from GET /api/admin/jeepneys, the same
- * one-row-per-driver endpoint that page's table uses, not the
- * active-trips-only /trips/active this page used to read from. */
+/** Every jeepney with a known last position from *today* — online
+ * (currently on a trip, live-ish position) and offline (showing wherever
+ * it last reported from) alike, since "View Location" from Jeepney
+ * Monitoring needs to work for both. A jeepney whose last ping was on an
+ * earlier date is excluded rather than shown sitting at a stale spot,
+ * which would misleadingly read as "still there." Sourced from GET
+ * /api/admin/jeepneys, the same one-row-per-driver endpoint that page's
+ * table uses, not the active-trips-only /trips/active this page used to
+ * read from. */
 export default function JeepneyLiveMapPage() {
   const [searchParams] = useSearchParams();
   const [jeepneys, setJeepneys] = useState<JeepneyRow[]>([]);
@@ -59,7 +63,7 @@ export default function JeepneyLiveMapPage() {
   const markers: JeepneyMarker[] = useMemo(
     () =>
       jeepneys
-        .filter((j) => j.lastLat != null && j.lastLng != null)
+        .filter((j) => j.lastLat != null && j.lastLng != null && j.lastLocationUpdatedAt != null && isManilaToday(j.lastLocationUpdatedAt))
         .map((j) => ({
           id: j.driverId,
           lat: j.lastLat!,
@@ -101,7 +105,7 @@ export default function JeepneyLiveMapPage() {
         <LogoMark size={26} />
         <div>
           <p className="text-sm font-bold text-gray-900">Live Jeepney Map</p>
-          <p className="text-xs text-gray-500">{markers.length} jeepney(s) with a known location</p>
+          <p className="text-xs text-gray-500">{markers.length} jeepney(s) with a location updated today</p>
         </div>
       </header>
 
@@ -120,7 +124,7 @@ export default function JeepneyLiveMapPage() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {filtered.length === 0 && (
-              <p className="p-4 text-sm text-gray-400">No jeepneys with a known location yet.</p>
+              <p className="p-4 text-sm text-gray-400">No jeepneys with a location updated today.</p>
             )}
             {filtered.map((m) => (
               <button

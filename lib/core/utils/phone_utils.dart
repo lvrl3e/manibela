@@ -1,8 +1,11 @@
-/// Philippine mobile numbers show up in two common shapes across this app:
-/// signup collects `+63XXXXXXXXXX`, login collects `09XXXXXXXXX`. Both
-/// represent the same number, so anything that needs to *compare* two
-/// phone numbers (e.g. matching a login attempt against a stored account)
-/// should normalize both sides first with [PhoneUtils.toE164].
+/// Every phone entry field in this app (login, signup, forgot password,
+/// settings) collects the local `09XXXXXXXXX` form — the one PH mobile
+/// users actually type from muscle memory — and normalizes it here before
+/// it ever reaches the backend, which stores/compares everything as
+/// canonical `+63XXXXXXXXXX` (E.164). [toE164] also accepts an
+/// already-`+63` string unchanged, so it's safe to call on values that
+/// went through this conversion already (e.g. re-displaying a saved
+/// number in an editable field).
 class PhoneUtils {
   const PhoneUtils._();
 

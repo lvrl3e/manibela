@@ -1,4 +1,7 @@
-const BASE_URL = 'http://localhost:4000';
+// Defaults to localhost for `npm run dev`; set VITE_API_BASE_URL in a
+// `.env.production` (or the deploy environment) to point a production
+// build at the real backend.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 
 /** Thrown for any non-2xx response; `message` is the backend's own
  * `{ "error": "..." }` text when available. Mirrors ApiException on the

@@ -1,4 +1,4 @@
-package com.example.manibelapp_frontend
+package com.manibelapp.app
 
 import io.flutter.embedding.android.FlutterActivity
 

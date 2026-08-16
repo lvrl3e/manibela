@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
+import '../../../core/utils/manila_date_range.dart';
 import 'driver_daily_operations_screen.dart';
 import 'driver_history_screen.dart';
 import 'driver_monthly_analytics_screen.dart';
@@ -89,15 +90,28 @@ class DriverNotificationsScreen extends StatefulWidget {
     }
   }
 
+  /// A real delete, not a soft-dismiss — there's no undo (matches the
+  /// backend's own DELETE /notifications, and the rest of this app's
+  /// delete actions). Throws [ApiException] on a server failure — the
+  /// local list is only cleared once that succeeds, so a failed clear
+  /// doesn't make the local and server copies disagree.
+  static Future<void> clearAll() async {
+    final token = DriverSession.instance.authToken;
+    if (token == null) return;
+    await ApiClient.delete('/api/driver/notifications', token: token);
+    _remote = [];
+  }
+
   static List<_NotificationGroup> _groupedNotifications(List<_RemoteNotification> source) {
     final all = source.map((r) => r._toAppNotification()).toList()..sort((a, b) => b.time.compareTo(a.time));
     if (all.isEmpty) return [];
 
-    final now = DateTime.now();
+    final now = toManilaWallClock(DateTime.now());
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
 
-    String labelFor(DateTime time) {
+    String labelFor(DateTime utcInstant) {
+      final time = toManilaWallClock(utcInstant);
       final day = DateTime(time.year, time.month, time.day);
       if (day == today) return 'Today';
       if (day == yesterday) return 'Yesterday';
@@ -142,6 +156,42 @@ class _DriverNotificationsScreenState extends State<DriverNotificationsScreen> {
   }
 
   List<_RemoteNotification> get _allLoaded => [...DriverNotificationsScreen._remote, ..._extra];
+
+  bool _isClearing = false;
+
+  Future<void> _handleClearAll() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear All Notifications?'),
+        content: const Text('This removes every notification in your feed. This can\'t be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Clear All', style: TextStyle(color: Color(0xFFE23F3F))),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isClearing = true);
+    try {
+      await DriverNotificationsScreen.clearAll();
+      if (!mounted) return;
+      setState(() {
+        _extra.clear();
+        _loadedPages = 1;
+        _hasNextPage = false;
+        _isClearing = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isClearing = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
 
   Future<void> _loadMore() async {
     if (_isLoadingMore || !_hasNextPage) return;
@@ -215,7 +265,7 @@ class _DriverNotificationsScreenState extends State<DriverNotificationsScreen> {
         bottom: false,
         child: Column(
           children: [
-            _buildHeader(context),
+            _buildHeader(context, hasNotifications: groups.isNotEmpty),
             Expanded(
               child: groups.isEmpty
                   ? const _EmptyState()
@@ -281,7 +331,7 @@ class _DriverNotificationsScreenState extends State<DriverNotificationsScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, {required bool hasNotifications}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 16, 20, 20),
@@ -313,23 +363,36 @@ class _DriverNotificationsScreenState extends State<DriverNotificationsScreen> {
             ),
           ),
           const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Notifications',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-              ],
+          const Expanded(
+            child: Text(
+              'Notifications',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: AppColors.onPrimary,
+              ),
             ),
           ),
+          if (hasNotifications)
+            Material(
+              color: Colors.white,
+              shape: const CircleBorder(),
+              elevation: 2,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _isClearing ? null : _handleClearAll,
+                child: Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: _isClearing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black87),
+                        )
+                      : const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.black87),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -371,9 +434,10 @@ class DriverAppNotification {
   });
 
   String get timeLabel {
-    final hour12 = time.hour % 12 == 0 ? 12 : time.hour % 12;
-    final period = time.hour >= 12 ? 'PM' : 'AM';
-    final minute = time.minute.toString().padLeft(2, '0');
+    final dt = toManilaWallClock(time);
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    final minute = dt.minute.toString().padLeft(2, '0');
     return '$hour12:$minute $period';
   }
 }

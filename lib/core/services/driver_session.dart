@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/date_only.dart';
@@ -11,11 +12,17 @@ import 'api_client.dart';
 /// ApiClient) — [authToken] is the JWT returned from `/api/driver/login`,
 /// sent as a Bearer token on any authenticated request. Drivers still
 /// don't self-register in the app; accounts are created via the backend's
-/// seed script / an operator, not from here.
+/// seed script / an operator, not from here. Most fields persist to plain
+/// SharedPreferences; [password] and [authToken] are actual credentials,
+/// so those two go through [FlutterSecureStorage] (Keystore/Keychain-
+/// backed encryption) instead — see [UserSession]'s own doc comment for
+/// why SharedPreferences alone isn't good enough for those two.
 class DriverSession {
   DriverSession._internal();
 
   static final DriverSession instance = DriverSession._internal();
+
+  static const _secureStorage = FlutterSecureStorage();
 
   String? fullName;
 
@@ -90,15 +97,33 @@ class DriverSession {
     final prefs = await SharedPreferences.getInstance();
     fullName = prefs.getString(_kFullName);
     mobileNumber = prefs.getString(_kMobileNumber);
-    password = prefs.getString(_kPassword);
     driverId = prefs.getString(_kDriverId);
     plateNumber = prefs.getString(_kPlateNumber);
     photoPath = prefs.getString(_kPhotoPath);
     photoUrl = prefs.getString(_kPhotoUrl);
-    authToken = prefs.getString(_kAuthToken);
     qrToken = prefs.getString(_kQrToken);
     dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
     rememberMe = prefs.getBool(_kRememberMe) ?? false;
+
+    // One-time migration for a device that logged in before password/
+    // authToken moved to secure storage — see UserSession.loadFromPrefs's
+    // matching migration for why this exists instead of just reading from
+    // secure storage and silently signing an existing session out.
+    password = await _secureStorage.read(key: _kPassword);
+    final legacyPassword = prefs.getString(_kPassword);
+    if (password == null && legacyPassword != null) {
+      password = legacyPassword;
+      await _secureStorage.write(key: _kPassword, value: legacyPassword);
+    }
+    if (legacyPassword != null) await prefs.remove(_kPassword);
+
+    authToken = await _secureStorage.read(key: _kAuthToken);
+    final legacyAuthToken = prefs.getString(_kAuthToken);
+    if (authToken == null && legacyAuthToken != null) {
+      authToken = legacyAuthToken;
+      await _secureStorage.write(key: _kAuthToken, value: legacyAuthToken);
+    }
+    if (legacyAuthToken != null) await prefs.remove(_kAuthToken);
   }
 
   /// True only when a cold-started app should skip straight to the
@@ -111,7 +136,7 @@ class DriverSession {
     if (mobileNumber != null) {
       await prefs.setString(_kMobileNumber, mobileNumber!);
     }
-    if (password != null) await prefs.setString(_kPassword, password!);
+    if (password != null) await _secureStorage.write(key: _kPassword, value: password!);
     if (driverId != null) await prefs.setString(_kDriverId, driverId!);
     if (plateNumber != null) await prefs.setString(_kPlateNumber, plateNumber!);
     if (photoPath != null) {
@@ -125,9 +150,9 @@ class DriverSession {
       await prefs.remove(_kPhotoUrl);
     }
     if (authToken != null) {
-      await prefs.setString(_kAuthToken, authToken!);
+      await _secureStorage.write(key: _kAuthToken, value: authToken!);
     } else {
-      await prefs.remove(_kAuthToken);
+      await _secureStorage.delete(key: _kAuthToken);
     }
     if (qrToken != null) await prefs.setString(_kQrToken, qrToken!);
     if (dateOfBirth != null) {
@@ -261,7 +286,7 @@ class DriverSession {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLoggedInFlag, false);
-    await prefs.remove(_kAuthToken);
     await prefs.remove(_kRememberMe);
+    await _secureStorage.delete(key: _kAuthToken);
   }
 }

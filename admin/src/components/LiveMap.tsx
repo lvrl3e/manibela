@@ -25,44 +25,6 @@ export interface JeepneyMarker {
   isOnline?: boolean;
 }
 
-export interface DemandMarker {
-  id: string;
-  lat: number;
-  lng: number;
-  /** How many signals this marker represents — callers pre-cluster
-   * nearby points (see clusterDemandSignals) since raw signals can
-   * overlap almost exactly at typical waiting spots. */
-  count: number;
-}
-
-/** Groups demand signals into grid cells (~100m) and returns one marker
- * per cell with a count — a lightweight stand-in for real clustering,
- * proportionate to this being a simple live-demand view rather than a
- * dense analytics map. */
-export function clusterDemandSignals(signals: { id: string; lat: number; lng: number }[]): DemandMarker[] {
-  const cellSize = 0.001; // ~100m at this latitude
-  const buckets = new Map<string, { latSum: number; lngSum: number; count: number; firstId: string }>();
-
-  for (const s of signals) {
-    const key = `${Math.round(s.lat / cellSize)}:${Math.round(s.lng / cellSize)}`;
-    const bucket = buckets.get(key);
-    if (bucket) {
-      bucket.latSum += s.lat;
-      bucket.lngSum += s.lng;
-      bucket.count += 1;
-    } else {
-      buckets.set(key, { latSum: s.lat, lngSum: s.lng, count: 1, firstId: s.id });
-    }
-  }
-
-  return [...buckets.entries()].map(([key, b]) => ({
-    id: key || b.firstId,
-    lat: b.latSum / b.count,
-    lng: b.lngSum / b.count,
-    count: b.count,
-  }));
-}
-
 // Custom divIcons instead of Leaflet's default marker (whose image
 // assets need bundler-specific path config to resolve correctly) — also
 // lets these match the brand palette and the Figma's blue-jeepney /
@@ -76,12 +38,68 @@ const jeepneyIcon = L.divIcon({
   iconAnchor: [15, 15],
 });
 
+export interface DemandMarker {
+  id: string;
+  lat: number;
+  lng: number;
+  count: number;
+}
+
+interface RawDemandSignal {
+  id: string;
+  lat: number;
+  lng: number;
+}
+
+/** Buckets raw demand-signal pings into ~0.001°-square cells (~100m at this
+ * latitude) and collapses each cell into one marker centered on its pings'
+ * average position — same reasoning as any map heatmap: individual pings
+ * are noisy and (deliberately, see DemandSignal's doc comment in
+ * schema.prisma) not tied to a commuter identity on their own; a cluster is
+ * a stable, honest "demand is around here." Mirrored exactly by the driver
+ * app's own _clusterDemandSignals (driver_dashboard_screen.dart) so both
+ * surfaces agree on where passengers are from the same raw rows. */
+export function clusterDemandSignals(signals: RawDemandSignal[]): DemandMarker[] {
+  const CELL_SIZE = 0.001;
+  const buckets = new Map<string, { latSum: number; lngSum: number; count: number }>();
+
+  for (const signal of signals) {
+    const cellLat = Math.floor(signal.lat / CELL_SIZE);
+    const cellLng = Math.floor(signal.lng / CELL_SIZE);
+    const key = `${cellLat}:${cellLng}`;
+    const bucket = buckets.get(key) ?? { latSum: 0, lngSum: 0, count: 0 };
+    bucket.latSum += signal.lat;
+    bucket.lngSum += signal.lng;
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  }
+
+  return [...buckets.entries()].map(([key, b]) => ({
+    id: key,
+    lat: b.latSum / b.count,
+    lng: b.lngSum / b.count,
+    count: b.count,
+  }));
+}
+
+// A person icon (not the jeepney glyph — this marks where passengers are,
+// not a vehicle) so it reads distinctly from the blue jeepney markers at a
+// glance; red once several pings stack in one cell (worth prioritizing),
+// green for a lone ping — mirrors the driver app's own _WaitingStopPin
+// (driver_dashboard_screen.dart) so both surfaces read the same. The count
+// badge always shows how many, same as the driver app's version.
 function demandIcon(count: number) {
+  const color = count > 1 ? '#e23f3f' : '#1a9d5c';
   return L.divIcon({
     className: '',
-    html: `<div style="width:28px;height:28px;border-radius:9999px;background:#0ca30c;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700;font-family:system-ui,sans-serif;">${count}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
+    html: `<div style="position:relative;width:26px;height:26px;">
+      <div style="width:26px;height:26px;border-radius:9999px;background:${color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+      </div>
+      <div style="position:absolute;top:-5px;right:-5px;min-width:15px;padding:1px 4px;border-radius:9999px;background:white;border:1.2px solid ${color};color:${color};font-size:9.5px;font-weight:800;text-align:center;line-height:1.3;">${count}</div>
+    </div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   });
 }
 
@@ -158,7 +176,9 @@ export function LiveMap({
       ))}
       {demandSignals.map((d) => (
         <Marker key={d.id} position={[d.lat, d.lng]} icon={demandIcon(d.count)}>
-          <Popup>{d.count} ride request{d.count === 1 ? '' : 's'} near here</Popup>
+          <Popup>
+            {d.count} ride request{d.count === 1 ? '' : 's'} near here
+          </Popup>
         </Marker>
       ))}
       <FlyToTarget target={focusPosition} />

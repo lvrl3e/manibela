@@ -447,7 +447,7 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
                     _SettingsField(
                       label: 'Mobile Number',
                       controller: _mobileNumberController,
-                      hintText: '+63 XXX XXX XXXX',
+                      hintText: '09XXXXXXXXX',
                       keyboardType: TextInputType.phone,
                       validator: _validateMobileNumber,
                     ),

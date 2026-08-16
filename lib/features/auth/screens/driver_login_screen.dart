@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
@@ -22,8 +23,7 @@ class DriverLoginScreen extends StatefulWidget {
 class _DriverLoginScreenState extends State<DriverLoginScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final TextEditingController _phoneController =
-      TextEditingController(text: '+63');
+  final TextEditingController _phoneController = TextEditingController();
 
   final TextEditingController _passwordController =
       TextEditingController();
@@ -32,7 +32,9 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   bool _isLoading = false;
   bool _rememberMe = true;
 
-  final RegExp _phoneRegExp = RegExp(r'^\+63\d{10}$');
+  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) —
+  // matches CommuterLoginScreen's own _phoneRegExp exactly.
+  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
 
   // =========================================================================
   // PHONE VALIDATION
@@ -45,12 +47,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       return 'Please enter your mobile number';
     }
 
-    if (!phone.startsWith('+63')) {
-      return 'Mobile number must start with +63';
-    }
-
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid 10-digit mobile number';
+      return 'Enter a valid number, e.g. 09171234567';
     }
 
     return null;
@@ -151,442 +149,327 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   }
 
   // =========================================================================
-  // BUILD
+  // FIELD DECORATION — matches CommuterLoginScreen's own _fieldDecoration
+  // exactly, so both login screens read as the same design.
+  // =========================================================================
+
+  InputDecoration _fieldDecoration({
+    required String hintText,
+    required IconData prefixIcon,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      hintText: hintText,
+      prefixIcon: Icon(prefixIcon),
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: Colors.grey.shade100,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide.none,
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFE23F3F), width: 1),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFE23F3F), width: 1.5),
+      ),
+      errorStyle: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFFE23F3F),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // BUILD — same shape as CommuterLoginScreen: brand-colored top with the
+  // jeepney logo, then a white rounded card holding the form.
   // =========================================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-
+      backgroundColor: AppColors.splashBackground,
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 28,
-            ),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              const SizedBox(height: 40),
 
-            child: Form(
-              key: _formKey,
+              Image.asset(
+                AppAssets.jeepneyLogo,
+                width: 140,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.directions_bus_rounded,
+                    size: 90,
+                    color: AppColors.logoBlue,
+                  );
+                },
+              ),
 
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
+              const SizedBox(height: 10),
 
-                children: [
-                  // =========================================================
-                  // LOGO
-                  // =========================================================
-
-                  RichText(
-                    text: const TextSpan(
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
-                      ),
-
-                      children: [
-                        TextSpan(
-                          text: 'Manibel',
-                          style: TextStyle(
-                            color: AppColors.logoBlue,
-                          ),
-                        ),
-
-                        TextSpan(
-                          text: 'App',
-                          style: TextStyle(
-                            color: AppColors.logoRed,
-                          ),
-                        ),
-                      ],
-                    ),
+              RichText(
+                text: const TextSpan(
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // =========================================================
-                  // TITLE
-                  // =========================================================
-
-                  const Text(
-                    'Login',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.black,
+                  children: [
+                    TextSpan(
+                      text: 'Manibel',
+                      style: TextStyle(color: AppColors.logoBlue),
                     ),
+                    TextSpan(
+                      text: 'App',
+                      style: TextStyle(color: AppColors.logoRed),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 54),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 25,
+                  vertical: 30,
+                ),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(28),
+                    topRight: Radius.circular(28),
                   ),
-
-                  const SizedBox(height: 4),
-
-                  const Text(
-                    'Log In as Driver',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black54,
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // =========================================================
-                  // PHONE NUMBER
-                  // =========================================================
-
-                  TextFormField(
-                    controller: _phoneController,
-
-                    keyboardType: TextInputType.phone,
-
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                    ),
-
-                    decoration: InputDecoration(
-                      hintText: '+63XXXXXXXXXX',
-
-                      hintStyle: const TextStyle(
-                        color: Colors.black26,
-                        fontWeight: FontWeight.w600,
-                      ),
-
-                      prefixIcon: const Icon(
-                        Icons.phone_outlined,
-                        color: AppColors.logoBlue,
-                      ),
-
-                      filled: true,
-
-                      fillColor: AppColors.inputFieldFill,
-
-                      contentPadding:
-                          const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 16,
-                      ),
-
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: AppColors.logoBlue,
-                          width: 1.5,
-                        ),
-                      ),
-
-                      errorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: Colors.redAccent,
-                        ),
-                      ),
-
-                      focusedErrorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: Colors.redAccent,
-                        ),
-                      ),
-                    ),
-
-                    validator: _validatePhone,
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // =========================================================
-                  // PASSWORD
-                  // =========================================================
-
-                  TextFormField(
-                    controller: _passwordController,
-
-                    obscureText: _isPasswordObscured,
-
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                    ),
-
-                    decoration: InputDecoration(
-                      hintText: 'Password',
-
-                      hintStyle: const TextStyle(
-                        color: Colors.black26,
-                        fontWeight: FontWeight.w700,
-                      ),
-
-                      prefixIcon: const Icon(
-                        Icons.lock_outline_rounded,
-                        color: AppColors.logoBlue,
-                      ),
-
-                      filled: true,
-
-                      fillColor: AppColors.inputFieldFill,
-
-                      contentPadding:
-                          const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 16,
-                      ),
-
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: AppColors.logoBlue,
-                          width: 1.5,
-                        ),
-                      ),
-
-                      errorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: Colors.redAccent,
-                        ),
-                      ),
-
-                      focusedErrorBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: Colors.redAccent,
-                        ),
-                      ),
-
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _isPasswordObscured
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          color: AppColors.logoBlue,
-                        ),
-
-                        onPressed: () {
-                          setState(() {
-                            _isPasswordObscured =
-                                !_isPasswordObscured;
-                          });
-                        },
-                      ),
-                    ),
-
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your password';
-                      }
-
-                      return null;
-                    },
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // =========================================================
-                  // FORGOT PASSWORD
-                  // =========================================================
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                ),
+                child: Form(
+                  key: _formKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      InkWell(
-                        onTap: () => setState(() => _rememberMe = !_rememberMe),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: Checkbox(
-                                value: _rememberMe,
-                                onChanged: (v) => setState(() => _rememberMe = v ?? true),
-                                activeColor: AppColors.logoBlue,
-                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Text(
-                              'Remember Me',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
+                      const Text(
+                        "Welcome Back!",
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const ForgotPasswordScreen(
-                                isDriver: true,
+
+                      const SizedBox(height: 5),
+
+                      const Text(
+                        "Sign in as Driver",
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+
+                      const SizedBox(height: 30),
+
+                      const Text(
+                        "Phone Number",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      TextFormField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: _fieldDecoration(
+                          hintText: "09XXXXXXXXX",
+                          prefixIcon: Icons.phone_outlined,
+                        ),
+                        validator: _validatePhone,
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      const Text(
+                        "Password",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: _isPasswordObscured,
+                        decoration: _fieldDecoration(
+                          hintText: "Enter your password",
+                          prefixIcon: Icons.lock_outline,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _isPasswordObscured
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isPasswordObscured = !_isPasswordObscured;
+                              });
+                            },
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your password';
+                          }
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          InkWell(
+                            onTap: () => setState(() => _rememberMe = !_rememberMe),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: Checkbox(
+                                    value: _rememberMe,
+                                    onChanged: (v) => setState(() => _rememberMe = v ?? true),
+                                    activeColor: AppColors.logoBlue,
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Remember Me',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ForgotPasswordScreen(isDriver: true),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              "Forgot Password?",
+                              style: TextStyle(
+                                color: AppColors.logoBlue,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          );
-                        },
+                          ),
+                        ],
+                      ),
 
+                      const SizedBox(height: 10),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 55,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _handleLogin,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryButtonRed,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : const Text(
+                                  "LOGIN",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // Drivers don't self-register (see this screen's own
+                      // signup doc comment) — a demo account plus a way
+                      // back to role selection replace commuter's "Sign Up"
+                      // link here.
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.qrTileBg,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         child: const Text(
-                          'Forgot Password?',
+                          'Demo driver account\n09171234567 · Julie@123',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.logoBlue,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.qrIconColor,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      Center(
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+                              (route) => false,
+                            );
+                          },
+                          child: const Text(
+                            'Back to Welcome',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.logoBlue,
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // =========================================================
-                  // LOGIN BUTTON
-                  // =========================================================
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-
-                    child: ElevatedButton(
-                      onPressed:
-                          _isLoading ? null : _handleLogin,
-
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            AppColors.splashBackground,
-
-                        disabledBackgroundColor:
-                            AppColors.splashBackground
-                                .withOpacity(0.7),
-
-                        elevation: 0,
-
-                        shape:
-                            RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(16),
-                        ),
-                      ),
-
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-
-                              child:
-                                  CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2.5,
-                              ),
-                            )
-                          : const Text(
-                              'Log In',
-
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontSize: 16,
-                                fontWeight:
-                                    FontWeight.w800,
-                              ),
-                            ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // =========================================================
-                  // DEMO ACCOUNT
-                  // =========================================================
-
-                  Container(
-                    width: double.infinity,
-
-                    padding:
-                        const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-
-                    decoration: BoxDecoration(
-                      color: AppColors.qrTileBg,
-                      borderRadius:
-                          BorderRadius.circular(12),
-                    ),
-
-                    child: const Text(
-                      'Demo driver account\n'
-                      '09171234567 · Julie@123',
-
-                      textAlign: TextAlign.center,
-
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.qrIconColor,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // =========================================================
-                  // BACK TO WELCOME
-                  // =========================================================
-
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.pushAndRemoveUntil(
-                        context,
-
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const RoleSelectionScreen(),
-                        ),
-
-                        (route) => false,
-                      );
-                    },
-
-                    child: const Text(
-                      'Back to Welcome',
-
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.logoBlue,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),

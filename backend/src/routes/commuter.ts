@@ -19,8 +19,23 @@ import {
 import { normalizePlateNumber } from '../utils/plate';
 import { toTitleCase } from '../utils/text';
 import { notifyDriver, notifyCommuter, notifyAdmin } from '../utils/notify';
+import { authLimiter } from '../middleware/rateLimit';
 
 const router = Router();
+
+// Unauthenticated + brute-forceable — see middleware/rateLimit.ts.
+router.use(
+  [
+    '/send-signup-otp',
+    '/verify-signup-otp',
+    '/signup',
+    '/login',
+    '/forgot-password',
+    '/verify-otp',
+    '/reset-password',
+  ],
+  authLimiter,
+);
 
 const PENDING_SIGNUP_TTL_MINUTES = 30;
 
@@ -669,10 +684,10 @@ const deleteAccountSchema = z.object({
 
 // Permanently erases the account — a real delete, not the isActive
 // soft-disable admins use. Requires the current password as confirmation
-// since this can't be undone. Trips/complaints/demand signals this
-// commuter is referenced from aren't cascaded (they're plain string refs,
-// not relations — see schema.prisma) and just display "Unknown commuter"
-// afterward, same as any other missing-reference case in the admin UI.
+// since this can't be undone. Cascades through every table that
+// references this commuter first (see below) — Trip itself is the one
+// exception, since a Trip belongs to the driver and may carry other
+// commuters' boardings too.
 router.delete('/me', requireAuth('commuter'), async (req, res, next) => {
   try {
     const body = deleteAccountSchema.parse(req.body);
@@ -689,7 +704,38 @@ router.delete('/me', requireAuth('commuter'), async (req, res, next) => {
       return;
     }
 
-    await prisma.commuter.delete({ where: { id: commuter.id } });
+    // Complaint/Rating/TripBoarding/CommuterNotification/DemandSignal have
+    // no real Prisma @relation to Commuter (plain string id columns, no
+    // DB-enforced cascade) — a bare `commuter.delete` left every one of
+    // these behind, still visible on the admin website (trip history,
+    // ratings, complaints) even though the account itself was gone from
+    // the app. Walk every table that references this commuter's id first.
+    const complaints = await prisma.complaint.findMany({
+      where: { complainantId: commuter.id },
+      select: { id: true, attachmentUrl: true },
+    });
+    const complaintIds = complaints.map((c) => c.id);
+
+    await prisma.$transaction([
+      prisma.complaint.deleteMany({ where: { complainantId: commuter.id } }),
+      prisma.rating.deleteMany({ where: { commuterId: commuter.id } }),
+      prisma.tripBoarding.deleteMany({ where: { commuterId: commuter.id } }),
+      prisma.demandSignal.deleteMany({ where: { commuterId: commuter.id } }),
+      prisma.commuterNotification.deleteMany({ where: { recipientId: commuter.id } }),
+      // referenceId covers both an ID-verification notification (points at
+      // the commuter's own id) and a complaint-filed notification (points
+      // at the complaint's id) — see notifyAdmin call sites in this file.
+      prisma.adminNotification.deleteMany({ where: { referenceId: { in: [commuter.id, ...complaintIds] } } }),
+      prisma.commuter.delete({ where: { id: commuter.id } }),
+    ]);
+
+    // Uploaded files aren't part of the DB transaction — best-effort
+    // cleanup after it commits, same as every other delete in this app.
+    deleteUploadedPhoto(commuter.photoUrl);
+    deleteUploadedPhoto(commuter.idFrontUrl);
+    deleteUploadedPhoto(commuter.idBackUrl);
+    deleteUploadedPhoto(commuter.selfieUrl);
+    for (const complaint of complaints) deleteUploadedPhoto(complaint.attachmentUrl);
 
     res.json({ message: 'Account deleted.' });
   } catch (err) {
@@ -698,23 +744,165 @@ router.delete('/me', requireAuth('commuter'), async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// DEMAND SIGNALS — "request a ride here". A point-in-time location, not a
-// standing request that gets matched to a driver (there's no dispatch
-// system) — read by the admin dashboard as a live/recent heatmap.
+// NEARBY JEEPNEYS — "find a jeepney near me" before a commuter has a
+// driver's QR code in front of them. Sourced entirely from real data
+// drivers already produce: an ACTIVE trip's currentLat/currentLng, kept
+// fresh by the driver app's own location pings (see PATCH
+// /api/driver/trips/:id/location). Nothing is simulated — a trip whose
+// driver stopped pinging (app closed, forgot to end trip) ages out via
+// the staleness cutoff below rather than showing a stale position forever.
 // ---------------------------------------------------------------------------
 
-const demandSignalSchema = z.object({
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
+const nearbyJeepneysQuerySchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+  route: z.string().trim().min(1).optional(),
 });
 
-router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) => {
+// A driver who hasn't pinged in this long is treated as effectively
+// offline for "nearby" purposes, even if they never formally ended the
+// trip — same reasoning as Jeepney Monitoring's admin map (see
+// JeepneyLiveMapPage's own "today" filter), just a much tighter window
+// since this is meant to be genuinely live, not "sometime today".
+const NEARBY_STALENESS_MS = 5 * 60 * 1000;
+
+// A jeepney further than this isn't "nearby" — no point surfacing a trip
+// on the other side of the service area.
+const NEARBY_RADIUS_METERS = 5000;
+
+// Rough city-jeepney travel speed for an ETA estimate — this app has no
+// real routing/traffic data, so straight-line distance over an assumed
+// average speed is the best available approximation, clearly presented
+// as an estimate (see etaMinutes below) rather than implying precision
+// the data doesn't support.
+const ASSUMED_SPEED_KMH = 15;
+
+// Haversine distance in meters — the two points are always close enough
+// (city-scale) that Earth's curvature beyond a spherical approximation
+// doesn't matter here.
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+router.get('/nearby-jeepneys', requireAuth('commuter'), async (req, res, next) => {
   try {
-    const body = demandSignalSchema.parse(req.body);
-    const signal = await prisma.demandSignal.create({
-      data: { commuterId: req.auth!.sub, lat: body.lat, lng: body.lng },
+    const query = nearbyJeepneysQuerySchema.parse(req.query);
+    const since = new Date(Date.now() - NEARBY_STALENESS_MS);
+
+    const trips = await prisma.trip.findMany({
+      where: {
+        status: 'ACTIVE',
+        currentLat: { not: null },
+        currentLng: { not: null },
+        locationUpdatedAt: { gte: since },
+        ...(query.route ? { route: query.route } : {}),
+      },
     });
-    res.status(201).json({ demandSignal: { id: signal.id, lat: signal.lat, lng: signal.lng, createdAt: signal.createdAt } });
+    if (trips.length === 0) {
+      res.json({ jeepneys: [] });
+      return;
+    }
+
+    const driverIds = [...new Set(trips.map((t) => t.driverId))];
+    const [drivers, ratingAgg] = await Promise.all([
+      prisma.driver.findMany({ where: { id: { in: driverIds } } }),
+      prisma.rating.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds } }, _avg: { stars: true }, _count: { stars: true } }),
+    ]);
+    const driversById = new Map(drivers.map((d) => [d.id, d]));
+    const ratingByDriver = new Map(ratingAgg.map((r) => [r.driverId, { avg: r._avg.stars, count: r._count.stars }]));
+
+    const jeepneys = trips
+      .map((trip) => {
+        const driver = driversById.get(trip.driverId);
+        if (!driver || !driver.isActive) return null;
+        const distance = distanceMeters(query.lat, query.lng, trip.currentLat!, trip.currentLng!);
+        if (distance > NEARBY_RADIUS_METERS) return null;
+        const ratingInfo = ratingByDriver.get(trip.driverId);
+        return {
+          tripId: trip.id,
+          driverName: driver.fullName,
+          plateNumber: driver.plateNumber,
+          photoUrl: driver.photoUrl,
+          route: trip.route,
+          lat: trip.currentLat,
+          lng: trip.currentLng,
+          distanceMeters: Math.round(distance),
+          etaMinutes: Math.max(1, Math.round((distance / 1000 / ASSUMED_SPEED_KMH) * 60)),
+          averageRating: ratingInfo?.avg ?? null,
+          ratingCount: ratingInfo?.count ?? 0,
+        };
+      })
+      .filter((j): j is NonNullable<typeof j> => j !== null)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+    res.json({ jeepneys });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Whether this commuter is already mid-trip — an open TripBoarding
+// (alightedAt still null) on a Trip that's still ACTIVE. Lets the app
+// resume the live boarding-status view on launch instead of only ever
+// reaching it by walking through the booking flow in that same session
+// (e.g. after a force-close, or a trip boarded on another device).
+router.get('/active-trip', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const boarding = await prisma.tripBoarding.findFirst({
+      where: { commuterId: req.auth!.sub, alightedAt: null },
+      orderBy: { boardedAt: 'desc' },
+    });
+    if (!boarding) {
+      res.json({ activeTrip: null });
+      return;
+    }
+
+    const trip = await prisma.trip.findUnique({ where: { id: boarding.tripId } });
+    if (!trip || trip.status !== 'ACTIVE') {
+      res.json({ activeTrip: null });
+      return;
+    }
+
+    const driver = await prisma.driver.findUnique({ where: { id: trip.driverId } });
+    if (!driver) {
+      res.json({ activeTrip: null });
+      return;
+    }
+
+    const ratingInfo = await prisma.rating.aggregate({
+      where: { driverId: driver.id },
+      _avg: { stars: true },
+      _count: { stars: true },
+    });
+
+    res.json({
+      activeTrip: {
+        tripId: trip.id,
+        route: trip.route,
+        driverName: driver.fullName,
+        plateNumber: driver.plateNumber,
+        photoUrl: driver.photoUrl,
+        averageRating: ratingInfo._avg.stars,
+        ratingCount: ratingInfo._count.stars,
+        regularRiders: boarding.regularRiders ?? 1,
+        studentRiders: boarding.studentRiders ?? 0,
+        seniorRiders: boarding.seniorRiders ?? 0,
+        fare: boarding.fare,
+        boardedAt: boarding.boardedAt,
+        // The jeepney's live position — same currentLat/currentLng the
+        // driver's own location pings keep fresh (see PATCH
+        // /api/driver/trips/:id/location) — lets the boarding-status
+        // screen show the jeepney actually moving, not just a static pin.
+        lat: trip.currentLat,
+        lng: trip.currentLng,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -727,34 +915,100 @@ router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) =
 // for just previewing who a QR belongs to before deciding to ride.
 // ---------------------------------------------------------------------------
 
-const boardSchema = z.object({
-  qrToken: z.string().trim().min(1),
-});
+// Flat per-rider fare — mirrors FareBreakdown in the app's own
+// fare_calculator.dart exactly (regularFare/discountedFare). Kept here
+// too, rather than trusting a client-computed total, so the stored fare
+// is authoritative even if a client is stale or tampered with; the two
+// must be changed together if the rates ever do.
+const REGULAR_FARE = 15.0;
+const DISCOUNTED_FARE = 12.0; // Student / Senior
+
+const boardSchema = z
+  .object({
+    qrToken: z.string().trim().min(1).optional(),
+    /// Set instead of qrToken when boarding is triggered by proximity match
+    /// rather than a scan — the app already has this from GET
+    /// /nearby-jeepneys, so there's no code to decode.
+    tripId: z.string().trim().min(1).optional(),
+    regularRiders: z.number().int().min(0).default(1),
+    studentRiders: z.number().int().min(0).default(0),
+    seniorRiders: z.number().int().min(0).default(0),
+  })
+  .refine((data) => !!data.qrToken || !!data.tripId, {
+    message: 'Either a QR token or a trip id is required.',
+    path: ['qrToken'],
+  });
 
 router.post('/board', requireAuth('commuter'), async (req, res, next) => {
   try {
     const body = boardSchema.parse(req.body);
 
-    const driver = await prisma.driver.findUnique({ where: { qrToken: body.qrToken } });
-    if (!driver) {
-      res.status(404).json({ error: 'This QR code is not recognized.' });
-      return;
+    // Two ways in: a QR scan (deterministic — resolves to exactly one
+    // driver) or a proximity match (no code to scan, so the client sends
+    // the tripId it already has from GET /nearby-jeepneys instead). Both
+    // end at the same place: one specific ACTIVE trip to board.
+    let trip;
+    if (body.qrToken) {
+      const driver = await prisma.driver.findUnique({ where: { qrToken: body.qrToken } });
+      if (!driver) {
+        res.status(404).json({ error: 'This QR code is not recognized.' });
+        return;
+      }
+      trip = await prisma.trip.findFirst({ where: { driverId: driver.id, status: 'ACTIVE' } });
+    } else {
+      trip = await prisma.trip.findFirst({ where: { id: body.tripId, status: 'ACTIVE' } });
     }
-
-    const trip = await prisma.trip.findFirst({ where: { driverId: driver.id, status: 'ACTIVE' } });
     if (!trip) {
       res.status(409).json({ error: "This driver doesn't have an active trip right now." });
       return;
     }
 
-    // Upsert, not create — scanning the same driver's QR again mid-ride
-    // (re-confirming, accidental double-scan) shouldn't error or duplicate.
-    // Resets alightedAt too: re-scanning after tapping Para Po (e.g. a
-    // quick stop, or an accidental tap) is a fresh boarding signal.
-    await prisma.tripBoarding.upsert({
-      where: { tripId_commuterId: { tripId: trip.id, commuterId: req.auth!.sub } },
-      update: { alightedAt: null },
-      create: { tripId: trip.id, commuterId: req.auth!.sub },
+    const fare =
+      body.regularRiders * REGULAR_FARE + (body.studentRiders + body.seniorRiders) * DISCOUNTED_FARE;
+
+    // Reuse an *open* boarding on this trip if one exists — scanning the
+    // same driver's QR again mid-ride (re-confirming, accidental
+    // double-scan) shouldn't duplicate. But once a boarding's been
+    // alighted, this driver's Trip is still ACTIVE (a shift commonly
+    // spans a whole day, not one ride), so a genuinely new ride on it —
+    // rode out this morning, riding back this evening — gets its own row
+    // instead of overwriting/losing the earlier one (see TripBoarding's
+    // doc comment in schema.prisma).
+    const openBoarding = await prisma.tripBoarding.findFirst({
+      where: { tripId: trip.id, commuterId: req.auth!.sub, alightedAt: null },
+    });
+
+    if (openBoarding) {
+      await prisma.tripBoarding.update({
+        where: { id: openBoarding.id },
+        data: {
+          regularRiders: body.regularRiders,
+          studentRiders: body.studentRiders,
+          seniorRiders: body.seniorRiders,
+          fare,
+        },
+      });
+    } else {
+      await prisma.tripBoarding.create({
+        data: {
+          tripId: trip.id,
+          commuterId: req.auth!.sub,
+          regularRiders: body.regularRiders,
+          studentRiders: body.studentRiders,
+          seniorRiders: body.seniorRiders,
+          fare,
+        },
+      });
+    }
+
+    // This commuter's need is fulfilled the moment they board — any of
+    // their still-outstanding demand signals should stop showing up as
+    // "waiting" on admin/driver maps (see fulfilledAt's doc comment in
+    // schema.prisma). Left in the table either way, so the day's
+    // demandSignalsToday total in commuter-stats is unaffected.
+    await prisma.demandSignal.updateMany({
+      where: { commuterId: req.auth!.sub, fulfilledAt: null },
+      data: { fulfilledAt: new Date() },
     });
 
     res.json({ boarded: true, tripId: trip.id });
@@ -796,6 +1050,81 @@ router.post('/alight', requireAuth('commuter'), async (req, res, next) => {
     }
 
     res.json({ alighted: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DEMAND SIGNALS — a commuter tapping "Request a ride here" from the live
+// map. Anonymous by design (see DemandSignal's doc comment in
+// schema.prisma): commuterId is stored so a repeat/duplicate ping could
+// theoretically be de-duped later, but no GET endpoint (admin or driver)
+// ever returns it — both only ever return grid-cell clusters.
+// ---------------------------------------------------------------------------
+
+const demandSignalSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  route: z.string().trim().min(1).optional(),
+});
+
+router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const body = demandSignalSchema.parse(req.body);
+
+    // At most one *outstanding* (unfulfilled) signal per commuter — the
+    // booking flow re-sends this every 10 minutes while still looking
+    // (see jeepney_booking_flow_screen.dart) to keep a genuinely-waiting
+    // commuter visible past the staleness window; refreshing the existing
+    // row in place (rather than creating another) keeps a cluster's count
+    // meaning "N distinct people," not "N pings from however-many people."
+    // Self-healing: if more than one unfulfilled row somehow already
+    // exists for this commuter (e.g. a duplicate created before this
+    // dedup logic existed), every send here collapses back down to one —
+    // the newest is refreshed, any older ones are cleaned up.
+    const existing = await prisma.demandSignal.findMany({
+      where: { commuterId: req.auth!.sub, fulfilledAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing.length > 0) {
+      const [keep, ...duplicates] = existing;
+      await prisma.$transaction([
+        prisma.demandSignal.update({
+          where: { id: keep.id },
+          data: { lat: body.lat, lng: body.lng, route: body.route ?? keep.route, createdAt: new Date() },
+        }),
+        ...(duplicates.length > 0
+          ? [prisma.demandSignal.deleteMany({ where: { id: { in: duplicates.map((d) => d.id) } } })]
+          : []),
+      ]);
+    } else {
+      await prisma.demandSignal.create({
+        data: { commuterId: req.auth!.sub, lat: body.lat, lng: body.lng, route: body.route },
+      });
+    }
+
+    res.status(201).json({ message: 'Signal sent.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Called when a commuter stops looking without boarding — backed out of
+// the booking flow, or left it another way (see _stopDemandSignalKeepAlive
+// in jeepney_booking_flow_screen.dart). Without this, their last-sent
+// signal would just sit there showing as "still waiting" on admin/driver
+// maps for up to DEMAND_SIGNAL_WINDOW_MS after they've actually given up.
+// A no-op if they already boarded (see fulfilledAt's doc comment in
+// schema.prisma) — nothing outstanding left to cancel in that case.
+router.post('/demand-signals/cancel', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    await prisma.demandSignal.updateMany({
+      where: { commuterId: req.auth!.sub, fulfilledAt: null },
+      data: { fulfilledAt: new Date() },
+    });
+    res.json({ message: 'Signal cancelled.' });
   } catch (err) {
     next(err);
   }
@@ -849,10 +1178,15 @@ router.get('/trips', requireAuth('commuter'), async (req, res, next) => {
 
     const [ratingAgg, myRatings, myComplaints] = await Promise.all([
       prisma.rating.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds } }, _avg: { stars: true }, _count: { stars: true } }),
-      prisma.rating.findMany({ where: { tripId: { in: tripIds }, commuterId: req.auth!.sub }, select: { tripId: true } }),
+      prisma.rating.findMany({ where: { tripId: { in: tripIds }, commuterId: req.auth!.sub }, select: { tripId: true, stars: true } }),
       prisma.complaint.findMany({ where: { tripId: { in: tripIds }, complainantId: req.auth!.sub }, select: { tripId: true } }),
     ]);
     const ratingByDriver = new Map(ratingAgg.map((r) => [r.driverId, { avg: r._avg.stars, count: r._count.stars }]));
+    // The commuter's own star rating for a trip, keyed by tripId — distinct
+    // from ratingByDriver's aggregate above. Lets Trip History redraw the
+    // exact stars given rather than just a boolean "already rated" (see
+    // [alreadyRated] below, still needed for the disabled/no-op check).
+    const myRatingByTripId = new Map(myRatings.map((r) => [r.tripId, r.stars]));
     const ratedTripIds = new Set(myRatings.map((r) => r.tripId));
     const reportedTripIds = new Set(myComplaints.map((c) => c.tripId).filter((id): id is string => id !== null));
 
@@ -867,13 +1201,22 @@ router.get('/trips', requireAuth('commuter'), async (req, res, next) => {
           driverId: trip.driverId,
           driverName: driver?.fullName ?? 'Unknown driver',
           plateNumber: driver?.plateNumber ?? '—',
+          photoUrl: driver?.photoUrl ?? null,
           route: trip.route,
           boardedAt: b.boardedAt,
           alightedAt: b.alightedAt,
+          // Null on boardings from before these columns existed (see
+          // TripBoarding's doc comment) — the client falls back to
+          // whatever it has cached locally in that case.
+          regularRiders: b.regularRiders,
+          studentRiders: b.studentRiders,
+          seniorRiders: b.seniorRiders,
+          fare: b.fare,
           driverAverageRating: ratingInfo?.avg ?? null,
           driverRatingCount: ratingInfo?.count ?? 0,
           alreadyRated: ratedTripIds.has(trip.id),
           alreadyReported: reportedTripIds.has(trip.id),
+          myRating: myRatingByTripId.get(trip.id) ?? null,
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
@@ -906,8 +1249,11 @@ router.post('/trips/:tripId/rating', requireAuth('commuter'), async (req, res, n
     const tripId: string = Array.isArray(req.params.tripId) ? req.params.tripId[0] : req.params.tripId;
     const body = ratingSchema.parse(req.body);
 
-    const boarding = await prisma.tripBoarding.findUnique({
-      where: { tripId_commuterId: { tripId, commuterId: req.auth!.sub } },
+    // Rides this trip more than once now creates more than one row (see
+    // TripBoarding's doc comment) — any one of them is proof enough that
+    // this commuter actually rode with this driver on this trip.
+    const boarding = await prisma.tripBoarding.findFirst({
+      where: { tripId, commuterId: req.auth!.sub },
     });
     if (!boarding) {
       res.status(404).json({ error: "You didn't board this trip." });
@@ -936,6 +1282,19 @@ router.post('/trips/:tripId/rating', requireAuth('commuter'), async (req, res, n
         stars: body.stars,
         comment: body.comment ?? null,
       },
+    });
+
+    // Also pushed locally the instant this succeeds, for zero-latency
+    // feedback (see RATING_SUBMITTED in jeepney_booking_flow_screen.dart /
+    // commuter_history_screen.dart) — matching type+referenceId here lets
+    // the notifications feed de-dup the two into one entry once this
+    // server copy syncs in, rather than showing both forever.
+    await notifyCommuter({
+      recipientId: req.auth!.sub,
+      title: 'Thank You For Rating!',
+      message: 'Thank you! Your rating helps improve our service.',
+      type: 'RATING_SUBMITTED',
+      referenceId: tripId,
     });
 
     res.status(201).json({ rating: { id: rating.id, stars: rating.stars, comment: rating.comment, createdAt: rating.createdAt } });
@@ -1004,6 +1363,19 @@ router.post('/complaints', requireAuth('commuter'), (req, res, next) => {
         referenceId: complaint.id,
       });
 
+      // Also pushed locally for the filer the instant this succeeds (see
+      // "Report Received" in jeepney_booking_flow_screen.dart /
+      // commuter_history_screen.dart) — same type+referenceId as above so
+      // the notifications feed de-dups the local and server copies into
+      // one entry.
+      await notifyCommuter({
+        recipientId: req.auth!.sub,
+        title: 'Report Received',
+        message: `Your report about ${driver.fullName} has been received. Thank you for helping us improve.`,
+        type: 'COMPLAINT_FILED',
+        referenceId: complaint.id,
+      });
+
       res.status(201).json({ complaint: { id: complaint.id, status: complaint.status, createdAt: complaint.createdAt } });
     } catch (err2) {
       next(err2);
@@ -1057,6 +1429,18 @@ router.post('/notifications/mark-read', requireAuth('commuter'), async (req, res
       data: { isRead: true },
     });
     res.json({ message: 'Marked read.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// "Clear All" — a real delete, not a soft-dismiss; there's no undo, same
+// as the rest of this app's delete actions. Only ever clears this
+// commuter's own notifications (recipientId scoped), never anyone else's.
+router.delete('/notifications', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    await prisma.commuterNotification.deleteMany({ where: { recipientId: req.auth!.sub } });
+    res.json({ message: 'Notifications cleared.' });
   } catch (err) {
     next(err);
   }

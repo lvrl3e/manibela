@@ -12,6 +12,10 @@
 .swiftpm/
 migrate_working_dir/
 
+# Claude Code local settings/permissions — machine- and session-specific,
+# not something to share via version control.
+.claude/
+
 # IntelliJ related
 *.iml
 *.ipr

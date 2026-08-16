@@ -13,9 +13,16 @@ import { issueOtp, verifyOtp } from '../utils/otp';
 import { dateOnly, formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
 import { uploadPhoto, deleteUploadedPhoto } from '../middleware/upload';
-import { notifyDriver, notifyAdmin } from '../utils/notify';
+import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
+import { authLimiter } from '../middleware/rateLimit';
 
 const router = Router();
+
+// Unauthenticated + brute-forceable — see middleware/rateLimit.ts.
+router.use(
+  ['/signup', '/login', '/forgot-password', '/verify-otp', '/reset-password'],
+  authLimiter,
+);
 
 function toPublicDriver(driver: {
   id: string;
@@ -551,6 +558,36 @@ router.post('/trips/:id/end', requireAuth('driver'), async (req, res, next) => {
       data: { status: 'COMPLETED', endedAt, isShortTrip, flagReason },
     });
 
+    // A commuter still marked onboard when the *driver* ends the trip
+    // (as opposed to tapping their own "Para Po"/End Trip — see POST
+    // /api/commuter/alight) would otherwise stay stuck with alightedAt
+    // still null forever: their own active-trip check already stops
+    // showing them as riding once trip.status flips off ACTIVE, but the
+    // boarding record itself never closes, and they're never told the
+    // trip actually ended. Close every open boarding out here too, same
+    // as a real alight, and let each of them know.
+    const openBoardings = await prisma.tripBoarding.findMany({
+      where: { tripId: id, alightedAt: null },
+      select: { commuterId: true },
+    });
+    if (openBoardings.length > 0) {
+      await prisma.tripBoarding.updateMany({
+        where: { tripId: id, alightedAt: null },
+        data: { alightedAt: endedAt },
+      });
+      await Promise.all(
+        openBoardings.map((b) =>
+          notifyCommuter({
+            recipientId: b.commuterId,
+            title: 'Trip Completed',
+            message: 'Your trip has ended. Thanks for riding with ManibelApp!',
+            type: 'TRIP_COMPLETED',
+            referenceId: updated.id,
+          }),
+        ),
+      );
+    }
+
     await notifyDriver({
       recipientId: req.auth!.sub,
       title: 'Trip Completed',
@@ -765,8 +802,12 @@ router.get('/me/qr-token', requireAuth('driver'), async (req, res, next) => {
 });
 
 // Public on purpose — a commuter scanning a driver's QR isn't authenticated
-// as anyone. Only exposes what's already shown on the driver's own QR
-// screen (name, driverId, plate), never the mobile number or anything else.
+// as anyone. Deliberately a narrower shape than toPublicDriver (which also
+// carries mobileNumber/dateOfBirth for the driver's own authenticated
+// /me-style views) — only what's safe to show a commuter before/while
+// boarding: name, driverId, plate, profile photo, and the driver's live
+// average rating (see Rating's doc comment in schema.prisma) — never the
+// mobile number or date of birth.
 router.get('/verify-qr/:token', async (req, res, next) => {
   try {
     const driver = await prisma.driver.findUnique({ where: { qrToken: req.params.token } });
@@ -775,7 +816,69 @@ router.get('/verify-qr/:token', async (req, res, next) => {
       return;
     }
 
-    res.json({ driver: toPublicDriver(driver) });
+    const ratingInfo = await prisma.rating.aggregate({
+      where: { driverId: driver.id },
+      _avg: { stars: true },
+      _count: { stars: true },
+    });
+
+    res.json({
+      driver: {
+        id: driver.id,
+        driverId: driver.driverId,
+        fullName: driver.fullName,
+        plateNumber: driver.plateNumber,
+        photoUrl: driver.photoUrl,
+        averageRating: ratingInfo._avg.stars,
+        ratingCount: ratingInfo._count.stars,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DEMAND SIGNALS — the driver-side read of the same raw pings admin's
+// Passenger Live Map uses (see GET /admin/demand-signals and
+// DemandSignal's doc comment in schema.prisma). Clustered into grid cells
+// client-side, same as the admin website's copy of that logic, so a
+// driver sees the same "where passengers are waiting" clusters admin does
+// from the same underlying data.
+// ---------------------------------------------------------------------------
+
+// Same window and reasoning as GET /admin/demand-signals — kept in sync
+// deliberately so admin and driver never disagree on what counts as "still
+// live."
+const DEMAND_SIGNAL_WINDOW_MS = 15 * 60 * 1000;
+
+const driverDemandSignalsQuerySchema = z.object({
+  // The route this driver is currently running — when given, only pings
+  // from commuters who picked the same route are returned, so a driver
+  // running Pasig -> Quiapo doesn't get shown someone waiting for the
+  // opposite direction. Omitted (e.g. before a route is chosen on the
+  // dashboard) means "show everything."
+  route: z.string().trim().min(1).optional(),
+});
+
+router.get('/demand-signals', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const query = driverDemandSignalsQuerySchema.parse(req.query);
+    const since = new Date(Date.now() - DEMAND_SIGNAL_WINDOW_MS);
+    const signals = await prisma.demandSignal.findMany({
+      // fulfilledAt: null — a commuter who's already boarded no longer
+      // needs a pickup, so their signal stops showing here (see
+      // fulfilledAt's doc comment in schema.prisma) even though it's kept
+      // in the table.
+      where: {
+        createdAt: { gte: since },
+        fulfilledAt: null,
+        ...(query.route ? { route: query.route } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, lat: true, lng: true, createdAt: true },
+    });
+    res.json({ signals });
   } catch (err) {
     next(err);
   }
@@ -947,6 +1050,18 @@ router.post('/notifications/mark-read', requireAuth('driver'), async (req, res, 
       data: { isRead: true },
     });
     res.json({ message: 'Marked read.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// "Clear All" — a real delete, not a soft-dismiss; there's no undo, same
+// as the commuter app's own DELETE /notifications. Only ever clears this
+// driver's own notifications (recipientId scoped), never anyone else's.
+router.delete('/notifications', requireAuth('driver'), async (req, res, next) => {
+  try {
+    await prisma.driverNotification.deleteMany({ where: { recipientId: req.auth!.sub } });
+    res.json({ message: 'Notifications cleared.' });
   } catch (err) {
     next(err);
   }

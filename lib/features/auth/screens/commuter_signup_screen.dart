@@ -18,7 +18,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   final _formKey = GlobalKey<FormState>();
 
   final TextEditingController _fullNameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController(text: '+63');
+  final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
 
@@ -32,8 +32,9 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   // Only letters, spaces, hyphens, apostrophes and periods (e.g. "Jr.")
   final RegExp _nameRegExp = RegExp(r"^[a-zA-Z\u00C0-\u017F' .-]+$");
 
-  // Philippine mobile format: +63 followed by 10 digits (e.g. +639171234567)
-  final RegExp _phoneRegExp = RegExp(r'^\+63\d{10}$');
+  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) \u2014
+  // matches CommuterLoginScreen's own _phoneRegExp exactly.
+  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
 
   final RegExp _hasUppercase = RegExp(r'[A-Z]');
   final RegExp _hasLowercase = RegExp(r'[a-z]');
@@ -73,11 +74,8 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
     if (phone.isEmpty) {
       return 'Please enter your mobile number';
     }
-    if (!phone.startsWith('+63')) {
-      return 'Mobile number must start with +63';
-    }
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid 10-digit mobile number';
+      return 'Enter a valid number, e.g. 09171234567';
     }
     return null;
   }
@@ -288,7 +286,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
                       fontWeight: FontWeight.w700,
                       color: Colors.black87,
                     ),
-                    decoration: _fieldDecoration(hintText: 'Mobile Number'),
+                    decoration: _fieldDecoration(hintText: '09XXXXXXXXX'),
                     validator: _validatePhone,
                   ),
                   const SizedBox(height: 16),

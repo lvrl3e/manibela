@@ -298,6 +298,8 @@ class _DriverTripInProgressScreenState
     super.initState();
 
     _initializeTrip();
+    _fetchDemandSignals();
+    _demandPollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchDemandSignals());
   }
 
   Future<void> _initializeTrip() async {
@@ -333,40 +335,42 @@ class _DriverTripInProgressScreenState
     //
     // The trip controller owns the GPS subscription.
     // Therefore navigating back to Dashboard will NOT end the trip.
+    _demandPollTimer?.cancel();
     super.dispose();
   }
 
   // -------------------------------------------------------------------------
-  // WAITING STOPS
+  // WAITING STOPS — clustered demand-signal pings (see GET
+  // /api/driver/demand-signals and DemandSignal's doc comment in
+  // schema.prisma), same real data and clustering as the dashboard's own
+  // map — this screen used to show fixed, made-up pins here instead.
   // -------------------------------------------------------------------------
 
-  List<_WaitingStop> get _waitingStops {
-    final location =
-        _activeTrip.currentLocation ?? widget.initialLocation;
+  List<_WaitingStop> _demandStops = [];
+  Timer? _demandPollTimer;
 
-    return [
-      _WaitingStop(
-        point: LatLng(
-          location.latitude + 0.004,
-          location.longitude + 0.003,
-        ),
-        count: 5,
-      ),
-      _WaitingStop(
-        point: LatLng(
-          location.latitude - 0.003,
-          location.longitude - 0.004,
-        ),
-        count: 8,
-      ),
-      _WaitingStop(
-        point: LatLng(
-          location.latitude + 0.002,
-          location.longitude - 0.005,
-        ),
-        count: 3,
-      ),
-    ];
+  Future<void> _fetchDemandSignals() async {
+    final token = DriverSession.instance.authToken;
+    if (token == null) return;
+    try {
+      // Filtered to the route this trip is actually running — someone
+      // waiting for the opposite direction shouldn't show up here (see the
+      // route param's doc comment in driver.ts).
+      final route = _activeTrip.route ?? widget.route;
+      final response = await ApiClient.get(
+        '/api/driver/demand-signals?route=${Uri.encodeQueryComponent(route)}',
+        token: token,
+      );
+      if (!mounted) return;
+      final raw = response['signals'] as List<dynamic>? ?? const [];
+      final points = raw.map((s) {
+        final map = s as Map<String, dynamic>;
+        return LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble());
+      }).toList();
+      setState(() => _demandStops = _clusterDemandSignals(points));
+    } catch (_) {
+      // Best-effort — the map just keeps showing whatever it last had.
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -573,7 +577,7 @@ class _DriverTripInProgressScreenState
                     MarkerLayer(
                       markers: [
                         // Waiting passenger stops.
-                        for (final stop in _waitingStops)
+                        for (final stop in _demandStops)
                           Marker(
                             point: stop.point,
                             width: 34,
@@ -894,6 +898,40 @@ class _WaitingStop {
   });
 }
 
+class _DemandBucket {
+  double latSum = 0;
+  double lngSum = 0;
+  int count = 0;
+}
+
+/// Buckets raw demand-signal pings into ~0.001°-square cells (~100m at
+/// this latitude) — same logic as the dashboard's own copy in
+/// driver_dashboard_screen.dart (kept duplicated rather than shared since
+/// each is a private, file-scoped class) and admin's clusterDemandSignals
+/// (admin/src/components/LiveMap.tsx), so every surface agrees on where
+/// passengers are from the same raw rows.
+List<_WaitingStop> _clusterDemandSignals(List<LatLng> points) {
+  const cellSize = 0.001;
+  final buckets = <String, _DemandBucket>{};
+
+  for (final point in points) {
+    final cellLat = (point.latitude / cellSize).floor();
+    final cellLng = (point.longitude / cellSize).floor();
+    final key = '$cellLat:$cellLng';
+    final bucket = buckets.putIfAbsent(key, () => _DemandBucket());
+    bucket.latSum += point.latitude;
+    bucket.lngSum += point.longitude;
+    bucket.count += 1;
+  }
+
+  return buckets.values
+      .map((b) => _WaitingStop(
+            point: LatLng(b.latSum / b.count, b.lngSum / b.count),
+            count: b.count,
+          ))
+      .toList();
+}
+
 // ===========================================================================
 // WAITING STOP PIN
 // ===========================================================================
@@ -907,22 +945,41 @@ class _WaitingStopPin extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CircleAvatar(
-      radius: 17,
-      backgroundColor: AppColors.logoRed,
-      child: CircleAvatar(
-        radius: 15,
-        backgroundColor:
-            AppColors.splashBackground,
-        child: Text(
-          '$count',
-          style: const TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
+    final color = count > 1 ? AppColors.logoRed : AppColors.primary;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: [
+              BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, spreadRadius: 1),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: const Icon(Icons.person_rounded, size: 18, color: Colors.white),
+        ),
+        Positioned(
+          right: -4,
+          top: -4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            constraints: const BoxConstraints(minWidth: 15),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: color, width: 1.2),
+            ),
+            child: Text(
+              '$count',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: color),
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

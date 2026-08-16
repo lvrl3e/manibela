@@ -3,19 +3,23 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '../lib/prisma';
-import { toE164 } from '../utils/phone';
+import { toE164, phoneSearchVariant } from '../utils/phone';
 import { isValidPlateNumber, normalizePlateNumber } from '../utils/plate';
 import { toTitleCase } from '../utils/text';
 import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
-import { formatDateOnly, formatManilaTime } from '../utils/date';
+import { formatDateOnly, formatManilaTime, manilaDayKey, manilaMidnight } from '../utils/date';
 import { requireAuth, requireMainAdmin } from '../middleware/auth';
 import { notifyDriver, notifyCommuter } from '../utils/notify';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { uploadLicensePhotos, deleteUploadedPhoto } from '../middleware/upload';
+import { authLimiter } from '../middleware/rateLimit';
 
 const router = Router();
+
+// Unauthenticated + brute-forceable — see middleware/rateLimit.ts.
+router.use(['/login', '/forgot-password', '/verify-otp', '/reset-password'], authLimiter);
 
 function toPublicAdmin(admin: {
   id: string;
@@ -352,32 +356,28 @@ router.get('/activity', requireAuth('admin'), async (req, res, next) => {
 router.get('/trends', requireAuth('admin'), async (req, res, next) => {
   try {
     const days = Math.min(Math.max(Number(req.query.days) || 14, 1), 90);
-    // UTC throughout (cutoff and bucketing both) so day boundaries are
-    // unambiguous regardless of the server's local timezone — the same
-    // class of bug fixed for dateOfBirth elsewhere in this codebase.
-    const today = new Date();
-    const todayUtcMidnight = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-    const since = new Date(todayUtcMidnight - (days - 1) * 24 * 60 * 60 * 1000);
+    // Bucketed by Asia/Manila calendar day, not UTC (see manilaDayKey) —
+    // previously used `.toISOString().slice(0, 10)`, which put a signup
+    // from the early hours of a Manila day into the previous day's bar.
+    const since = manilaMidnight(manilaDayKey(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000)));
 
     const [drivers, commuters] = await Promise.all([
       prisma.driver.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
       prisma.commuter.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
     ]);
 
-    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
-
     const driverCounts = new Map<string, number>();
-    for (const d of drivers) driverCounts.set(dayKey(d.createdAt), (driverCounts.get(dayKey(d.createdAt)) ?? 0) + 1);
+    for (const d of drivers) driverCounts.set(manilaDayKey(d.createdAt), (driverCounts.get(manilaDayKey(d.createdAt)) ?? 0) + 1);
 
     const commuterCounts = new Map<string, number>();
     for (const c of commuters) {
-      commuterCounts.set(dayKey(c.createdAt), (commuterCounts.get(dayKey(c.createdAt)) ?? 0) + 1);
+      commuterCounts.set(manilaDayKey(c.createdAt), (commuterCounts.get(manilaDayKey(c.createdAt)) ?? 0) + 1);
     }
 
     const series: { date: string; drivers: number; commuters: number }[] = [];
     for (let i = 0; i < days; i++) {
       const date = new Date(since.getTime() + i * 24 * 60 * 60 * 1000);
-      const key = dayKey(date);
+      const key = manilaDayKey(date);
       series.push({ date: key, drivers: driverCounts.get(key) ?? 0, commuters: commuterCounts.get(key) ?? 0 });
     }
 
@@ -408,6 +408,9 @@ router.get('/drivers', requireAuth('admin'), async (req, res, next) => {
             OR: [
               { fullName: { contains: query.search, mode: 'insensitive' as const } },
               { mobileNumber: { contains: query.search, mode: 'insensitive' as const } },
+              ...(phoneSearchVariant(query.search)
+                ? [{ mobileNumber: { contains: phoneSearchVariant(query.search)!, mode: 'insensitive' as const } }]
+                : []),
               { plateNumber: { contains: query.search, mode: 'insensitive' as const } },
               { driverId: { contains: query.search, mode: 'insensitive' as const } },
             ],
@@ -523,7 +526,10 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
       return;
     }
 
-    const reportCount = await prisma.complaint.count({ where: { driverId: id } });
+    const [reportCount, ratingInfo] = await Promise.all([
+      prisma.complaint.count({ where: { driverId: id } }),
+      prisma.rating.aggregate({ where: { driverId: id }, _avg: { stars: true }, _count: { stars: true } }),
+    ]);
 
     res.json({
       driver: {
@@ -539,6 +545,8 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
         qrToken: driver.qrToken,
         isActive: driver.isActive,
         reportCount,
+        averageRating: ratingInfo._avg.stars,
+        ratingCount: ratingInfo._count.stars,
         createdAt: driver.createdAt,
       },
     });
@@ -827,6 +835,9 @@ router.get('/commuters', requireAuth('admin'), async (req, res, next) => {
             OR: [
               { fullName: { contains: query.search, mode: 'insensitive' as const } },
               { mobileNumber: { contains: query.search, mode: 'insensitive' as const } },
+              ...(phoneSearchVariant(query.search)
+                ? [{ mobileNumber: { contains: phoneSearchVariant(query.search)!, mode: 'insensitive' as const } }]
+                : []),
               { commuterId: { contains: query.search, mode: 'insensitive' as const } },
             ],
           }
@@ -1077,32 +1088,72 @@ router.get('/commuter-stats', requireAuth('admin'), async (_req, res, next) => {
     startOfThisMonth.setHours(0, 0, 0, 0);
     const startOfLastMonth = new Date(startOfThisMonth);
     startOfLastMonth.setMonth(startOfLastMonth.getMonth() - 1);
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
 
     const activeTripIds = (await prisma.trip.findMany({ where: { status: 'ACTIVE' }, select: { id: true } })).map(
       (t) => t.id,
     );
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
 
-    const [totalCommuters, activeCommuters, inactiveCommuters, demandSignalsToday, currentlyOnBoard, newThisMonth, newLastMonth] =
-      await Promise.all([
-        prisma.commuter.count(),
-        prisma.commuter.count({ where: { isActive: true } }),
-        prisma.commuter.count({ where: { isActive: false } }),
-        prisma.demandSignal.count({ where: { createdAt: { gte: startOfToday } } }),
-        prisma.tripBoarding.count({ where: { tripId: { in: activeTripIds }, alightedAt: null } }),
-        prisma.commuter.count({ where: { createdAt: { gte: startOfThisMonth } } }),
-        prisma.commuter.count({ where: { createdAt: { gte: startOfLastMonth, lt: startOfThisMonth } } }),
-      ]);
+    const [
+      totalCommuters,
+      activeCommuters,
+      inactiveCommuters,
+      currentlyOnBoard,
+      demandSignalsToday,
+      newThisMonth,
+      newLastMonth,
+    ] = await Promise.all([
+      prisma.commuter.count(),
+      prisma.commuter.count({ where: { isActive: true } }),
+      prisma.commuter.count({ where: { isActive: false } }),
+      prisma.tripBoarding.count({ where: { tripId: { in: activeTripIds }, alightedAt: null } }),
+      prisma.demandSignal.count({ where: { createdAt: { gte: startOfToday } } }),
+      prisma.commuter.count({ where: { createdAt: { gte: startOfThisMonth } } }),
+      prisma.commuter.count({ where: { createdAt: { gte: startOfLastMonth, lt: startOfThisMonth } } }),
+    ]);
 
     res.json({
       totalCommuters,
       activeCommuters,
       inactiveCommuters,
-      demandSignalsToday,
       currentlyOnBoard,
+      demandSignalsToday,
       totalCommutersChangePercent: percentChange(newThisMonth, newLastMonth),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DEMAND SIGNALS — raw pings for the Passenger Live Map's heatmap. Returns
+// individual rows (not pre-clustered — the map component buckets them into
+// grid cells client-side, same as the driver app's own copy of that logic)
+// but never commuterId (see DemandSignal's doc comment in schema.prisma) —
+// only ever what's needed to place a dot on a map.
+// ---------------------------------------------------------------------------
+
+// Signals older than this are no longer "live demand" — jeepneys on these
+// routes pass frequently enough that a ping this old is more likely someone
+// who gave up and left (or got picked up outside the app) than someone
+// still standing there; showing it anyway just sends a driver somewhere
+// with no one to find.
+const DEMAND_SIGNAL_WINDOW_MS = 15 * 60 * 1000;
+
+router.get('/demand-signals', requireAuth('admin'), async (_req, res, next) => {
+  try {
+    const since = new Date(Date.now() - DEMAND_SIGNAL_WINDOW_MS);
+    const signals = await prisma.demandSignal.findMany({
+      // fulfilledAt: null — a commuter who's already boarded no longer
+      // needs a pickup, so their signal stops showing here (see
+      // fulfilledAt's doc comment in schema.prisma) even though it's kept
+      // in the table.
+      where: { createdAt: { gte: since }, fulfilledAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, lat: true, lng: true, createdAt: true },
+    });
+    res.json({ signals });
   } catch (err) {
     next(err);
   }
@@ -1399,27 +1450,6 @@ router.get('/onboard-passengers', requireAuth('admin'), async (_req, res, next) 
 });
 
 // ---------------------------------------------------------------------------
-// DEMAND SIGNALS — recent points for the Passenger Monitoring live map.
-// ---------------------------------------------------------------------------
-
-router.get('/demand-signals', requireAuth('admin'), async (req, res, next) => {
-  try {
-    const minutesAgo = Math.min(Math.max(Number(req.query.minutes) || 60, 1), 24 * 60);
-    const since = new Date(Date.now() - minutesAgo * 60_000);
-
-    const signals = await prisma.demandSignal.findMany({
-      where: { createdAt: { gte: since } },
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    });
-
-    res.json({ demandSignals: signals.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng, createdAt: s.createdAt })) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ---------------------------------------------------------------------------
 // INCIDENT REPORTS (complaints)
 // ---------------------------------------------------------------------------
 
@@ -1592,13 +1622,16 @@ router.patch('/complaints/:id/status', requireAuth('admin'), async (req, res, ne
 
     const complaint = await prisma.complaint.update({ where: { id }, data: { status: body.status } });
 
-    if (body.status === 'RESOLVED' || body.status === 'REJECTED') {
-      await notifyCommuter({
-        recipientId: complaint.complainantId,
-        title: `Your complaint was ${body.status === 'RESOLVED' ? 'resolved' : 'rejected'}`,
-        message: `${complaint.complaintType} — status updated to ${body.status.toLowerCase()}.`,
-      });
-    }
+    const complaintStatusTitle: Record<typeof body.status, string> = {
+      INVESTIGATING: 'Your complaint is being investigated',
+      RESOLVED: 'Your complaint was resolved',
+      REJECTED: 'Your complaint was rejected',
+    };
+    await notifyCommuter({
+      recipientId: complaint.complainantId,
+      title: complaintStatusTitle[body.status],
+      message: `${complaint.complaintType} — status updated to ${body.status.toLowerCase()}.`,
+    });
 
     res.json({ complaint: { id: complaint.id, status: complaint.status } });
   } catch (err) {

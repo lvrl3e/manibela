@@ -7,6 +7,7 @@ import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { formatManilaDate } from '../lib/formatDate';
+import { formatPhone } from '../lib/formatPhone';
 
 interface Commuter {
   id: string;
@@ -157,7 +158,7 @@ export default function IdVerificationPage() {
                     </Link>
                   </td>
                   <td className="px-5 py-3 text-gray-600">{commuter.commuterId}</td>
-                  <td className="px-5 py-3 text-gray-600">{commuter.mobileNumber}</td>
+                  <td className="px-5 py-3 text-gray-600">{formatPhone(commuter.mobileNumber)}</td>
                   <td className="px-5 py-3">
                     <VerificationBadge status={commuter.verificationStatus} notSubmitted={!commuter.idSubmitted} />
                   </td>

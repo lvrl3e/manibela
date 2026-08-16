@@ -5,47 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/qr_constants.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/avatar_image.dart';
 import '../../../core/utils/fare_calculator.dart';
 import 'commuter_history_screen.dart';
 import 'notifications_screen.dart';
 import 'qr_scanner_screen.dart';
-
-/// Turns a [Placemark] into a short, human-readable label like
-/// "Ortigas Center, Pasig" or "Pasig City" — never raw coordinates.
-/// Falls back to whatever fields are actually populated, since not every
-/// address has a subLocality (barangay/neighborhood level).
-String _formatPlacemark(Placemark p) {
-  final parts = <String>[];
-
-  if (p.subLocality != null && p.subLocality!.trim().isNotEmpty) {
-    parts.add(p.subLocality!.trim());
-  }
-  if (p.locality != null && p.locality!.trim().isNotEmpty) {
-    // Avoid "Pasig, Pasig" if subLocality happened to duplicate the city.
-    if (parts.isEmpty || parts.first != p.locality!.trim()) {
-      parts.add(p.locality!.trim());
-    }
-  } else if (p.subAdministrativeArea != null &&
-      p.subAdministrativeArea!.trim().isNotEmpty) {
-    parts.add(p.subAdministrativeArea!.trim());
-  }
-
-  if (parts.isEmpty) {
-    // Last resort — still not coordinates, just less specific.
-    if (p.administrativeArea != null && p.administrativeArea!.trim().isNotEmpty) {
-      return p.administrativeArea!.trim();
-    }
-    return 'Unknown location';
-  }
-
-  return parts.join(', ');
-}
 
 /// Formats a [DateTime] as "Aug 10, 2026 · 3:45 PM", matching the style used
 /// by the dummy entries already in [CommuterHistoryScreen].
@@ -97,7 +66,6 @@ const Color _kYellowDark = Color(0xFFE0A800);
 
 enum _BookingStep {
   routeAndCompanions,
-  boardingPoint,
   findingJeepneys,
   scanQr,
   boardingStatus,
@@ -107,27 +75,91 @@ enum _BookingStep {
 class _JeepneyOption {
   final String plateNumber;
   final String driverName;
+
+  /// A straight-line-distance estimate from GET /api/commuter/nearby-jeepneys
+  /// (see its own doc comment in commuter.ts for why this is presented as
+  /// an estimate, not real routing/traffic data) — 0 until that real call
+  /// resolves this option, same as [driverRating] below.
   final int etaMinutes;
-  final int seatsAvailable;
+  final int distanceMeters;
+
+  /// Real live-averaged rating from GET /api/commuter/nearby-jeepneys
+  /// (pre-scan) or GET /api/driver/verify-qr (post-scan) — 0/null means
+  /// "no ratings yet", never a placeholder (see _DriverRatingLabel).
   final double driverRating;
+  final int ratingCount;
+
+  final String? photoUrl;
+
+  /// The underlying Trip id — null for an option resolved from a QR scan
+  /// (verify-qr doesn't return one; that path boards by qrToken instead,
+  /// see _handleScanQr), set for one resolved from GET /nearby-jeepneys,
+  /// which is what lets proximity-based boarding call POST /board with a
+  /// tripId directly, with nothing to scan.
+  final String? tripId;
+
+  /// This jeepney's live position, from GET /api/commuter/nearby-jeepneys —
+  /// null for an option resolved from a QR scan (verify-qr doesn't return
+  /// one). Lets the findingJeepneys step plot it on the map, not just list
+  /// it, while the commuter is actively searching.
+  final LatLng? position;
+
   const _JeepneyOption({
     required this.plateNumber,
     required this.driverName,
     required this.etaMinutes,
-    required this.seatsAvailable,
+    this.distanceMeters = 0,
     required this.driverRating,
+    this.ratingCount = 0,
+    this.photoUrl,
+    this.tripId,
+    this.position,
   });
 }
 
-/// Walks a commuter through: choosing a route, picking a boarding point by
-/// pinning a location on the map, declaring companions, finding a nearby
-/// jeepney, scanning a QR code to board, live boarding status with a
-/// "Para po" stop signal, and finally trip completion with separate
-/// rate/report actions for the driver.
+/// An already-in-progress trip from GET /api/commuter/active-trip — lets
+/// [JeepneyBookingFlowScreen] resume straight into the live boarding-status
+/// view instead of starting a new booking, for a boarding that happened in
+/// another session (the app was force-closed mid-ride, or reopened after
+/// boarding was recorded some other way).
+class ResumedTrip {
+  final String tripId;
+  final String route;
+  final String driverName;
+  final String plateNumber;
+  final String? photoUrl;
+  final double driverRating;
+  final int ratingCount;
+  final int regularRiders;
+  final int studentRiders;
+  final int seniorRiders;
+
+  const ResumedTrip({
+    required this.tripId,
+    required this.route,
+    required this.driverName,
+    required this.plateNumber,
+    required this.photoUrl,
+    required this.driverRating,
+    required this.ratingCount,
+    required this.regularRiders,
+    required this.studentRiders,
+    required this.seniorRiders,
+  });
+}
+
+/// Walks a commuter through: choosing a route and declaring companions,
+/// finding a nearby jeepney, scanning a QR code to board, live boarding
+/// status with an End Trip action, and finally trip completion with
+/// separate rate/report actions for the driver.
 class JeepneyBookingFlowScreen extends StatefulWidget {
   final String commuterName;
 
-  const JeepneyBookingFlowScreen({super.key, required this.commuterName});
+  /// Skips straight to the live boarding-status step for this trip
+  /// instead of starting a fresh booking — see [ResumedTrip].
+  final ResumedTrip? resumedTrip;
+
+  const JeepneyBookingFlowScreen({super.key, required this.commuterName, this.resumedTrip});
 
   @override
   State<JeepneyBookingFlowScreen> createState() =>
@@ -149,6 +181,25 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   void initState() {
     super.initState();
     _locateUser(moveMap: false); // seed with the real location before the user interacts with the map
+
+    final resumed = widget.resumedTrip;
+    if (resumed != null) {
+      _selectedRoute = resumed.route;
+      _totalRiders = resumed.regularRiders + resumed.studentRiders + resumed.seniorRiders;
+      _studentRiders = resumed.studentRiders;
+      _seniorRiders = resumed.seniorRiders;
+      _selectedJeepney = _JeepneyOption(
+        plateNumber: resumed.plateNumber,
+        driverName: resumed.driverName,
+        etaMinutes: 0,
+        driverRating: resumed.driverRating,
+        ratingCount: resumed.ratingCount,
+        photoUrl: resumed.photoUrl,
+      );
+      _boardedTripId = resumed.tripId;
+      _step = _BookingStep.boardingStatus;
+      _startBoardingStatusPoll();
+    }
   }
 
   Future<void> _locateUser({bool moveMap = true}) async {
@@ -178,39 +229,21 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
     }
   }
 
+  // En-dash, not a hyphen — must match the backend's own DRIVER_ROUTES
+  // (driver.ts/admin.ts) exactly, character for character, since this is
+  // now sent as a literal filter to GET /api/commuter/nearby-jeepneys.
   static const _routes = [
-    'Pasig - Quiapo',
-    'Quiapo - Pasig',
+    'Pasig – Quiapo',
+    'Quiapo – Pasig',
   ];
 
-  static const _availableJeepneys = [
-    _JeepneyOption(
-      plateNumber: 'NBC 1234',
-      driverName: 'R. Santos',
-      etaMinutes: 3,
-      seatsAvailable: 6,
-      driverRating: 4.8,
-    ),
-    _JeepneyOption(
-      plateNumber: 'NBD 5821',
-      driverName: 'E. Ramos',
-      etaMinutes: 6,
-      seatsAvailable: 2,
-      driverRating: 4.5,
-    ),
-    _JeepneyOption(
-      plateNumber: 'NBE 7790',
-      driverName: 'M. Cruz',
-      etaMinutes: 9,
-      seatsAvailable: 9,
-      driverRating: 4.9,
-    ),
-  ];
+  List<_JeepneyOption> _nearbyJeepneys = [];
+  bool _isLoadingNearby = false;
+  String? _nearbyError;
 
   final TextEditingController _routeSearchController = TextEditingController();
   bool _routeDropdownOpen = false;
   String? _selectedRoute;
-  String? _selectedBoardingPoint;
 
   // Total riders always includes the commuter themself; student/senior are
   // a subset of that total — whatever's left over rides at the regular fare.
@@ -252,13 +285,284 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
 
   void _goTo(_BookingStep step) => setState(() => _step = step);
 
-  void _startFindingJeepneys() {
+  // The X button never ends the trip itself — it only ever closes this
+  // screen (dispose() below is what cancels the demand-signal watch, see
+  // _stopProximityPolling; there's no /alight call anywhere near this). If
+  // the commuter is genuinely on board (_BookingStep.boardingStatus), the
+  // trip stays open server-side and the dashboard correctly shows the
+  // resume-trip banner on return (see _handleBook's own doc comment in
+  // commuter_dashboard_screen.dart) — no confirmation needed here.
+  void _handleCloseButton() => Navigator.of(context).pop();
+
+  Future<void> _startFindingJeepneys(LatLng position) async {
     _goTo(_BookingStep.findingJeepneys);
-    // Simulated search delay — swap for a real nearby-jeepney query.
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted || _step != _BookingStep.findingJeepneys) return;
-      setState(() {});
+    setState(() {
+      _isLoadingNearby = true;
+      _nearbyError = null;
     });
+
+    try {
+      final route = _selectedRoute;
+      final response = await ApiClient.get(
+        '/api/commuter/nearby-jeepneys'
+        '?lat=${position.latitude}&lng=${position.longitude}'
+        '${route != null ? '&route=${Uri.encodeQueryComponent(route)}' : ''}',
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted) return;
+      final raw = response['jeepneys'] as List<dynamic>? ?? const [];
+      setState(() {
+        _nearbyJeepneys = raw.map((j) {
+          final map = j as Map<String, dynamic>;
+          return _JeepneyOption(
+            plateNumber: map['plateNumber'] as String,
+            driverName: map['driverName'] as String,
+            etaMinutes: map['etaMinutes'] as int,
+            distanceMeters: map['distanceMeters'] as int,
+            driverRating: (map['averageRating'] as num?)?.toDouble() ?? 0,
+            ratingCount: map['ratingCount'] as int? ?? 0,
+            photoUrl: map['photoUrl'] as String?,
+            tripId: map['tripId'] as String?,
+            position: LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble()),
+          );
+        }).toList();
+        _isLoadingNearby = false;
+      });
+      // Restarts the 5s watch on every successful fetch (including the
+      // timer's own tick) — keeps checks spaced out from when the last one
+      // actually finished, rather than firing on a fixed clock regardless
+      // of how long the network call took.
+      if (_step == _BookingStep.findingJeepneys) {
+        _startProximityPolling();
+        _startDemandSignalKeepAlive();
+      }
+      _maybeAutoPromptProximityBoard();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingNearby = false;
+        _nearbyError = e.message;
+      });
+    }
+  }
+
+  // Refreshes the nearby list every few seconds while the commuter is
+  // sitting on the findingJeepneys step — this is what makes proximity
+  // detection actually "live" instead of a one-time snapshot from the
+  // moment the step opened, since a jeepney (and the commuter) keep moving.
+  Timer? _proximityPollTimer;
+
+  void _startProximityPolling() {
+    _proximityPollTimer?.cancel();
+    _proximityPollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      await _locateUser(moveMap: false);
+      if (!mounted) return;
+      await _startFindingJeepneys(_center);
+    });
+  }
+
+  void _stopProximityPolling() {
+    _proximityPollTimer?.cancel();
+    _proximityPollTimer = null;
+    _proximityFirstSeenAt.clear();
+    _stopDemandSignalKeepAlive();
+  }
+
+  // The demand signal fires the moment a route is picked (right here, not
+  // from the dashboard's "Sakay na" tap — the route isn't known yet at that
+  // point, and GET /driver/demand-signals needs one to filter by, see its
+  // own doc comment in driver.ts) and keeps re-sending every 10 minutes
+  // while still looking. Each send refreshes the same backend row rather
+  // than creating a new one (see POST /demand-signals in commuter.ts), so a
+  // long wait never inflates a cluster's count — and re-sending well inside
+  // the 15-minute staleness window (see DEMAND_SIGNAL_WINDOW_MS in
+  // driver.ts/admin.ts) means it never actually goes dark as long as
+  // they're still here.
+  Timer? _demandSignalKeepAliveTimer;
+
+  void _startDemandSignalKeepAlive() {
+    if (_demandSignalKeepAliveTimer != null) return;
+    _sendDemandSignal();
+    _demandSignalKeepAliveTimer = Timer.periodic(const Duration(minutes: 10), (_) => _sendDemandSignal());
+  }
+
+  void _sendDemandSignal() {
+    unawaited(
+      ApiClient.post(
+        '/api/commuter/demand-signals',
+        {
+          'lat': _center.latitude,
+          'lng': _center.longitude,
+          if (_selectedRoute != null) 'route': _selectedRoute,
+        },
+        token: UserSession.instance.authToken,
+      ).catchError((_) => <String, dynamic>{}),
+    );
+  }
+
+  void _stopDemandSignalKeepAlive() {
+    if (_demandSignalKeepAliveTimer == null) return;
+    _demandSignalKeepAliveTimer?.cancel();
+    _demandSignalKeepAliveTimer = null;
+
+    // They were actively looking and now aren't — tell the backend so a
+    // driver's map doesn't keep showing them as "still waiting" for
+    // however long is left of the staleness window. A safe no-op if they
+    // got here because they just successfully boarded (see
+    // _boardByTripId/_handleScanQr) — POST /board already fulfilled the
+    // signal itself, so there's nothing left outstanding to cancel.
+    unawaited(
+      ApiClient.post(
+        '/api/commuter/demand-signals/cancel',
+        {},
+        token: UserSession.instance.authToken,
+      ).catchError((_) => <String, dynamic>{}),
+    );
+  }
+
+  // A jeepney this close is treated as "the commuter is at/near it right
+  // now" rather than just nearby on the map — close enough that GPS
+  // imprecision (5-20m typical in the city, see nearby-jeepneys' own doc
+  // comment) is unlikely to be confusing it with a different stopped
+  // vehicle a full stop-width away.
+  static const double _proximityThresholdMeters = 30;
+
+  bool _proximityPromptShowing = false;
+
+  // Declining (or ignoring, see the auto-dismiss timer below) a specific
+  // jeepney silences the *auto*-prompt for it for a while — otherwise a
+  // commuter standing near a jeepney they deliberately don't want to board
+  // (wrong route, waiting for a friend, whatever) would get re-asked every
+  // 5s for as long as they stayed in range. "Book This Jeepney" on the
+  // manual list bypasses this entirely — a deliberate tap always works,
+  // cooldown or not.
+  final Map<String, DateTime> _proximitySnoozedUntil = {};
+  static const Duration _proximitySnoozeDuration = Duration(minutes: 2);
+
+  // A dialog nobody answers (phone in a pocket, not actually looking) would
+  // otherwise sit open indefinitely — auto-treated as a decline after this
+  // long so watching resumes instead of silently stalling.
+  static const Duration _proximityPromptTimeout = Duration(seconds: 12);
+
+  // How long the closest jeepney has to *stay* within
+  // [_proximityThresholdMeters] before it's trusted enough to auto-prompt —
+  // a single close poll could just be GPS jitter or a jeepney momentarily
+  // passing within range without actually stopping; requiring it to hold
+  // for a while (a handful of 5s polls) filters that out. Keyed by tripId
+  // so a different jeepney becoming closest starts its own count from zero
+  // rather than inheriting time built up by whichever one was closest before.
+  final Map<String, DateTime> _proximityFirstSeenAt = {};
+  static const Duration _proximitySustainedDuration = Duration(seconds: 30);
+
+  // Auto-offers to board the closest jeepney once it's been within
+  // [_proximityThresholdMeters] for [_proximitySustainedDuration] — no
+  // manual "scan" tap required. Only ever proposes one at a time (guarded
+  // by [_proximityPromptShowing]) and only while still choosing (a
+  // boarded/boarding commuter shouldn't be re-prompted mid-ride).
+  void _maybeAutoPromptProximityBoard() {
+    if (_proximityPromptShowing || _step != _BookingStep.findingJeepneys) return;
+    if (_nearbyJeepneys.isEmpty) {
+      _proximityFirstSeenAt.clear();
+      return;
+    }
+
+    final closest = _nearbyJeepneys.reduce(
+      (a, b) => a.distanceMeters <= b.distanceMeters ? a : b,
+    );
+    final tripId = closest.tripId;
+    if (tripId == null || closest.distanceMeters > _proximityThresholdMeters) {
+      _proximityFirstSeenAt.clear();
+      return;
+    }
+
+    // Only the current closest jeepney's "how long have they been this
+    // close" timer keeps running.
+    _proximityFirstSeenAt.removeWhere((id, _) => id != tripId);
+    final firstSeenAt = _proximityFirstSeenAt.putIfAbsent(tripId, () => DateTime.now());
+    if (DateTime.now().difference(firstSeenAt) < _proximitySustainedDuration) return;
+
+    final snoozedUntil = _proximitySnoozedUntil[tripId];
+    if (snoozedUntil != null && DateTime.now().isBefore(snoozedUntil)) return;
+
+    _proximityPromptShowing = true;
+    _proximityFirstSeenAt.remove(tripId);
+    _stopProximityPolling();
+
+    var answered = false;
+    Timer(_proximityPromptTimeout, () {
+      if (!answered && mounted) Navigator.of(context, rootNavigator: true).maybePop(false);
+    });
+
+    showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Board This Jeepney?'),
+        content: Text(
+          "You're right next to ${closest.plateNumber} · ${closest.driverName}. "
+          "Tap Board to confirm — no need to scan anything.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Not This One'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Board', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      answered = true;
+      _proximityPromptShowing = false;
+      if (!mounted) return;
+      if (confirmed == true) {
+        _proximitySnoozedUntil.remove(tripId);
+        _boardByTripId(closest);
+      } else {
+        // Declined, dismissed, or timed out unanswered — silence just this
+        // jeepney for a while, then resume watching for it (re-approaching
+        // later is still worth another prompt) or anything else nearby.
+        _proximitySnoozedUntil[tripId] = DateTime.now().add(_proximitySnoozeDuration);
+        _startProximityPolling();
+      }
+    });
+  }
+
+  // Boards without a QR scan — used by both the proximity auto-prompt above
+  // and "Book This Jeepney" on the manual list (tapping a jeepney the
+  // commuter can already see in the live list is itself a deliberate,
+  // specific choice, same trust level as scanning that jeepney's own code).
+  // A failure (e.g. the driver's trip ended in between) shows an error and
+  // resumes watching instead of pretending it worked — see _handleScanQr's
+  // matching fix for why silently proceeding to "You're on Board!" here
+  // was a real bug, not just a cosmetic one.
+  Future<void> _boardByTripId(_JeepneyOption jeepney) async {
+    if (jeepney.tripId == null) return;
+    setState(() => _selectedJeepney = jeepney);
+
+    try {
+      await ApiClient.post(
+        '/api/commuter/board',
+        {
+          'tripId': jeepney.tripId,
+          'regularRiders': _fareBreakdown.regularRiders,
+          'studentRiders': _fareBreakdown.studentRiders,
+          'seniorRiders': _fareBreakdown.seniorRiders,
+        },
+        token: UserSession.instance.authToken,
+      );
+      _boardedTripId = jeepney.tripId;
+      if (!mounted) return;
+      _simulateQrScan();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      // Resume watching rather than leaving the commuter stuck with
+      // polling stopped and no path forward except manually backing out.
+      _startFindingJeepneys(_center);
+    }
   }
 
   // Opens the real camera scanner, then verifies whatever it decoded
@@ -295,8 +599,12 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
           plateNumber: driver['plateNumber'] as String,
           driverName: driver['fullName'] as String,
           etaMinutes: jeepney.etaMinutes,
-          seatsAvailable: jeepney.seatsAvailable,
-          driverRating: jeepney.driverRating,
+          // The real, live-averaged rating for this driver — null/0 for a
+          // driver with no ratings yet, shown as "New" rather than a fake
+          // number (see _DriverRatingLabel).
+          driverRating: (driver['averageRating'] as num?)?.toDouble() ?? 0,
+          ratingCount: driver['ratingCount'] as int? ?? 0,
+          photoUrl: driver['photoUrl'] as String?,
         );
       });
 
@@ -304,21 +612,24 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       // schema.prisma) so admin's Passenger Monitoring can show who's
       // really on board, and — via the returned tripId — so this booking's
       // history entry, rating, and report all reference the real trip.
-      // Awaited (unlike a fire-and-forget best-effort call) purely to
-      // capture that id; a failure here still never blocks the "You're on
-      // Board!" UX below (e.g. the driver doesn't have an active trip
-      // right now, which is a real possibility this mocked flow doesn't
-      // check) — it just means this booking won't sync anywhere.
-      try {
-        final boardResponse = await ApiClient.post(
-          '/api/commuter/board',
-          {'qrToken': token},
-          token: UserSession.instance.authToken,
-        );
-        _boardedTripId = boardResponse['tripId'] as String?;
-      } catch (_) {
-        _boardedTripId = null;
-      }
+      // A failure here now DOES block the "You're on Board!" UX below —
+      // it used to be swallowed silently (the driver's trip having just
+      // ended, a network hiccup, etc.), which showed a commuter as
+      // boarded with nothing actually recorded server-side: no history
+      // entry, no fare, and their demand signal (see fulfilledAt's doc
+      // comment in schema.prisma) staying stuck as "still waiting"
+      // forever since the thing that clears it never ran.
+      final boardResponse = await ApiClient.post(
+        '/api/commuter/board',
+        {
+          'qrToken': token,
+          'regularRiders': _fareBreakdown.regularRiders,
+          'studentRiders': _fareBreakdown.studentRiders,
+          'seniorRiders': _fareBreakdown.seniorRiders,
+        },
+        token: UserSession.instance.authToken,
+      );
+      _boardedTripId = boardResponse['tripId'] as String?;
 
       if (!mounted) return;
       _simulateQrScan();
@@ -331,12 +642,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   // Shows a compact "You're on Board!" popup right after the QR scan.
   // Tapping the dimmed background dismisses it and advances straight to
   // the boarding-status step — the panel underneath doesn't change until
-  // the popup is dismissed, same pattern as the Para Po dialog below.
+  // the popup is dismissed.
   void _simulateQrScan() {
     final jeepney = _selectedJeepney;
     final route = _selectedRoute;
-    final boardingPoint = _selectedBoardingPoint;
-    if (jeepney == null || route == null || boardingPoint == null) return;
+    if (jeepney == null || route == null) return;
+
+    _stopProximityPolling();
 
     showDialog<void>(
       context: context,
@@ -344,29 +656,31 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       barrierColor: Colors.black.withOpacity(0.45),
       builder: (_) => _OnBoardDialog(
         route: route,
-        boardingPoint: boardingPoint,
         jeepney: jeepney,
         fare: _fareBreakdown,
       ),
     ).then((_) {
       if (!mounted) return;
       _goTo(_BookingStep.boardingStatus);
+      _startBoardingStatusPoll();
     });
   }
 
-  // Shows a centered "driver notified" dialog with the driver's name and
-  // rating. Tapping anywhere on the dimmed background dismisses it (default
-  // showDialog barrier behavior); it also auto-dismisses after a few
-  // seconds. Either way, dismissing it advances the trip to "completed".
-  void _handleParaPo() {
+  // Ends this commuter's own ride — the driver doesn't need to be told:
+  // they're physically present when someone gets off, so there's nothing
+  // for a popup to tell them that they wouldn't already know firsthand.
+  // This just closes out the boarding server-side and moves the commuter
+  // on to the trip-completed step.
+  void _handleEndTrip() {
     final jeepney = _selectedJeepney;
     if (jeepney == null) return;
+
+    _stopBoardingStatusPoll();
 
     // Best-effort — this is the "I'm about to get off" signal (see
     // TripBoarding.alightedAt's doc comment in schema.prisma), so admin's
     // Passenger Monitoring drops this commuter from "Currently On Board"
-    // right away instead of waiting for the whole trip to end. Never
-    // blocks the dialog/UX below even if it fails.
+    // right away instead of waiting for the whole trip to end.
     unawaited(
       ApiClient.post(
         '/api/commuter/alight',
@@ -375,34 +689,91 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       ).catchError((_) => <String, dynamic>{}),
     );
 
-    showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.45),
-      builder: (_) => _DriverNotifiedDialog(jeepney: jeepney),
-    ).then((_) {
-      if (!mounted) return;
-      _recordTripInHistory();
-      _goTo(_BookingStep.tripCompleted);
-    });
+    _recordTripInHistory();
+    _goTo(_BookingStep.tripCompleted);
+  }
 
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).maybePop();
-    });
+  // While genuinely on board, checks every few seconds whether the *driver*
+  // has ended the trip (see POST /api/driver/trips/:id/end's own cascade,
+  // which closes out every still-open boarding the moment that happens) —
+  // without this, a commuter sitting on this screen would have no way to
+  // find out their ride is over except backing out and back in. Detecting
+  // it here means the transition to "trip completed" happens on its own,
+  // same screen, no navigation required from them. The same poll also
+  // pulls the jeepney's live position (see GET /commuter/active-trip's own
+  // doc comment) so the boarding-status map shows it actually moving,
+  // instead of frozen wherever it was at the moment of boarding.
+  Timer? _boardingStatusPollTimer;
+
+  /// The boarded jeepney's live position — null until the first poll
+  /// resolves. Drawn on the main map only while _step is boardingStatus
+  /// (see the MarkerLayer in build()).
+  LatLng? _boardedJeepneyPosition;
+
+  void _startBoardingStatusPoll() {
+    _boardingStatusPollTimer?.cancel();
+    _pollActiveTrip(); // fire immediately — no reason to wait 5s for the
+    // first position fix or end-trip check.
+    _boardingStatusPollTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _pollActiveTrip(),
+    );
+  }
+
+  void _stopBoardingStatusPoll() {
+    _boardingStatusPollTimer?.cancel();
+    _boardingStatusPollTimer = null;
+    _boardedJeepneyPosition = null;
+  }
+
+  Future<void> _pollActiveTrip() async {
+    if (!mounted || _step != _BookingStep.boardingStatus) return;
+    try {
+      final response = await ApiClient.get(
+        '/api/commuter/active-trip',
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted || _step != _BookingStep.boardingStatus) return;
+      final activeTrip = response['activeTrip'] as Map<String, dynamic>?;
+      if (activeTrip == null) {
+        // No /alight call here — the driver's own end-trip cascade already
+        // closed this boarding server-side; this is purely catching the
+        // local UI up to what already happened.
+        _stopBoardingStatusPoll();
+        _recordTripInHistory();
+        _goTo(_BookingStep.tripCompleted);
+        return;
+      }
+
+      final lat = activeTrip['lat'] as num?;
+      final lng = activeTrip['lng'] as num?;
+      if (lat != null && lng != null) {
+        final position = LatLng(lat.toDouble(), lng.toDouble());
+        setState(() => _boardedJeepneyPosition = position);
+        // Keeps the jeepney in view as it actually moves, rather than
+        // requiring the commuter to manually pan/zoom to follow it.
+        try {
+          _mapController.move(position, _mapController.camera.zoom);
+        } catch (_) {
+          // Map not laid out yet on the very first tick — safe to skip.
+        }
+      }
+    } catch (_) {
+      // Best-effort — just try again on the next tick.
+    }
   }
 
   // Adds this booking to the commuter's trip history as soon as the trip is
   // marked complete, so every booking — not just this session's view of it
   // — shows up on the History screen afterwards. The "Trip Completed"
   // notification itself now comes from the backend (triggered by the
-  // /alight call in _handleParaPo above), fetched the same way every other
-  // server-triggered notification is — no local push needed here anymore.
+  // /alight call in _handleEndTrip above), fetched the same way every
+  // other server-triggered notification is — no local push needed here
+  // anymore.
   void _recordTripInHistory() {
     final jeepney = _selectedJeepney;
     final route = _selectedRoute;
-    final boardingPoint = _selectedBoardingPoint;
-    if (jeepney == null || route == null || boardingPoint == null) return;
+    if (jeepney == null || route == null) return;
 
     final now = DateTime.now();
     final fare = _fareBreakdown;
@@ -412,8 +783,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         tripId: _boardedTripId ?? 'TRIP-${now.millisecondsSinceEpoch}',
         driverName: jeepney.driverName,
         plateNumber: jeepney.plateNumber,
+        photoUrl: jeepney.photoUrl,
         route: route,
-        boardingPoint: boardingPoint,
         regularRiders: fare.regularRiders,
         studentRiders: fare.studentRiders,
         seniorRiders: fare.seniorRiders,
@@ -444,6 +815,11 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
               title: 'Thank You For Rating!',
               message: 'Thank you! Your rating helps improve our service.',
               time: DateTime.now(),
+              // Matches the server's own notifyCommuter call in
+              // POST /trips/:tripId/rating — lets the feed de-dup this
+              // local copy against that durable one once it syncs in.
+              type: 'RATING_SUBMITTED',
+              referenceId: _boardedTripId,
             ),
           );
           Navigator.of(context).popUntil((route) => route.isFirst);
@@ -462,7 +838,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       builder: (ctx) => _ReportDriverSheet(
         jeepney: jeepney,
         tripId: _boardedTripId,
-        onSubmit: (reason, details, photo) {
+        onSubmit: (reason, details, photo, complaintId) {
           Navigator.of(ctx).pop();
           setState(() => _hasReported = true);
           NotificationsScreen.push(
@@ -472,6 +848,11 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
               title: 'Report Received',
               message: 'Your report about ${jeepney.driverName} has been received. Thank you for helping us improve.',
               time: DateTime.now(),
+              // Matches the server's own notifyCommuter call in
+              // POST /complaints — lets the feed de-dup this local copy
+              // against that durable one once it syncs in.
+              type: 'COMPLAINT_FILED',
+              referenceId: complaintId,
             ),
           );
           Navigator.of(context).popUntil((route) => route.isFirst);
@@ -510,16 +891,48 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
                   markers: [
                     Marker(
                       point: _center,
-                      width: 22,
-                      height: 22,
+                      width: 28,
+                      height: 28,
                       child: Container(
                         decoration: BoxDecoration(
                           color: _kBlue,
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 3),
                         ),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.person_rounded, size: 15, color: Colors.white),
                       ),
                     ),
+                    // Live jeepney positions while actively searching — see
+                    // _startFindingJeepneys. Only meaningful during that
+                    // step; _nearbyJeepneys is empty everywhere else, so
+                    // this naturally shows nothing on the other steps.
+                    if (_step == _BookingStep.findingJeepneys)
+                      for (final jeepney in _nearbyJeepneys)
+                        if (jeepney.position != null)
+                          Marker(
+                            point: jeepney.position!,
+                            width: 30,
+                            height: 30,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedJeepney = jeepney),
+                              child: _JeepneyMapPin(
+                                selected: jeepney == _selectedJeepney,
+                              ),
+                            ),
+                          ),
+                    // The boarded jeepney's live position while riding —
+                    // see _pollActiveTrip, which refreshes this every 5s
+                    // from the same currentLat/currentLng the driver's own
+                    // location pings keep fresh — so it actually moves on
+                    // the map instead of sitting frozen at boarding time.
+                    if (_step == _BookingStep.boardingStatus && _boardedJeepneyPosition != null)
+                      Marker(
+                        point: _boardedJeepneyPosition!,
+                        width: 30,
+                        height: 30,
+                        child: const _JeepneyMapPin(selected: true),
+                      ),
                   ],
                 ),
               ],
@@ -534,7 +947,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
                 children: [
                   _RoundIconButton(
                     icon: Icons.close_rounded,
-                    onTap: () => Navigator.of(context).pop(),
+                    onTap: _handleCloseButton,
                   ),
                   const Spacer(),
                   _RoundIconButton(
@@ -601,50 +1014,57 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
           onSeniorRidersChanged: (value) => setState(() => _seniorRiders = value),
           onContinue: _selectedRoute == null
               ? null
-              : () => _goTo(_BookingStep.boardingPoint),
-        );
-
-      case _BookingStep.boardingPoint:
-        return _BoardingPointStep(
-          initialCenter: _center,
-          onConfirm: (label) {
-            setState(() => _selectedBoardingPoint = label);
-            _startFindingJeepneys();
-          },
-          onBack: () => _goTo(_BookingStep.routeAndCompanions),
+              : () => _startFindingJeepneys(_center),
         );
 
       case _BookingStep.findingJeepneys:
         return _FindJeepneysStep(
-          jeepneys: _availableJeepneys,
+          jeepneys: _nearbyJeepneys,
+          isLoading: _isLoadingNearby,
+          error: _nearbyError,
+          onRetry: () => _startFindingJeepneys(_center),
           selected: _selectedJeepney,
           onSelect: (jeepney) => setState(() => _selectedJeepney = jeepney),
-          onBack: () => _goTo(_BookingStep.boardingPoint),
-          onBook: _selectedJeepney == null
+          onBack: () {
+            _stopProximityPolling();
+            _goTo(_BookingStep.routeAndCompanions);
+          },
+          // Tapping a jeepney the commuter can already see live on this list
+          // boards it directly — no QR needed, same trust level as the
+          // proximity auto-prompt above. "Scan QR Instead" (below) stays
+          // as the deterministic fallback for when the list looks wrong.
+          onBook: _selectedJeepney?.tripId == null
               ? null
-              : () => _goTo(_BookingStep.scanQr),
+              : () => _boardByTripId(_selectedJeepney!),
+          onScanQrInstead: _selectedJeepney == null
+              ? null
+              : () {
+                  _stopProximityPolling();
+                  _goTo(_BookingStep.scanQr);
+                },
         );
 
       case _BookingStep.scanQr:
         return _ScanQrStep(
           jeepney: _selectedJeepney!,
           onScan: _handleScanQr,
-          onBack: () => _goTo(_BookingStep.findingJeepneys),
+          onBack: () {
+            _goTo(_BookingStep.findingJeepneys);
+            _startFindingJeepneys(_center);
+          },
         );
 
       case _BookingStep.boardingStatus:
         return _BoardingStatusStep(
           route: _selectedRoute!,
-          boardingPoint: _selectedBoardingPoint!,
           jeepney: _selectedJeepney!,
           fare: _fareBreakdown,
-          onParaPo: _handleParaPo,
+          onEndTrip: _handleEndTrip,
         );
 
       case _BookingStep.tripCompleted:
         return _TripCompletedStep(
           route: _selectedRoute!,
-          boardingPoint: _selectedBoardingPoint!,
           jeepney: _selectedJeepney!,
           fare: _fareBreakdown,
           hasRated: _hasRated,
@@ -658,6 +1078,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
 
   @override
   void dispose() {
+    _stopProximityPolling();
+    _stopBoardingStatusPoll();
     _mapController.dispose();
     _routeSearchController.dispose();
     super.dispose();
@@ -688,6 +1110,34 @@ class _RoundIconButton extends StatelessWidget {
           child: Icon(icon, size: 22, color: Colors.black87),
         ),
       ),
+    );
+  }
+}
+
+/// A jeepney silhouette on a colored circle for the findingJeepneys map —
+/// matches the admin website's own jeepney marker (see
+/// admin/src/components/LiveMap.tsx's jeepneyIcon) and the driver app's
+/// own-position marker, so every surface uses the same glyph for "a
+/// jeepney is here." Highlights when this is the currently selected one
+/// (tapped from the map, or from the list below).
+class _JeepneyMapPin extends StatelessWidget {
+  final bool selected;
+  const _JeepneyMapPin({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? _kBlue : Colors.black87;
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: selected ? 3 : 2),
+        boxShadow: [
+          BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, spreadRadius: 1),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: const Icon(Icons.directions_bus_filled_rounded, size: 16, color: Colors.white),
     );
   }
 }
@@ -896,7 +1346,7 @@ class _RouteAndCompanionsStepState extends State<_RouteAndCompanionsStep> {
               isDense: true,
               border: InputBorder.none,
               contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              hintText: 'e.g. Pasig - Quiapo',
+              hintText: 'e.g. Pasig – Quiapo',
               hintStyle: TextStyle(fontSize: 13, color: Colors.black38),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.black45),
               suffixIcon: Icon(Icons.expand_more_rounded, color: Colors.black45),
@@ -1107,258 +1557,6 @@ class _RouteCard extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Step 2 — Where will you board? Commuter drops a pin on the map instead of
-// picking from a fixed list. The pin stays fixed at the center of the
-// screen and the map moves underneath it (the common "drag map, pin
-// stays put" pattern) — the tracked center is what gets confirmed.
-// ---------------------------------------------------------------------------
-
-class _BoardingPointStep extends StatefulWidget {
-  final LatLng initialCenter;
-  final ValueChanged<String> onConfirm;
-  final VoidCallback onBack;
-
-  const _BoardingPointStep({
-    required this.initialCenter,
-    required this.onConfirm,
-    required this.onBack,
-  });
-
-  @override
-  State<_BoardingPointStep> createState() => _BoardingPointStepState();
-}
-
-class _BoardingPointStepState extends State<_BoardingPointStep> {
-  late final MapController _pinMapController;
-  late LatLng _pinCenter;
-
-  // The GPS fix this step opened with — used only to detect "the pin is
-  // still sitting exactly where we started" so we can label that case
-  // "Your current location" instead of running it through reverse
-  // geocoding like every other dropped pin.
-  late final LatLng _startingGpsPosition;
-
-  bool _locatingUser = false;
-  bool _isResolvingAddress = true;
-  String _addressLabel = 'Detecting your location…';
-  Timer? _geocodeDebounce;
-
-  @override
-  void initState() {
-    super.initState();
-    _pinMapController = MapController();
-    _pinCenter = widget.initialCenter;
-    _startingGpsPosition = widget.initialCenter;
-    _resolveAddressFor(_pinCenter);
-  }
-
-  @override
-  void dispose() {
-    _geocodeDebounce?.cancel();
-    _pinMapController.dispose();
-    super.dispose();
-  }
-
-  bool _isAtStartingPosition(LatLng point) {
-    // Small tolerance (15m) rather than exact equality — GPS fixes and
-    // map-center math both have some jitter even with zero user panning.
-    return Geolocator.distanceBetween(
-          point.latitude,
-          point.longitude,
-          _startingGpsPosition.latitude,
-          _startingGpsPosition.longitude,
-        ) <
-        15;
-  }
-
-  Future<void> _resolveAddressFor(LatLng point) async {
-    if (_isAtStartingPosition(point)) {
-      // No need to hit the network for this — we already know where we
-      // started, and it's more meaningful to the user as "current
-      // location" than as whatever city that GPS fix happens to be in.
-      if (!mounted) return;
-      setState(() {
-        _addressLabel = 'Your current location';
-        _isResolvingAddress = false;
-      });
-      return;
-    }
-
-    setState(() => _isResolvingAddress = true);
-
-    try {
-      final placemarks = await placemarkFromCoordinates(point.latitude, point.longitude);
-      if (!mounted) return;
-
-      setState(() {
-        _addressLabel = placemarks.isEmpty ? 'Unknown location' : _formatPlacemark(placemarks.first);
-        _isResolvingAddress = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _addressLabel = 'Could not detect address';
-        _isResolvingAddress = false;
-      });
-    }
-  }
-
-  Future<void> _locateMe() async {
-    if (_locatingUser) return;
-    setState(() => _locatingUser = true);
-
-    final resolved = await _resolveCurrentLocation();
-
-    if (!mounted) return;
-    setState(() => _locatingUser = false);
-
-    if (resolved == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not get your exact location. Check location permissions.')),
-      );
-      return;
-    }
-
-    _geocodeDebounce?.cancel();
-    setState(() => _pinCenter = resolved);
-    _pinMapController.move(resolved, _pinMapController.camera.zoom);
-
-    // Re-baseline "current location" to this fresh fix, then label it as
-    // such immediately rather than waiting on the debounce below.
-    setState(() {
-      _addressLabel = 'Your current location';
-      _isResolvingAddress = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _StepTitle(
-          title: 'Where will you board?',
-          subtitle: 'Drag the map to drop your pin',
-          onBack: widget.onBack,
-        ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: SizedBox(
-            height: 220,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                FlutterMap(
-                  mapController: _pinMapController,
-                  options: MapOptions(
-                    initialCenter: _pinCenter,
-                    initialZoom: 16,
-                    minZoom: 3,
-                    maxZoom: 19,
-                    onPositionChanged: (camera, hasGesture) {
-                      if (!hasGesture) return;
-                      setState(() {
-                        _pinCenter = camera.center;
-                        _isResolvingAddress = true; // shows "Detecting…" immediately, resolved once dragging settles
-                      });
-                      _geocodeDebounce?.cancel();
-                      _geocodeDebounce = Timer(
-                        const Duration(milliseconds: 700),
-                        () => _resolveAddressFor(_pinCenter),
-                      );
-                    },
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.manibel.app',
-                      maxZoom: 19,
-                    ),
-                  ],
-                ),
-                // Fixed center pin — the map moves underneath it.
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 28),
-                  child: Icon(Icons.location_on_rounded, size: 40, color: _kBlue),
-                ),
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Material(
-                    color: Colors.white,
-                    shape: const CircleBorder(),
-                    elevation: 3,
-                    shadowColor: Colors.black26,
-                    child: InkWell(
-                      onTap: _locatingUser ? null : _locateMe,
-                      customBorder: const CircleBorder(),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: _locatingUser
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: _kBlue),
-                              )
-                            : const Icon(Icons.my_location_rounded, size: 18, color: _kBlueDark),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 10,
-                  left: 10,
-                  right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        if (_isResolvingAddress)
-                          const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: _kBlueDark),
-                          )
-                        else
-                          const Icon(Icons.location_on_rounded, size: 16, color: _kBlueDark),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            _isResolvingAddress ? 'Detecting address…' : _addressLabel,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.black87),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        _PrimaryButton(
-          label: 'Confirm This Location',
-          color: _kYellow,
-          textColor: _kBlueDark,
-          onTap: _isResolvingAddress ? null : () => widget.onConfirm(_addressLabel),
-        ),
-      ],
-    );
-  }
-}
-
 class _RiderCounterRow extends StatelessWidget {
   final String label;
   final int count;
@@ -1432,19 +1630,41 @@ class _StepperButton extends StatelessWidget {
 // picking stage, so it's still useful information before boarding).
 // ---------------------------------------------------------------------------
 
+/// "120m away" under 1km, "1.2km away" beyond it — matches how the
+/// backend's own distanceMeters (straight-line, see nearby-jeepneys' doc
+/// comment in commuter.ts) is best presented: precise enough to be
+/// useful, not implying GPS accuracy it doesn't have.
+String _formatDistance(int meters) {
+  if (meters < 1000) return '${meters}m away';
+  return '${(meters / 1000).toStringAsFixed(1)}km away';
+}
+
 class _FindJeepneysStep extends StatelessWidget {
   final List<_JeepneyOption> jeepneys;
+  final bool isLoading;
+  final String? error;
+  final VoidCallback onRetry;
   final _JeepneyOption? selected;
   final ValueChanged<_JeepneyOption> onSelect;
   final VoidCallback onBack;
   final VoidCallback? onBook;
 
+  /// Deterministic fallback for when proximity/list matching doesn't cut
+  /// it (ambiguous — two jeepneys stopped near each other — or the list
+  /// just hasn't picked up the right one yet). Null (hidden) until a
+  /// jeepney is selected, same gating as [onBook].
+  final VoidCallback? onScanQrInstead;
+
   const _FindJeepneysStep({
     required this.jeepneys,
+    required this.isLoading,
+    required this.error,
+    required this.onRetry,
     required this.selected,
     required this.onSelect,
     required this.onBack,
     required this.onBook,
+    required this.onScanQrInstead,
   });
 
   @override
@@ -1453,20 +1673,113 @@ class _FindJeepneysStep extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepTitle(title: 'Nearby Jeepneys', subtitle: 'Pick one to board', onBack: onBack),
-        const SizedBox(height: 12),
-        ...jeepneys.map((jeepney) {
-          final isSelected = jeepney == selected;
-          return _SelectableTile(
-            title: '${jeepney.plateNumber} · ${jeepney.driverName}',
-            subtitle: '${jeepney.etaMinutes} min away · ${jeepney.seatsAvailable} seats free',
-            leadingIcon: Icons.directions_bus_filled_rounded,
-            selected: isSelected,
-            onTap: () => onSelect(jeepney),
-          );
-        }),
+        _StepTitle(
+          title: 'Nearby Jeepneys',
+          subtitle: "We'll offer to board automatically once you're right next to one",
+          onBack: onBack,
+        ),
+        const SizedBox(height: 20),
+        if (isLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2.4, color: _kBlue)),
+          )
+        else if (error != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Column(
+              children: [
+                Text(error!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                const SizedBox(height: 12),
+                TextButton(onPressed: onRetry, child: const Text('Try Again')),
+              ],
+            ),
+          )
+        else if (jeepneys.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Column(
+              children: [
+                const Icon(Icons.directions_bus_outlined, size: 32, color: Colors.black26),
+                const SizedBox(height: 10),
+                const Text(
+                  'No jeepneys nearby right now',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black54),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  "Once a driver on this route is close by and active, they'll show up here.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.black45),
+                ),
+                const SizedBox(height: 12),
+                TextButton(onPressed: onRetry, child: const Text('Refresh')),
+              ],
+            ),
+          )
+        else
+          ...jeepneys.map((jeepney) {
+            final isSelected = jeepney == selected;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: isSelected ? const Color(0xFFEAF1FF) : const Color(0xFFF5F6F8),
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  onTap: () => onSelect(jeepney),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: isSelected ? _kBlue : Colors.transparent, width: 1.5),
+                    ),
+                    child: Row(
+                      children: [
+                        _DriverAvatar(photoUrl: jeepney.photoUrl, radius: 18),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${jeepney.plateNumber} · ${jeepney.driverName}',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected ? _kBlue : Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_formatDistance(jeepney.distanceMeters)} · ~${jeepney.etaMinutes} min',
+                                style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _DriverRatingLabel(rating: jeepney.driverRating, ratingCount: jeepney.ratingCount, fontSize: 11),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
         const SizedBox(height: 8),
-        _PrimaryButton(label: 'Book This Jeepney', onTap: onBook),
+        _PrimaryButton(label: 'Board This Jeepney', onTap: onBook),
+        if (onScanQrInstead != null) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: onScanQrInstead,
+              child: const Text(
+                'Scan QR Instead',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _kBlue),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1491,7 +1804,7 @@ class _ScanQrStep extends StatelessWidget {
       children: [
         _StepTitle(
           title: 'Scan QR to Board',
-          subtitle: 'Ask the driver for ${jeepney.plateNumber}\'s QR code',
+          subtitle: 'Scan any driver\'s QR code to board their jeepney',
           onBack: onBack,
         ),
         const SizedBox(height: 14),
@@ -1527,18 +1840,16 @@ class _ScanQrStep extends StatelessWidget {
 // "You're on Board!" popup — shown right after the QR scan. Tapping the
 // dimmed background dismisses it (default showDialog barrier behavior),
 // which advances the trip to boarding status (handled by the caller's
-// `.then()`), same pattern as the Para Po / Driver Notified dialog below.
+// `.then()`).
 // ---------------------------------------------------------------------------
 
 class _OnBoardDialog extends StatelessWidget {
   final String route;
-  final String boardingPoint;
   final _JeepneyOption jeepney;
   final FareBreakdown fare;
 
   const _OnBoardDialog({
     required this.route,
-    required this.boardingPoint,
     required this.jeepney,
     required this.fare,
   });
@@ -1564,10 +1875,26 @@ class _OnBoardDialog extends StatelessWidget {
               "You're on Board!",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 4),
-            Text(
-              '${jeepney.plateNumber} · ${jeepney.driverName}',
-              style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _DriverAvatar(photoUrl: jeepney.photoUrl, radius: 14),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${jeepney.plateNumber} · ${jeepney.driverName}',
+                        style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+                      ),
+                      _DriverRatingLabel(rating: jeepney.driverRating, ratingCount: jeepney.ratingCount, fontSize: 11),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Container(
@@ -1580,7 +1907,6 @@ class _OnBoardDialog extends StatelessWidget {
               child: Column(
                 children: [
                   _SummaryRow(label: 'Route', value: route),
-                  _SummaryRow(label: 'Boarding point', value: boardingPoint),
                   _SummaryRow(label: 'Passengers', value: fare.ridersLabel),
                   _SummaryRow(label: 'Fare', value: fare.totalLabel),
                 ],
@@ -1594,6 +1920,60 @@ class _OnBoardDialog extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A driver's real profile photo (resolved via [avatarImageProvider]),
+/// falling back to a plain person icon for a driver who hasn't uploaded
+/// one, or before a QR scan has revealed the real driver at all.
+class _DriverAvatar extends StatelessWidget {
+  final String? photoUrl;
+  final double radius;
+
+  const _DriverAvatar({required this.photoUrl, this.radius = 20});
+
+  @override
+  Widget build(BuildContext context) {
+    final image = avatarImageProvider(photoUrl: photoUrl);
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: _kBlue,
+      backgroundImage: image,
+      child: image == null ? Icon(Icons.person, color: Colors.white, size: radius) : null,
+    );
+  }
+}
+
+/// "4.8 · 23 ratings" once this driver's had at least one, otherwise just
+/// "New" — never a fake placeholder number (see driverRating's own doc
+/// comment on _JeepneyOption for why 0 unambiguously means "no ratings
+/// yet": a real average is always >= 1).
+class _DriverRatingLabel extends StatelessWidget {
+  final double rating;
+  final int ratingCount;
+  final double fontSize;
+
+  const _DriverRatingLabel({required this.rating, required this.ratingCount, this.fontSize = 12});
+
+  @override
+  Widget build(BuildContext context) {
+    if (rating <= 0) {
+      return Text(
+        'New',
+        style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700, color: Colors.black45),
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.star_rounded, size: fontSize + 2, color: _kYellowDark),
+        const SizedBox(width: 2),
+        Text(
+          '${rating.toStringAsFixed(1)} · $ratingCount rating${ratingCount == 1 ? '' : 's'}',
+          style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700, color: Colors.black54),
+        ),
+      ],
     );
   }
 }
@@ -1625,24 +2005,22 @@ class _SummaryRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Step 7 — Boarding status. Now shows the full trip recap (route, boarding
-// point, jeepney, companions) alongside the live status and the Para Po
-// button, instead of just the plate/driver.
+// Step 7 — Boarding status. Now shows the full trip recap (route, jeepney,
+// companions) alongside the live status and the End Trip button, instead
+// of just the plate/driver.
 // ---------------------------------------------------------------------------
 
 class _BoardingStatusStep extends StatelessWidget {
   final String route;
-  final String boardingPoint;
   final _JeepneyOption jeepney;
   final FareBreakdown fare;
-  final VoidCallback onParaPo;
+  final VoidCallback onEndTrip;
 
   const _BoardingStatusStep({
     required this.route,
-    required this.boardingPoint,
     required this.jeepney,
     required this.fare,
-    required this.onParaPo,
+    required this.onEndTrip,
   });
 
   @override
@@ -1665,10 +2043,25 @@ class _BoardingStatusStep extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        Text(
-          '${jeepney.plateNumber} · ${jeepney.driverName}',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _DriverAvatar(photoUrl: jeepney.photoUrl, radius: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${jeepney.plateNumber} · ${jeepney.driverName}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 2),
+                  _DriverRatingLabel(rating: jeepney.driverRating, ratingCount: jeepney.ratingCount),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Container(
@@ -1680,7 +2073,6 @@ class _BoardingStatusStep extends StatelessWidget {
           child: Column(
             children: [
               _SummaryRow(label: 'Route', value: route),
-              _SummaryRow(label: 'Boarding point', value: boardingPoint),
               _SummaryRow(label: 'Passengers', value: fare.ridersLabel),
               _SummaryRow(label: 'Fare', value: fare.totalLabel),
             ],
@@ -1688,7 +2080,7 @@ class _BoardingStatusStep extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         const Text(
-          "Tap Para Po when you're ready to alight.",
+          "Tap End Trip once you've gotten off.",
           style: TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 16),
@@ -1696,7 +2088,7 @@ class _BoardingStatusStep extends StatelessWidget {
           width: double.infinity,
           height: 64,
           child: ElevatedButton(
-            onPressed: onParaPo,
+            onPressed: onEndTrip,
             style: ElevatedButton.styleFrom(
               backgroundColor: _kYellow,
               foregroundColor: _kBlueDark,
@@ -1704,105 +2096,12 @@ class _BoardingStatusStep extends StatelessWidget {
               elevation: 0,
             ),
             child: const Text(
-              'Para po!',
+              'End Trip',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Centered "driver notified" dialog — shown when Para Po is tapped. Tapping
-// the dimmed background dismisses it (default barrier behavior); it also
-// auto-dismisses after a few seconds. Either way, dismissing moves the trip
-// to "completed" (handled by the caller's `.then()`).
-// ---------------------------------------------------------------------------
-
-class _DriverNotifiedDialog extends StatelessWidget {
-  final _JeepneyOption jeepney;
-  const _DriverNotifiedDialog({required this.jeepney});
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 45,
-              height: 45,
-              decoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-              child: const Icon(Icons.notifications_active_rounded, color: AppColors.logoBlue, size: 28),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Driver Notified',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Stopping shortly',
-              style: TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 18),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F6F8),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 20,
-                    backgroundColor: _kBlue,
-                    child: Icon(Icons.person, color: Colors.white, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          jeepney.driverName,
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            const Icon(Icons.star_rounded, size: 14, color: _kYellowDark),
-                            const SizedBox(width: 2),
-                            Text(
-                              jeepney.driverRating.toStringAsFixed(1),
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black54),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    jeepney.plateNumber,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black45),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Tap outside to dismiss',
-              style: TextStyle(fontSize: 11, color: Colors.black38, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1814,7 +2113,6 @@ class _DriverNotifiedDialog extends StatelessWidget {
 
 class _TripCompletedStep extends StatelessWidget {
   final String route;
-  final String boardingPoint;
   final _JeepneyOption jeepney;
   final FareBreakdown fare;
   final bool hasRated;
@@ -1825,7 +2123,6 @@ class _TripCompletedStep extends StatelessWidget {
 
   const _TripCompletedStep({
     required this.route,
-    required this.boardingPoint,
     required this.jeepney,
     required this.fare,
     required this.hasRated,
@@ -1865,7 +2162,6 @@ class _TripCompletedStep extends StatelessWidget {
           child: Column(
             children: [
               _SummaryRow(label: 'Route', value: route),
-              _SummaryRow(label: 'Boarding point', value: boardingPoint),
               _SummaryRow(label: 'Jeepney', value: '${jeepney.plateNumber} · ${jeepney.driverName}'),
               _SummaryRow(label: 'Passengers', value: fare.ridersLabel),
               _SummaryRow(label: 'Fare', value: fare.totalLabel),
@@ -1883,7 +2179,7 @@ class _TripCompletedStep extends StatelessWidget {
         _OutlinedActionButton(
           label: hasReported ? 'Driver Reported' : 'Report Driver',
           icon: Icons.flag_outlined,
-          color: _kBlue,
+          color: AppColors.secondary,
           onTap: hasReported ? null : onReportDriver,
         ),
         const SizedBox(height: 10),
@@ -1965,10 +2261,16 @@ class _RateDriverSheetState extends State<_RateDriverSheet> {
             ),
             const SizedBox(height: 16),
             const Text('How was your driver?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 4),
-            Text(
-              '${widget.jeepney.driverName} · ${widget.jeepney.plateNumber}',
-              style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _DriverAvatar(photoUrl: widget.jeepney.photoUrl, radius: 16),
+                const SizedBox(width: 8),
+                Text(
+                  '${widget.jeepney.driverName} · ${widget.jeepney.plateNumber}',
+                  style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Row(
@@ -2017,7 +2319,7 @@ class _RateDriverSheetState extends State<_RateDriverSheet> {
 class _ReportDriverSheet extends StatefulWidget {
   final _JeepneyOption jeepney;
   final String? tripId;
-  final void Function(String reason, String details, File? photo) onSubmit;
+  final void Function(String reason, String details, File? photo, String complaintId) onSubmit;
 
   const _ReportDriverSheet({required this.jeepney, required this.tripId, required this.onSubmit});
 
@@ -2128,7 +2430,7 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
     });
 
     try {
-      await ApiClient.uploadFiles(
+      final response = await ApiClient.uploadFiles(
         '/api/commuter/complaints',
         files: _photo != null ? {'attachment': _photo!.path} : {},
         fields: {
@@ -2140,7 +2442,8 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
         token: UserSession.instance.authToken,
       );
       if (!mounted) return;
-      widget.onSubmit(_selectedReason!, _detailsController.text.trim(), _photo);
+      final complaintId = (response['complaint'] as Map<String, dynamic>)['id'] as String;
+      widget.onSubmit(_selectedReason!, _detailsController.text.trim(), _photo, complaintId);
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -2150,15 +2453,41 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
     }
   }
 
+  // Matches _FileComplaintScreenState's own _fieldDecoration exactly — this
+  // sheet and the standalone File a Complaint screen file the exact same
+  // report (POST /api/commuter/complaints), just from two different entry
+  // points, so they're deliberately styled as the same form.
+  InputDecoration _fieldDecoration(String hintText) {
+    return InputDecoration(
+      hintText: hintText,
+      hintStyle: const TextStyle(color: Colors.black38, fontWeight: FontWeight.w600, fontSize: 13),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEDEDED)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEDEDED)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.logoBlue, width: 1.5),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
         decoration: const BoxDecoration(
-          color: Colors.white,
+          color: Color(0xFFF5F6F8),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: SingleChildScrollView(
@@ -2175,117 +2504,117 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
               ),
               const SizedBox(height: 16),
               const Text('Report This Driver', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text(
-                '${widget.jeepney.driverName} · ${widget.jeepney.plateNumber}',
-                style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _DriverAvatar(photoUrl: widget.jeepney.photoUrl, radius: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${widget.jeepney.driverName} · ${widget.jeepney.plateNumber}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
-              const Text('What happened?', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _reasons.map((reason) {
-                  final selected = _selectedReason == reason;
-                  return ChoiceChip(
-                    label: Text(
-                      reason,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: selected ? AppColors.onPrimary : Colors.black87,
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.settingsTileBg,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: AppColors.settingsIconColor, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'An admin will review this report before any action is taken.',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.settingsIconColor),
                       ),
                     ),
-                    selected: selected,
-                    onSelected: (_) => setState(() => _selectedReason = reason),
-                    selectedColor: AppColors.primary,
-                    backgroundColor: const Color(0xFFF5F6F8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      side: BorderSide.none,
-                    ),
-                    showCheckmark: false,
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              const Text('Details', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(color: const Color(0xFFF5F6F8), borderRadius: BorderRadius.circular(14)),
-                child: TextField(
-                  controller: _detailsController,
-                  minLines: 3,
-                  maxLines: 5,
-                  decoration: const InputDecoration(
-                    hintText: 'Describe what happened...',
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(12),
-                  ),
-                  style: const TextStyle(fontSize: 13),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text('Add Photo (optional)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              GestureDetector(
+              const SizedBox(height: 20),
+              const Text('What Happened?', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black)),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedReason,
+                onChanged: (v) => setState(() => _selectedReason = v),
+                decoration: _fieldDecoration('Select a reason'),
+                items: _reasons.map((reason) => DropdownMenuItem(value: reason, child: Text(reason))).toList(),
+              ),
+              const SizedBox(height: 20),
+              const Text('Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black)),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _detailsController,
+                minLines: 3,
+                maxLines: 5,
+                decoration: _fieldDecoration('Describe what happened...'),
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              const Text('Photo Evidence (optional)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black)),
+              const SizedBox(height: 10),
+              InkWell(
                 onTap: _showImageSourceSheet,
+                borderRadius: BorderRadius.circular(14),
                 child: Container(
+                  height: 140,
                   width: double.infinity,
-                  height: _photo == null ? 90 : 160,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF5F6F8),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE1E4E8)),
+                    border: Border.all(color: const Color(0xFFEDEDED)),
+                    color: Colors.white,
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _photo == null
-                      ? const Center(
+                  child: _photo != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.file(_photo!, fit: BoxFit.cover, width: double.infinity),
+                        )
+                      : const Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.add_a_photo_outlined, size: 22, color: AppColors.secondary),
+                              Icon(Icons.add_a_photo_outlined, color: Colors.black38, size: 28),
                               SizedBox(height: 6),
-                              Text(
-                                'Tap to attach a photo',
-                                style: TextStyle(fontSize: 11, color: Colors.black45),
-                              ),
+                              Text('Tap to add a photo', style: TextStyle(fontSize: 12, color: Colors.black45)),
                             ],
                           ),
-                        )
-                      : Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.file(_photo!, fit: BoxFit.cover),
-                            Positioned(
-                              top: 6,
-                              right: 6,
-                              child: GestureDetector(
-                                onTap: () => setState(() => _photo = null),
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                                  child: const Icon(Icons.close, size: 16, color: Colors.white),
-                                ),
-                              ),
-                            ),
-                          ],
                         ),
                 ),
               ),
               if (_error != null) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
                 Text(
                   _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w600),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE23F3F)),
                 ),
               ],
-              const SizedBox(height: 20),
-              _PrimaryButton(
-                label: _isSubmitting ? 'Submitting...' : 'Submit Report',
-                onTap: _isSubmitting ? null : _handleSubmit,
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _handleSubmit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.onPrimary),
+                        )
+                      : const Text(
+                          'Submit Report',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
+                        ),
+                ),
               ),
             ],
           ),
@@ -2295,79 +2624,3 @@ class _ReportDriverSheetState extends State<_ReportDriverSheet> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Reusable selectable list tile / toggle chip
-// ---------------------------------------------------------------------------
-
-class _SelectableTile extends StatelessWidget {
-  final String title;
-  final String? subtitle;
-  final IconData? leadingIcon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _SelectableTile({
-    required this.title,
-    this.subtitle,
-    this.leadingIcon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: selected ? const Color(0xFFEAF1FF) : const Color(0xFFF5F6F8),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: selected ? _kBlue : Colors.transparent,
-                width: 1.5,
-              ),
-            ),
-            child: Row(
-              children: [
-                if (leadingIcon != null) ...[
-                  Icon(leadingIcon, size: 20, color: selected ? _kBlue : Colors.black45),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: selected ? _kBlue : Colors.black87,
-                        ),
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                if (selected)
-                  const Icon(Icons.check_circle, color: _kBlue, size: 20),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

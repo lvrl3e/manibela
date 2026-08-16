@@ -213,6 +213,15 @@ model Trip {
 /// the booking flow (see POST /api/commuter/alight), the app's existing
 /// "I'm about to get off" signal. A boarding is also implicitly over
 /// once the whole trip ends, Para Po or not.
+/// One row per *ride segment* — a driver's Trip commonly spans a whole
+/// shift (Start Trip in the morning, End Trip in the evening), and the
+/// same commuter can honestly board and alight that same Trip more than
+/// once in a day (rode it out, later rode it back). Each such segment
+/// gets its own row, so ride history logs every one of them rather than
+/// collapsing repeat rides on the same Trip into a single row — see POST
+/// /api/commuter/board, which only reuses an existing row when the
+/// commuter's *previous* boarding on this trip is still open (a
+/// re-scan/re-confirm mid-ride), never once it's been alighted.
 model TripBoarding {
   id         String    @id @default(cuid())
   tripId     String
@@ -220,7 +229,23 @@ model TripBoarding {
   boardedAt  DateTime  @default(now())
   alightedAt DateTime?
 
-  @@unique([tripId, commuterId])
+  /// The commuter's own party at the moment they boarded — sent by POST
+  /// /board — plus [fare], the flat-rate total computed from them right
+  /// then (see FareBreakdown in fare_calculator.dart, mirrored server-side
+  /// so this survives a reinstall/new-device sync; previously this was
+  /// local-only and appeared as "—" once a trip returned from a sync with
+  /// no matching local record). Null on boardings from before this existed.
+  regularRiders Int?
+  studentRiders Int?
+  seniorRiders  Int?
+  fare          Float?
+
+  // No longer a plain @@unique([tripId, commuterId]) — that made it
+  // impossible to log more than one ride per commuter per Trip. Instead,
+  // a partial unique index (Prisma's schema DSL has no syntax for this —
+  // see this model's migration) enforces "at most one *open* boarding"
+  // per (tripId, commuterId): `... WHERE "alightedAt" IS NULL`. Once
+  // alighted, boarding that same trip again creates a fresh row.
   @@index([tripId])
   // Widened from a bare [commuterId] index — covers GET
   // /admin/commuters/:id/trips's "this commuter's ride history, newest
@@ -229,10 +254,13 @@ model TripBoarding {
   @@index([commuterId, boardedAt])
 }
 
-/// A commuter tapping "request a ride here" — a point-in-time location,
-/// not a standing request that gets matched/fulfilled (there's no
-/// dispatch system). Read as a live/recent heatmap on the admin map, and
-/// as a per-day count for the Passenger Monitoring dashboard.
+/// A commuter's anonymous "I want a ride here" ping — tapped from the
+/// live map when they'd like a jeepney to know they're waiting, without
+/// going through a formal booking flow. Deliberately never joined back to
+/// a commuter identity in any API response (see GET /admin/demand-signals
+/// and GET /driver/demand-signals): both endpoints only ever hand back
+/// grid-cell clusters, never individual rows, so nothing downstream can
+/// single out who sent a given ping.
 model DemandSignal {
   id         String   @id @default(cuid())
   commuterId String
@@ -240,7 +268,31 @@ model DemandSignal {
   lng        Float
   createdAt  DateTime @default(now())
 
+  /// The route this commuter picked before this signal was sent (see the
+  /// route-and-companions step in jeepney_booking_flow_screen.dart) — lets
+  /// GET /driver/demand-signals filter to just the driver's own route, so
+  /// a driver running Pasig -> Quiapo doesn't get shown someone waiting
+  /// for the opposite direction. Null on a signal sent before a route was
+  /// ever known (shouldn't happen going forward — the trigger now waits
+  /// for route selection — but kept nullable for old rows).
+  route String?
+
+  /// Set the moment this signal stops representing someone still actually
+  /// waiting — either they boarded a jeepney (see POST /api/commuter/board)
+  /// or they stopped looking without boarding (backed out of the booking
+  /// flow, left the app — see POST /api/commuter/demand-signals/cancel).
+  /// Either way GET /admin/demand-signals and GET /driver/demand-signals
+  /// stop surfacing it, even though it stays in the table (and still
+  /// counts toward the day's total in commuter-stats' demandSignalsToday)
+  /// rather than being deleted. Null means still outstanding.
+  fulfilledAt DateTime?
+
   @@index([createdAt])
+  // Covers POST /demand-signals' own "does this commuter already have an
+  // outstanding signal" lookup — at most one unfulfilled row per commuter
+  // is kept (refreshed in place rather than duplicated), so a long wait
+  // never inflates a cluster's count with the same person pinging N times.
+  @@index([commuterId, fulfilledAt])
 }
 
 /// A commuter's complaint against a driver — plateNumber is what the

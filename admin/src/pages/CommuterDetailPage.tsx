@@ -4,6 +4,7 @@ import { DashboardLayout } from '../components/DashboardLayout';
 import { VerificationBadge, type VerificationStatus } from '../components/VerificationBadge';
 import { CommuterRideHistorySection } from '../components/CommuterRideHistorySection';
 import { apiClient, ApiError } from '../lib/apiClient';
+import { formatPhone } from '../lib/formatPhone';
 
 interface CommuterDetail {
   id: string;
@@ -107,7 +108,7 @@ export default function CommuterDetailPage() {
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{commuter.fullName}</h1>
                 <p className="text-sm text-gray-500">
-                  {commuter.commuterId} · {commuter.mobileNumber}
+                  {commuter.commuterId} · {formatPhone(commuter.mobileNumber)}
                 </p>
               </div>
             </div>

@@ -1,17 +1,41 @@
-# manibelapp_frontend
+# ManibelApp
 
-A new Flutter project.
+A jeepney commuter & driver app for the Pasig–Quiapo route (Metro Manila),
+plus the admin website that oversees it. Commuters find and board nearby
+jeepneys via GPS proximity (with QR-scan as a fallback), drivers run their
+shift and log trips, and admins verify IDs, review flagged trips, and
+handle complaints.
 
-## Getting Started
+## What's in this repo
 
-This project is a starting point for a Flutter application.
+| Folder | What it is | Stack |
+|---|---|---|
+| `lib/` (+ `android/`, `ios/`, `windows/`, etc.) | The commuter & driver mobile app | Flutter/Dart |
+| `admin/` | The admin website | React 19 + TypeScript, Vite, Tailwind CSS 4 |
+| `backend/` | The shared REST API both of the above talk to | Node.js + Express 5 + TypeScript, PostgreSQL via Prisma |
 
-A few resources to get you started if this is your first Flutter project:
+Maps everywhere are OpenStreetMap (`flutter_map` / `react-leaflet`) — no
+Google Maps API in use.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Getting started
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+See **[COMMANDS.md](COMMANDS.md)** for first-time setup and every
+day-to-day command (running each part, database migrations, creating
+driver/admin accounts, typechecking).
+
+## Database reference
+
+- **[backend/DATABASE_SCHEMA.md](backend/DATABASE_SCHEMA.md)** — what each
+  table is for and the design reasoning behind it (start here).
+- **[backend/DATA_DICTIONARY.md](backend/DATA_DICTIONARY.md)** — exhaustive
+  field-by-field reference: every column, type, and constraint.
+
+Source of truth for the actual schema is
+[`backend/prisma/schema.prisma`](backend/prisma/schema.prisma); the two
+docs above are companions to it, not a replacement.
+
+## Status
+
+Pre-release. OTP delivery and ID/face verification are currently
+manual/mocked by design (admin reviews everything by hand) rather than
+backed by a real SMS or face-match provider.

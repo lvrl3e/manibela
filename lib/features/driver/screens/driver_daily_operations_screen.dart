@@ -209,7 +209,7 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
                   _NumberField(
                     label: 'Other Expenses (₱)',
                     controller: _otherController,
-                    hint: 'Food, maintenance, toll, etc.',
+                    hint: 'Boundary Fee, food, maintenance, etc.',
                   ),
                   const SizedBox(height: 24),
                   const _SectionTitle(title: 'Summary'),

@@ -56,6 +56,15 @@ class DriverSession {
   /// authenticated backend requests.
   String? authToken;
 
+  /// null | 'PENDING' | 'APPROVED' | 'REJECTED' — see
+  /// [refreshLicenseStatus]. Deliberately not persisted to disk: it's
+  /// admin-controlled and can change between app opens, so every screen
+  /// that needs it (dashboard, settings) re-fetches on its own rather
+  /// than trusting a stale cached value for something this consequential
+  /// (an unverified driver can't start a trip — see driver.ts's
+  /// POST /trips/start).
+  String? licenseVerificationStatus;
+
   /// The token encoded into this driver's QR code (see
   /// DriverQrCodeScreen). Permanent for the account's lifetime, so it's
   /// fetched from `/api/driver/me/qr-token` once and cached here —
@@ -186,6 +195,23 @@ class DriverSession {
     }
   }
 
+  /// Re-fetches [licenseVerificationStatus] from the backend — set by an
+  /// admin (POST /admin/drivers/:id/license-number) after reviewing a
+  /// submitted license photo, so it can change any time this driver isn't
+  /// looking. Called on both the dashboard (gates Start Trip + shows the
+  /// "not verified yet" note) and Settings (shows the badge near the
+  /// driver's name) rather than cached.
+  Future<void> refreshLicenseStatus() async {
+    if (authToken == null) return;
+    try {
+      final response = await ApiClient.get('/api/driver/me', token: authToken);
+      final driver = response['driver'] as Map<String, dynamic>;
+      licenseVerificationStatus = driver['licenseVerificationStatus'] as String?;
+    } catch (_) {
+      // Best-effort — keep whatever was cached if the network call fails.
+    }
+  }
+
   /// Called from DriverSettingsScreen when the driver saves profile
   /// changes.
   Future<void> updateProfile({
@@ -282,6 +308,7 @@ class DriverSession {
     photoUrl = null;
     authToken = null;
     qrToken = null;
+    licenseVerificationStatus = null;
     rememberMe = false;
 
     final prefs = await SharedPreferences.getInstance();

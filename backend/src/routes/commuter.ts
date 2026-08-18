@@ -127,6 +127,7 @@ const verifySignupOtpSchema = z.object({
   fullName: z.string().trim().min(1).transform(toTitleCase),
   mobileNumber: z.string().trim().min(1),
   password: z.string().min(8),
+  dateOfBirth: dateOnly,
   code: z.string().length(6),
 });
 
@@ -154,6 +155,7 @@ router.post('/verify-signup-otp', async (req, res, next) => {
         fullName: body.fullName,
         mobileNumber,
         passwordHash,
+        dateOfBirth: body.dateOfBirth,
         expiresAt: new Date(Date.now() + PENDING_SIGNUP_TTL_MINUTES * 60_000),
       },
     });
@@ -296,6 +298,7 @@ router.post('/signup', async (req, res, next) => {
         fullName: pending.fullName,
         mobileNumber: pending.mobileNumber,
         passwordHash: pending.passwordHash,
+        dateOfBirth: pending.dateOfBirth,
         phoneVerifiedAt: new Date(),
         idType: pending.idType,
         idFrontUrl: pending.idFrontUrl,
@@ -517,6 +520,9 @@ router.get('/me', requireAuth('commuter'), async (req, res, next) => {
   }
 });
 
+// dateOfBirth deliberately isn't editable here — only an admin can set it
+// now, via PATCH /admin/commuters/:id/date-of-birth (see that endpoint's
+// doc comment for why).
 const updateProfileSchema = z.object({
   fullName: z
     .string()
@@ -524,7 +530,6 @@ const updateProfileSchema = z.object({
     .min(1)
     .optional()
     .transform((value) => (value === undefined ? undefined : toTitleCase(value))),
-  dateOfBirth: dateOnly.nullable().optional(),
   photoUrl: z.string().trim().min(1).nullable().optional(),
 });
 
@@ -536,7 +541,6 @@ router.patch('/me', requireAuth('commuter'), async (req, res, next) => {
       where: { id: req.auth!.sub },
       data: {
         fullName: body.fullName,
-        dateOfBirth: body.dateOfBirth,
         photoUrl: body.photoUrl,
       },
     });

@@ -17,6 +17,7 @@ interface Driver {
   fullName: string;
   mobileNumber: string;
   plateNumber: string;
+  licenseNumber: string | null;
   dateOfBirth: string | null;
   photoUrl: string | null;
   isActive: boolean;
@@ -90,6 +91,8 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [plateNumber, setPlateNumber] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -105,6 +108,8 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
         mobileNumber,
         password,
         plateNumber,
+        licenseNumber: licenseNumber.trim(),
+        dateOfBirth: dateOfBirth || undefined,
       });
       onCreated(res.driver);
     } catch (err) {
@@ -125,6 +130,9 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <label className="block text-sm font-medium text-gray-700">Full Name</label>
             <input
               required
+              pattern="[A-Za-zÀ-ÿ.'\- ]*[ ][A-Za-zÀ-ÿ.'\- ]*"
+              title="First and last name, letters only"
+              placeholder="Juan Dela Cruz"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               className="mt-1.5 w-full rounded-lg border border-border-subtle px-3 py-2.5 text-sm focus:border-brand-blue focus:outline-none"
@@ -134,6 +142,8 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <label className="block text-sm font-medium text-gray-700">Mobile Number</label>
             <input
               required
+              pattern="(\+63\d{10}|09\d{9})"
+              title="Enter a valid PH mobile number, e.g. 09171234567 or +639171234567"
               value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
               placeholder="09XXXXXXXXX"
@@ -144,9 +154,33 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <label className="block text-sm font-medium text-gray-700">Plate Number</label>
             <input
               required
+              pattern="[A-Za-z]{3}[ -]?\d{3,4}"
+              title="3 letters followed by 3 or 4 numbers, e.g. ABC123"
               value={plateNumber}
               onChange={(e) => setPlateNumber(e.target.value)}
               placeholder="ABC123"
+              className="mt-1.5 w-full rounded-lg border border-border-subtle px-3 py-2.5 text-sm focus:border-brand-blue focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">License Number</label>
+            <input
+              required
+              value={licenseNumber}
+              onChange={(e) => setLicenseNumber(e.target.value)}
+              placeholder="N01-23-456789"
+              className="mt-1.5 w-full rounded-lg border border-border-subtle px-3 py-2.5 text-sm focus:border-brand-blue focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Date of Birth <span className="font-normal text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="date"
+              max={new Date().toISOString().slice(0, 10)}
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
               className="mt-1.5 w-full rounded-lg border border-border-subtle px-3 py-2.5 text-sm focus:border-brand-blue focus:outline-none"
             />
           </div>

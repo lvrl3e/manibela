@@ -10,9 +10,9 @@ import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
-import { dateOnly, formatDateOnly } from '../utils/date';
+import { formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
-import { uploadPhoto, deleteUploadedPhoto } from '../middleware/upload';
+import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto } from '../middleware/upload';
 import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
 
@@ -32,6 +32,8 @@ function toPublicDriver(driver: {
   plateNumber: string;
   dateOfBirth: Date | null;
   photoUrl: string | null;
+  licenseNumber: string | null;
+  licenseVerificationStatus: string | null;
 }) {
   return {
     id: driver.id,
@@ -41,6 +43,12 @@ function toPublicDriver(driver: {
     plateNumber: driver.plateNumber,
     dateOfBirth: driver.dateOfBirth ? formatDateOnly(driver.dateOfBirth) : null,
     photoUrl: driver.photoUrl,
+    // Only ever set by an admin, alongside licenseVerificationStatus —
+    // see PATCH /admin/drivers/:id/license-number. Shown to the driver
+    // themselves once approved (see driver_license_number_screen.dart),
+    // not just the bare "Verified" status.
+    licenseNumber: driver.licenseNumber,
+    licenseVerificationStatus: driver.licenseVerificationStatus,
   };
 }
 
@@ -297,6 +305,9 @@ router.get('/me', requireAuth('driver'), async (req, res, next) => {
   }
 });
 
+// dateOfBirth deliberately isn't editable here — only an admin can set it
+// now, via PATCH /admin/drivers/:id/date-of-birth (see that endpoint's
+// doc comment for why).
 const updateProfileSchema = z.object({
   fullName: z
     .string()
@@ -304,7 +315,6 @@ const updateProfileSchema = z.object({
     .min(1)
     .optional()
     .transform((value) => (value === undefined ? undefined : toTitleCase(value))),
-  dateOfBirth: dateOnly.nullable().optional(),
   photoUrl: z.string().trim().min(1).nullable().optional(),
 });
 
@@ -316,7 +326,6 @@ router.patch('/me', requireAuth('driver'), async (req, res, next) => {
       where: { id: req.auth!.sub },
       data: {
         fullName: body.fullName,
-        dateOfBirth: body.dateOfBirth,
         photoUrl: body.photoUrl,
       },
     });
@@ -428,6 +437,61 @@ router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
   });
 });
 
+// Driver-submitted license photo — Settings -> License Number -> upload
+// or take photo -> submit (see TODO.md). Reuses the same
+// uploadLicensePhotos middleware the (now-removed) admin-side upload used
+// — both sides are required here, unlike that old endpoint where either
+// side alone was accepted. Sets the review status to PENDING — an admin
+// then reviews the photos and types in the license number themselves (no
+// OCR/auto-detect).
+router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
+  uploadLicensePhotos(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+      return;
+    }
+
+    try {
+      const files = req.files as
+        | { licenseFront?: Express.Multer.File[]; licenseBack?: Express.Multer.File[] }
+        | undefined;
+      const front = files?.licenseFront?.[0];
+      const back = files?.licenseBack?.[0];
+      if (!front || !back) {
+        res.status(400).json({ error: 'Please provide both the front and back of your license.' });
+        return;
+      }
+
+      const existing = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
+      if (!existing) {
+        res.status(404).json({ error: 'Account not found.' });
+        return;
+      }
+
+      const licenseFrontUrl = `/uploads/license-photos/${front.filename}`;
+      const licenseBackUrl = `/uploads/license-photos/${back.filename}`;
+      const driver = await prisma.driver.update({
+        where: { id: existing.id },
+        data: { licenseFrontUrl, licenseBackUrl, licenseVerificationStatus: 'PENDING' },
+      });
+
+      deleteUploadedPhoto(existing.licenseFrontUrl);
+      deleteUploadedPhoto(existing.licenseBackUrl);
+
+      await notifyAdmin({
+        title: 'Driver license submitted',
+        message: `${driver.fullName} (${driver.driverId}) submitted license photos for review.`,
+        type: 'LICENSE_SUBMITTED',
+        referenceId: driver.id,
+      });
+
+      res.json({ driver: toPublicDriver(driver) });
+    } catch (err2) {
+      next(err2);
+    }
+  });
+});
+
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8),
@@ -471,6 +535,19 @@ const startTripSchema = z.object({ route: z.string().trim().min(1).nullable().op
 router.post('/trips/start', requireAuth('driver'), async (req, res, next) => {
   try {
     const body = startTripSchema.parse(req.body);
+
+    // Real enforcement, not just a UI gate — the app already blocks
+    // reaching this screen when unverified (see driver_dashboard_screen's
+    // _handleStartTrip), but this is what actually stops it if that's
+    // ever bypassed.
+    const driver = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
+    if (driver?.licenseVerificationStatus !== 'APPROVED') {
+      res.status(403).json({
+        error: 'Your license must be verified before you can start a trip.',
+        code: 'LICENSE_NOT_VERIFIED',
+      });
+      return;
+    }
 
     const existingActive = await prisma.trip.findFirst({
       where: { driverId: req.auth!.sub, status: 'ACTIVE' },

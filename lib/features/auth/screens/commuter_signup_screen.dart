@@ -1,8 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/legal_text.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
+import '../../../core/widgets/legal_document_dialog.dart';
 import 'commuter_login_screen.dart';
 import 'commuter_otp_verification_screen.dart';
 import 'role_selection_screen.dart';
@@ -21,13 +24,34 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
+  final TextEditingController _dobController = TextEditingController();
 
   bool _isPasswordObscured = true;
   bool _isConfirmPasswordObscured = true;
 
+  DateTime? _dateOfBirth;
+
   bool _agreedToTerms = false;
   bool _showTermsError = false;
   bool _isLoading = false;
+
+  // Mirrors SettingsScreen's own minimum-age policy.
+  static const int _minAge = 13;
+
+  late final TapGestureRecognizer _termsTapRecognizer = TapGestureRecognizer()
+    ..onTap = () => showLegalDocumentDialog(
+          context,
+          title: 'Terms & Conditions',
+          updated: kTermsAndConditionsUpdated,
+          body: kTermsAndConditionsText,
+        );
+  late final TapGestureRecognizer _privacyTapRecognizer = TapGestureRecognizer()
+    ..onTap = () => showLegalDocumentDialog(
+          context,
+          title: 'Privacy Policy',
+          updated: kPrivacyPolicyUpdated,
+          body: kPrivacyPolicyText,
+        );
 
   // Only letters, spaces, hyphens, apostrophes and periods (e.g. "Jr.")
   final RegExp _nameRegExp = RegExp(r"^[a-zA-Z\u00C0-\u017F' .-]+$");
@@ -47,6 +71,9 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _dobController.dispose();
+    _termsTapRecognizer.dispose();
+    _privacyTapRecognizer.dispose();
     super.dispose();
   }
 
@@ -119,6 +146,50 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
     return null;
   }
 
+  String? _validateDateOfBirth(String? _) {
+    final value = _dateOfBirth;
+    if (value == null) {
+      return 'Date of birth is required';
+    }
+    final now = DateTime.now();
+    if (value.isAfter(now)) {
+      return 'Date of birth cannot be in the future';
+    }
+    final age = _calculateAge(value, now);
+    if (age < _minAge) {
+      return 'You must be at least $_minAge years old';
+    }
+    if (age > 120) {
+      return 'Please enter a valid date of birth';
+    }
+    return null;
+  }
+
+  int _calculateAge(DateTime dob, DateTime now) {
+    int age = now.year - dob.year;
+    final hasHadBirthdayThisYear =
+        (now.month > dob.month) || (now.month == dob.month && now.day >= dob.day);
+    if (!hasHadBirthdayThisYear) age--;
+    return age;
+  }
+
+  Future<void> _pickDateOfBirth() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dateOfBirth ?? DateTime(now.year - 18, now.month, now.day),
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked != null) {
+      setState(() {
+        _dateOfBirth = picked;
+        _dobController.text = DateOnly.displayDDMMYYYY(picked);
+      });
+      _formKey.currentState?.validate();
+    }
+  }
+
   void _handleSignUp() async {
     final isFormValid = _formKey.currentState?.validate() ?? false;
 
@@ -159,6 +230,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
             fullName: _fullNameController.text.trim(),
             mobileNumber: normalizedPhone,
             password: _passwordController.text,
+            dateOfBirth: _dateOfBirth!,
           ),
         ),
       );
@@ -353,6 +425,27 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
                   ),
                   const SizedBox(height: 16),
 
+                  // Date of Birth Input
+                  TextFormField(
+                    controller: _dobController,
+                    readOnly: true,
+                    onTap: _pickDateOfBirth,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
+                    decoration: _fieldDecoration(
+                      hintText: 'Date of Birth (DD/MM/YYYY)',
+                      suffixIcon: const Icon(
+                        Icons.calendar_today_outlined,
+                        color: AppColors.logoBlue,
+                        size: 20,
+                      ),
+                    ),
+                    validator: _validateDateOfBirth,
+                  ),
+                  const SizedBox(height: 16),
+
                   // Terms & Conditions Checkbox
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -383,12 +476,33 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
                               if (_agreedToTerms) _showTermsError = false;
                             });
                           },
-                          child: const Text(
-                            'I agree to the Terms & Conditions and Privacy Policy',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black54,
+                          child: RichText(
+                            text: TextSpan(
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black54,
+                              ),
+                              children: [
+                                const TextSpan(text: 'I agree to the '),
+                                TextSpan(
+                                  text: 'Terms & Conditions',
+                                  style: const TextStyle(
+                                    color: AppColors.logoBlue,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                  recognizer: _termsTapRecognizer,
+                                ),
+                                const TextSpan(text: ' and '),
+                                TextSpan(
+                                  text: 'Privacy Policy',
+                                  style: const TextStyle(
+                                    color: AppColors.logoBlue,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                  recognizer: _privacyTapRecognizer,
+                                ),
+                              ],
                             ),
                           ),
                         ),

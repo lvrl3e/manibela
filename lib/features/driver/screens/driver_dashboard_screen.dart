@@ -68,6 +68,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   int? _tripsTodayRemote;
   double? _earningsTodayRemote;
 
+  // null | 'PENDING' | 'APPROVED' | 'REJECTED' — see
+  // DriverSession.refreshLicenseStatus. Gates Start Trip (see
+  // _handleStartTrip) and drives the "not verified yet" note below the
+  // profile header; refetched fresh every time this screen loads rather
+  // than trusted from whatever was last cached, since an admin can
+  // approve/reject at any time from outside the app.
+  String? _licenseStatus;
+
   bool get _isOnline => _activeTrip != null;
 
   // Fallback used only if GPS is unavailable/denied — San Juan City, Metro
@@ -100,6 +108,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   List<_WaitingStop> _demandStops = [];
   Timer? _demandPollTimer;
 
+  // An admin can approve/reject this driver's license at any moment while
+  // they're just sitting on this screen (not just when they happen to
+  // visit Settings) — polled the same way notifications are, so the
+  // "not verified yet" note and the sidebar badge don't go stale.
+  Timer? _licenseStatusPollTimer;
+
   @override
   void initState() {
     super.initState();
@@ -110,11 +124,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (mounted) setState(() {});
     });
     _fetchTodayStats();
+    _refreshLicenseStatus();
     _notificationPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       DriverNotificationsScreen.fetchRemote().then((_) {
         if (mounted) setState(() {});
       });
     });
+    _licenseStatusPollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _refreshLicenseStatus());
     _fetchDemandSignals();
     _demandPollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchDemandSignals());
   }
@@ -179,6 +195,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   @override
   void dispose() {
     _notificationPollTimer?.cancel();
+    _licenseStatusPollTimer?.cancel();
     _demandPollTimer?.cancel();
     _mapController.dispose();
     _previewMapController.dispose();
@@ -288,12 +305,24 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       ),
     );
 
+    // Refreshed unconditionally, even if result is null (e.g. the driver
+    // only visited Settings -> License Number and came straight back
+    // without saving a profile change) — otherwise the "not verified yet"
+    // note and the sidebar badge would keep showing a stale status after
+    // a driver submits/gets reviewed.
+    await _refreshLicenseStatus();
+
     if (result == null) return;
 
     setState(() {
       if (result.fullName.isNotEmpty) _driverName = result.fullName;
       _photoUrl = result.photoUrl;
     });
+  }
+
+  Future<void> _refreshLicenseStatus() async {
+    await DriverSession.instance.refreshLicenseStatus();
+    if (mounted) setState(() => _licenseStatus = DriverSession.instance.licenseVerificationStatus);
   }
 
   void _openQrCode() {
@@ -342,6 +371,33 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // ===================================================================
 
   Future<void> _handleStartTrip() async {
+    if (_licenseStatus != 'APPROVED') {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('License Not Verified'),
+          content: Text(
+            switch (_licenseStatus) {
+              'PENDING' =>
+                "Your license is still being reviewed by an admin. You'll be able to start a trip once it's verified.",
+              'REJECTED' =>
+                "Your license submission was rejected, so you can't start a trip yet. Go to Settings > License Number to submit clearer photos.",
+              _ =>
+                "You need to submit your license for verification before you can start a trip. Go to Settings > License Number to upload it.",
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final result = await Navigator.push<DriverStartTripResult>(
       context,
       MaterialPageRoute(
@@ -434,6 +490,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         driverName: _driverName,
         driverId: _driverId,
         photoUrl: _photoUrl,
+        licenseVerificationStatus: _licenseStatus,
         onSettingsTap: _openSettings,
         onQrCodeTap: _openQrCode,
         onTripHistoryTap: _openTripHistory,
@@ -594,6 +651,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+
+              if (_licenseStatus != 'APPROVED') ...[
+                _LicenseVerificationNote(
+                  status: _licenseStatus,
+                  onTap: _openSettings,
+                ),
+                const SizedBox(height: 16),
+              ],
 
               if (_activeTrip != null) ...[
                 _buildActiveTripCard(),
@@ -978,6 +1043,58 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 class _LocationFailure {
   final String message;
   const _LocationFailure(this.message);
+}
+
+/// Dashboard note shown until this driver's license is verified — see
+/// _handleStartTrip's matching gate on the Start Trip button itself.
+class _LicenseVerificationNote extends StatelessWidget {
+  const _LicenseVerificationNote({required this.status, required this.onTap});
+
+  /// null | 'PENDING' | 'REJECTED' — never 'APPROVED' (the caller doesn't
+  /// render this widget at all once approved).
+  final String? status;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPending = status == 'PENDING';
+    final message = isPending
+        ? "Your license is being reviewed by an admin. You'll be able to start a trip once it's verified."
+        : "Upload your license to start accepting trips.";
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isPending ? const Color(0xFFFFF4CC) : const Color(0xFFFDE2E2),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isPending ? Icons.hourglass_top_rounded : Icons.badge_outlined,
+              color: isPending ? const Color(0xFF92600A) : const Color(0xFFB91C1C),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isPending ? const Color(0xFF92600A) : const Color(0xFFB91C1C),
+                ),
+              ),
+            ),
+            if (!isPending)
+              Icon(Icons.chevron_right_rounded, color: const Color(0xFFB91C1C)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // Round white icon button — same look as the commuter dashboard's floating

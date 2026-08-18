@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/legal_text.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/avatar_image.dart';
 import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/platform_utils.dart';
+import '../../../core/widgets/legal_document_dialog.dart';
 import '../../auth/screens/phone_change_otp_screen.dart';
 import '../../auth/screens/role_selection_screen.dart';
 import 'change_password_screen.dart';
@@ -53,8 +55,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _fullNameController;
   late final TextEditingController _mobileNumberController;
 
+  // Read-only now — see PATCH /admin/commuters/:id/date-of-birth's doc
+  // comment for why only an admin can set/correct this.
   DateTime? _dateOfBirth;
-  String? _dateOfBirthError;
   bool _isSaving = false;
 
   /// Local filesystem path to a photo just picked but not yet uploaded —
@@ -72,7 +75,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // the Save button stays disabled until it has.
   late String _initialFullName;
   late String _initialMobileNumber;
-  DateTime? _initialDateOfBirth;
   String? _initialPhotoUrl;
 
   // Avatar / header sizing: the avatar is always centered on the banner's
@@ -88,8 +90,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Only letters, spaces, and a few common name characters.
   static final RegExp _fullNameRegex = RegExp(r"^[A-Za-zÀ-ÿ.'\- ]+$");
-
-  static const int _minAge = 13;
 
   @override
   void initState() {
@@ -112,7 +112,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     _initialFullName = _fullNameController.text;
     _initialMobileNumber = _mobileNumberController.text;
-    _initialDateOfBirth = _dateOfBirth;
     _initialPhotoUrl = _photoUrl;
 
     // Re-evaluate whether Save should be enabled as the user types.
@@ -135,33 +134,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {});
   }
 
-  bool _isSameDate(DateTime? a, DateTime? b) {
-    if (a == null || b == null) return a == b;
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
   bool get _hasChanges {
     return _fullNameController.text != _initialFullName ||
         _mobileNumberController.text != _initialMobileNumber ||
-        !_isSameDate(_dateOfBirth, _initialDateOfBirth) ||
         _photoPath != null ||
         _photoUrl != _initialPhotoUrl;
-  }
-
-  Future<void> _pickDateOfBirth() async {
-    final DateTime now = DateTime.now();
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _dateOfBirth ?? DateTime(now.year - 18, now.month, now.day),
-      firstDate: DateTime(1900),
-      lastDate: now,
-    );
-    if (picked != null) {
-      setState(() {
-        _dateOfBirth = picked;
-        _dateOfBirthError = _validateDateOfBirth(picked);
-      });
-    }
   }
 
   String? _validateFullName(String? value) {
@@ -196,35 +173,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return null;
   }
 
-  String? _validateDateOfBirth(DateTime? value) {
-    if (value == null) {
-      return 'Date of birth is required';
-    }
-    final now = DateTime.now();
-    if (value.isAfter(now)) {
-      return 'Date of birth cannot be in the future';
-    }
-    final age = _calculateAge(value, now);
-    if (age < _minAge) {
-      return 'You must be at least $_minAge years old';
-    }
-    if (age > 120) {
-      return 'Please enter a valid date of birth';
-    }
-    return null;
-  }
-
-  int _calculateAge(DateTime dob, DateTime now) {
-    int age = now.year - dob.year;
-    final hasHadBirthdayThisYear =
-        (now.month > dob.month) ||
-        (now.month == dob.month && now.day >= dob.day);
-    if (!hasHadBirthdayThisYear) age--;
-    return age;
-  }
-
   String get _dateOfBirthLabel {
-    if (_dateOfBirth == null) return 'DD/MM/YYYY';
+    if (_dateOfBirth == null) return '—';
     return DateOnly.displayDDMMYYYY(_dateOfBirth!);
   }
 
@@ -374,11 +324,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _handleSave() async {
     final formValid = _formKey.currentState?.validate() ?? false;
-    final dobError = _validateDateOfBirth(_dateOfBirth);
 
-    setState(() => _dateOfBirthError = dobError);
-
-    if (!formValid || dobError != null) {
+    if (!formValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fix the highlighted fields.')),
       );
@@ -436,25 +383,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _photoPath = null;
       }
 
-      // The backend is the source of truth for name/DOB — mobileNumber
-      // isn't part of this request at all now (see above).
+      // The backend is the source of truth for name — mobileNumber isn't
+      // part of this request at all now (see above), and dateOfBirth is
+      // never sent — it's admin-only now (see PATCH
+      // /admin/commuters/:id/date-of-birth's doc comment).
       final response = await ApiClient.patch(
         '/api/commuter/me',
         {
           'fullName': updatedName,
-          'dateOfBirth': _dateOfBirth != null ? DateOnly.format(_dateOfBirth!) : null,
           if (_photoUrl != _initialPhotoUrl) 'photoUrl': _photoUrl,
         },
         token: UserSession.instance.authToken,
       );
       final commuter = response['commuter'] as Map<String, dynamic>;
       final finalMobile = commuter['mobileNumber'] as String;
+      // Still read back, in case an admin changed it elsewhere while this
+      // screen was open — keeps the local session/display current even
+      // though this screen never sends it itself.
       final dobRaw = commuter['dateOfBirth'] as String?;
+      _dateOfBirth = dobRaw != null ? DateOnly.tryParse(dobRaw) : _dateOfBirth;
 
       await UserSession.instance.updateProfile(
         fullName: commuter['fullName'] as String,
         mobileNumber: finalMobile,
-        dateOfBirth: dobRaw != null ? DateOnly.tryParse(dobRaw) : _dateOfBirth,
+        dateOfBirth: _dateOfBirth,
       );
       await UserSession.instance.updatePhotoUrl(commuter['photoUrl'] as String?);
       _photoUrl = commuter['photoUrl'] as String?;
@@ -467,7 +419,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _isSaving = false;
         _initialFullName = updatedName;
         _initialMobileNumber = finalMobile;
-        _initialDateOfBirth = _dateOfBirth;
         _initialPhotoUrl = _photoUrl;
       });
 
@@ -532,12 +483,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       validator: _validateMobileNumber,
                     ),
                     const SizedBox(height: 12),
-                    _SettingsDateField(
+                    _ReadOnlyField(
                       label: 'Date of Birth',
-                      valueLabel: _dateOfBirthLabel,
-                      hasValue: _dateOfBirth != null,
-                      errorText: _dateOfBirthError,
-                      onTap: _pickDateOfBirth,
+                      value: _dateOfBirthLabel,
                     ),
                     const SizedBox(height: 24),
                     const _SectionTitle(title: 'Security'),
@@ -546,6 +494,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.lock_outline_rounded,
                       label: 'Change Password',
                       onTap: _handleChangePassword,
+                    ),
+                    const SizedBox(height: 24),
+                    const _SectionTitle(title: 'Legal'),
+                    const SizedBox(height: 12),
+                    _SecurityItem(
+                      icon: Icons.description_outlined,
+                      label: 'Terms & Conditions',
+                      onTap: () => showLegalDocumentDialog(
+                        context,
+                        title: 'Terms & Conditions',
+                        updated: kTermsAndConditionsUpdated,
+                        body: kTermsAndConditionsText,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _SecurityItem(
+                      icon: Icons.privacy_tip_outlined,
+                      label: 'Privacy Policy',
+                      onTap: () => showLegalDocumentDialog(
+                        context,
+                        title: 'Privacy Policy',
+                        updated: kPrivacyPolicyUpdated,
+                        body: kPrivacyPolicyText,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     _SaveButton(
@@ -834,100 +806,43 @@ class _SettingsField extends StatelessWidget {
 }
 
 /// -----------------------------------------------------------------------
-/// DATE OF BIRTH FIELD
+/// READ-ONLY FIELD — Date of Birth is admin-only now (see PATCH
+/// /admin/commuters/:id/date-of-birth's doc comment); no self-edit path
+/// exists here anymore, so there's nothing to make interactive.
 /// -----------------------------------------------------------------------
 
-class _SettingsDateField extends StatelessWidget {
-  const _SettingsDateField({
-    required this.label,
-    required this.valueLabel,
-    required this.hasValue,
-    required this.onTap,
-    this.errorText,
-  });
+class _ReadOnlyField extends StatelessWidget {
+  const _ReadOnlyField({required this.label, required this.value});
 
   final String label;
-  final String valueLabel;
-  final bool hasValue;
-  final VoidCallback onTap;
-  final String? errorText;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    final hasError = errorText != null;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F2F3),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE6E6E7)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF2F2F3),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: hasError
-                    ? const Color(0xFFD32F2F)
-                    : const Color(0xFFE6E6E7),
-                width: hasError ? 1.4 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        valueLabel,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: hasValue
-                              ? Colors.black87
-                              : Colors.grey.shade400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_today_rounded,
-                    size: 18,
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-              ],
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
             ),
           ),
-          if (hasError)
-            Padding(
-              padding: const EdgeInsets.only(top: 6, left: 4),
-              child: Text(
-                errorText!,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFFD32F2F),
-                ),
-              ),
-            ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          ),
         ],
       ),
     );

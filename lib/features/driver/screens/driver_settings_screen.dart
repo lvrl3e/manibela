@@ -3,14 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/legal_text.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/avatar_image.dart';
 import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/platform_utils.dart';
+import '../../../core/widgets/legal_document_dialog.dart';
 import '../../auth/screens/phone_change_otp_screen.dart';
 import 'driver_change_password_screen.dart';
+import 'driver_license_number_screen.dart';
 
 /// Value returned by [DriverSettingsScreen] via `Navigator.pop` when the
 /// driver successfully saves their changes, so the caller can update its
@@ -64,15 +67,15 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
   /// finishes uploading on Save.
   String? _photoUrl;
 
+  // Read-only now — see PATCH /admin/drivers/:id/date-of-birth's doc
+  // comment for why only an admin can set/correct this.
   DateTime? _dateOfBirth;
-  String? _dateOfBirthError;
 
   // Snapshot of every field's value as of screen-open (or last successful
   // save), used purely to detect whether anything has actually changed —
   // the Save button stays disabled until it has.
   late String _initialFullName;
   late String _initialMobileNumber;
-  DateTime? _initialDateOfBirth;
   String? _initialPhotoUrl;
   bool _isSaving = false;
 
@@ -88,8 +91,6 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
 
   // Only letters, spaces, and a few common name characters.
   static final RegExp _fullNameRegex = RegExp(r"^[A-Za-zÀ-ÿ.'\- ]+$");
-
-  static const int _minAge = 18;
 
   @override
   void initState() {
@@ -109,7 +110,6 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
 
     _initialFullName = _fullNameController.text;
     _initialMobileNumber = _mobileNumberController.text;
-    _initialDateOfBirth = _dateOfBirth;
     _initialPhotoUrl = _photoUrl;
 
     _fullNameController.addListener(_onFieldChanged);
@@ -133,15 +133,9 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     setState(() {});
   }
 
-  bool _isSameDate(DateTime? a, DateTime? b) {
-    if (a == null || b == null) return a == b;
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
   bool get _hasChanges {
     return _fullNameController.text != _initialFullName ||
         _mobileNumberController.text != _initialMobileNumber ||
-        !_isSameDate(_dateOfBirth, _initialDateOfBirth) ||
         _photoPath != null ||
         _photoUrl != _initialPhotoUrl;
   }
@@ -178,51 +172,9 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     return null;
   }
 
-  String? _validateDateOfBirth(DateTime? value) {
-    if (value == null) {
-      return 'Date of birth is required';
-    }
-    final now = DateTime.now();
-    if (value.isAfter(now)) {
-      return 'Date of birth cannot be in the future';
-    }
-    final age = _calculateAge(value, now);
-    if (age < _minAge) {
-      return 'You must be at least $_minAge years old';
-    }
-    if (age > 120) {
-      return 'Please enter a valid date of birth';
-    }
-    return null;
-  }
-
-  int _calculateAge(DateTime dob, DateTime now) {
-    int age = now.year - dob.year;
-    final hasHadBirthdayThisYear =
-        (now.month > dob.month) || (now.month == dob.month && now.day >= dob.day);
-    if (!hasHadBirthdayThisYear) age--;
-    return age;
-  }
-
   String get _dateOfBirthLabel {
-    if (_dateOfBirth == null) return 'DD/MM/YYYY';
+    if (_dateOfBirth == null) return '—';
     return DateOnly.displayDDMMYYYY(_dateOfBirth!);
-  }
-
-  Future<void> _pickDateOfBirth() async {
-    final DateTime now = DateTime.now();
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _dateOfBirth ?? DateTime(now.year - 18, now.month, now.day),
-      firstDate: DateTime(1900),
-      lastDate: now,
-    );
-    if (picked != null) {
-      setState(() {
-        _dateOfBirth = picked;
-        _dateOfBirthError = _validateDateOfBirth(picked);
-      });
-    }
   }
 
   Future<void> _handleChangePhoto() async {
@@ -301,13 +253,16 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
     }
   }
 
+  void _handleLicenseNumber() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const DriverLicenseNumberScreen()),
+    );
+  }
+
   Future<void> _handleSave() async {
     final formValid = _formKey.currentState?.validate() ?? false;
-    final dobError = _validateDateOfBirth(_dateOfBirth);
 
-    setState(() => _dateOfBirthError = dobError);
-
-    if (!formValid || dobError != null) {
+    if (!formValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fix the highlighted fields.')),
       );
@@ -365,26 +320,30 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
         _photoPath = null;
       }
 
-      // The backend is the source of truth for name/DOB — mobileNumber
-      // isn't part of this request at all now (see above). plateNumber is
-      // deliberately never sent — it's not editable here.
+      // The backend is the source of truth for name — mobileNumber isn't
+      // part of this request at all now (see above), and neither
+      // plateNumber nor dateOfBirth are ever sent — both are admin-only
+      // now (see PATCH /admin/drivers/:id/date-of-birth's doc comment).
       final response = await ApiClient.patch(
         '/api/driver/me',
         {
           'fullName': updatedName,
-          'dateOfBirth': _dateOfBirth != null ? DateOnly.format(_dateOfBirth!) : null,
           if (_photoUrl != _initialPhotoUrl) 'photoUrl': _photoUrl,
         },
         token: DriverSession.instance.authToken,
       );
       final driver = response['driver'] as Map<String, dynamic>;
       final finalMobile = driver['mobileNumber'] as String;
+      // Still read back, in case an admin changed it elsewhere while this
+      // screen was open — keeps the local session/display current even
+      // though this screen never sends it itself.
       final dobRaw = driver['dateOfBirth'] as String?;
+      _dateOfBirth = dobRaw != null ? DateOnly.tryParse(dobRaw) : _dateOfBirth;
 
       await DriverSession.instance.updateProfile(
         fullName: driver['fullName'] as String,
         mobileNumber: finalMobile,
-        dateOfBirth: dobRaw != null ? DateOnly.tryParse(dobRaw) : _dateOfBirth,
+        dateOfBirth: _dateOfBirth,
       );
       await DriverSession.instance.updatePhotoUrl(driver['photoUrl'] as String?);
       _photoUrl = driver['photoUrl'] as String?;
@@ -395,7 +354,6 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
         _isSaving = false;
         _initialFullName = updatedName;
         _initialMobileNumber = finalMobile;
-        _initialDateOfBirth = _dateOfBirth;
         _initialPhotoUrl = _photoUrl;
       });
 
@@ -452,12 +410,9 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
                       validator: _validateMobileNumber,
                     ),
                     const SizedBox(height: 12),
-                    _SettingsDateField(
+                    _ReadOnlyField(
                       label: 'Date of Birth',
-                      valueLabel: _dateOfBirthLabel,
-                      hasValue: _dateOfBirth != null,
-                      errorText: _dateOfBirthError,
-                      onTap: _pickDateOfBirth,
+                      value: _dateOfBirthLabel,
                     ),
                     const SizedBox(height: 12),
                     _ReadOnlyField(
@@ -471,6 +426,36 @@ class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
                       icon: Icons.lock_outline_rounded,
                       label: 'Change Password',
                       onTap: _handleChangePassword,
+                    ),
+                    const SizedBox(height: 12),
+                    _SecurityItem(
+                      icon: Icons.badge_outlined,
+                      label: 'License Number',
+                      onTap: _handleLicenseNumber,
+                    ),
+                    const SizedBox(height: 24),
+                    const _SectionTitle(title: 'Legal'),
+                    const SizedBox(height: 12),
+                    _SecurityItem(
+                      icon: Icons.description_outlined,
+                      label: 'Terms & Conditions',
+                      onTap: () => showLegalDocumentDialog(
+                        context,
+                        title: 'Terms & Conditions',
+                        updated: kTermsAndConditionsUpdated,
+                        body: kTermsAndConditionsText,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _SecurityItem(
+                      icon: Icons.privacy_tip_outlined,
+                      label: 'Privacy Policy',
+                      onTap: () => showLegalDocumentDialog(
+                        context,
+                        title: 'Privacy Policy',
+                        updated: kPrivacyPolicyUpdated,
+                        body: kPrivacyPolicyText,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     _SaveButton(
@@ -725,99 +710,10 @@ class _SettingsField extends StatelessWidget {
   }
 }
 
-class _SettingsDateField extends StatelessWidget {
-  const _SettingsDateField({
-    required this.label,
-    required this.valueLabel,
-    required this.hasValue,
-    required this.onTap,
-    this.errorText,
-  });
-
-  final String label;
-  final String valueLabel;
-  final bool hasValue;
-  final VoidCallback onTap;
-  final String? errorText;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasError = errorText != null;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF2F2F3),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: hasError ? const Color(0xFFD32F2F) : const Color(0xFFE6E6E7),
-                width: hasError ? 1.4 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        valueLabel,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: hasValue ? Colors.black87 : Colors.grey.shade400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_today_rounded,
-                    size: 18,
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (hasError)
-            Padding(
-              padding: const EdgeInsets.only(top: 6, left: 4),
-              child: Text(
-                errorText!,
-                style: const TextStyle(fontSize: 11, color: Color(0xFFD32F2F)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A field the driver can see but never edit here — plateNumber is set once
-/// at account creation (by an operator) and the backend doesn't accept it
-/// through PATCH /me at all, so there's no point pretending it's editable.
+/// A field the driver can see but never edit here — plateNumber (set once
+/// at account creation) and dateOfBirth (admin-only, see PATCH
+/// /admin/drivers/:id/date-of-birth) neither one goes through PATCH /me
+/// at all, so there's no point pretending either is editable.
 class _ReadOnlyField extends StatelessWidget {
   const _ReadOnlyField({required this.label, required this.value});
 

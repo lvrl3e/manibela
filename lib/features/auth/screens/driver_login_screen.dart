@@ -1,14 +1,17 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/legal_text.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
+import '../../../core/widgets/legal_document_dialog.dart';
 import '../../driver/screens/driver_dashboard_screen.dart';
 import 'forgot_password_screen.dart';
 import 'role_selection_screen.dart';
@@ -36,6 +39,24 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   // matches CommuterLoginScreen's own _phoneRegExp exactly.
   final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
 
+  // Drivers never see a signup screen (accounts are admin-created) — this
+  // is the closest equivalent to a commuter's signup-checkbox moment, so
+  // it's a note under the login button instead of a gate before one.
+  late final TapGestureRecognizer _termsTapRecognizer = TapGestureRecognizer()
+    ..onTap = () => showLegalDocumentDialog(
+          context,
+          title: 'Terms & Conditions',
+          updated: kTermsAndConditionsUpdated,
+          body: kTermsAndConditionsText,
+        );
+  late final TapGestureRecognizer _privacyTapRecognizer = TapGestureRecognizer()
+    ..onTap = () => showLegalDocumentDialog(
+          context,
+          title: 'Privacy Policy',
+          updated: kPrivacyPolicyUpdated,
+          body: kPrivacyPolicyText,
+        );
+
   // =========================================================================
   // PHONE VALIDATION
   // =========================================================================
@@ -62,6 +83,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   void dispose() {
     _phoneController.dispose();
     _passwordController.dispose();
+    _termsTapRecognizer.dispose();
+    _privacyTapRecognizer.dispose();
     super.dispose();
   }
 
@@ -416,6 +439,42 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      Center(
+                        child: RichText(
+                          textAlign: TextAlign.center,
+                          text: TextSpan(
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black54,
+                            ),
+                            children: [
+                              const TextSpan(text: 'By logging in, you agree to our '),
+                              TextSpan(
+                                text: 'Terms & Conditions',
+                                style: const TextStyle(
+                                  color: AppColors.logoBlue,
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: _termsTapRecognizer,
+                              ),
+                              const TextSpan(text: ' and '),
+                              TextSpan(
+                                text: 'Privacy Policy',
+                                style: const TextStyle(
+                                  color: AppColors.logoBlue,
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: _privacyTapRecognizer,
+                              ),
+                              const TextSpan(text: '.'),
+                            ],
+                          ),
                         ),
                       ),
 

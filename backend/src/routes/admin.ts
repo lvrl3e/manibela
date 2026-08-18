@@ -9,11 +9,10 @@ import { toTitleCase } from '../utils/text';
 import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
-import { formatDateOnly, formatManilaTime, manilaDayKey, manilaMidnight } from '../utils/date';
+import { dateOnly, formatDateOnly, formatManilaTime, manilaDayKey, manilaMidnight } from '../utils/date';
 import { requireAuth, requireMainAdmin } from '../middleware/auth';
 import { notifyDriver, notifyCommuter } from '../utils/notify';
 import { issueOtp, verifyOtp } from '../utils/otp';
-import { uploadLicensePhotos, deleteUploadedPhoto } from '../middleware/upload';
 import { authLimiter } from '../middleware/rateLimit';
 
 const router = Router();
@@ -542,6 +541,8 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
         photoUrl: driver.photoUrl,
         licenseFrontUrl: driver.licenseFrontUrl,
         licenseBackUrl: driver.licenseBackUrl,
+        licenseNumber: driver.licenseNumber,
+        licenseVerificationStatus: driver.licenseVerificationStatus,
         qrToken: driver.qrToken,
         isActive: driver.isActive,
         reportCount,
@@ -555,49 +556,90 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
   }
 });
 
-// Uploads (or replaces) this driver's license photos — either side alone
-// is accepted, so an admin can add/redo just one without re-sending both.
-// Drivers have no self-serve doc upload (unlike a commuter's KYC docs, set
-// at sign-up), so this is the only way these ever get populated.
-router.post('/drivers/:id/license', requireAuth('admin'), (req, res, next) => {
-  uploadLicensePhotos(req, res, async (err) => {
-    if (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+// Two things happen through this one endpoint, distinguished by whether
+// [status] is sent:
+//  - Plain correction (no [status]) — an admin editing the number on file
+//    directly (e.g. fixing a typo from Add Driver), same as
+//    PlateNumberField/DateOfBirthField's own inline edit. Doesn't touch
+//    licenseVerificationStatus and doesn't require a submitted photo.
+//  - Review (with [status]) — the admin types in the license number
+//    themselves after looking at a submitted photo (no OCR/auto-detect;
+//    see TODO.md for why that was considered and dropped). Requires
+//    licenseNumber when approving; rejecting doesn't need one. Requires a
+//    submitted photo, since there's nothing to review otherwise.
+const driverLicenseNumberSchema = z.object({
+  status: z.enum(['APPROVED', 'REJECTED']).optional(),
+  licenseNumber: z.string().trim().min(1).optional(),
+});
+
+router.patch('/drivers/:id/license-number', requireAuth('admin'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const body = driverLicenseNumberSchema.parse(req.body);
+
+    const driver = await prisma.driver.findUnique({ where: { id } });
+    if (!driver) {
+      res.status(404).json({ error: 'Driver not found.' });
       return;
     }
 
-    try {
-      const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const driver = await prisma.driver.findUnique({ where: { id } });
-      if (!driver) {
-        res.status(404).json({ error: 'Driver not found.' });
+    if (!body.status) {
+      // Plain correction — see this endpoint's own doc comment above.
+      if (!body.licenseNumber) {
+        res.status(400).json({ error: 'License number is required.' });
         return;
       }
-
-      const files = req.files as { licenseFront?: Express.Multer.File[]; licenseBack?: Express.Multer.File[] } | undefined;
-      const front = files?.licenseFront?.[0];
-      const back = files?.licenseBack?.[0];
-      if (!front && !back) {
-        res.status(400).json({ error: 'Provide at least one of the front or back photo.' });
-        return;
-      }
-
-      const data: { licenseFrontUrl?: string; licenseBackUrl?: string } = {};
-      if (front) {
-        deleteUploadedPhoto(driver.licenseFrontUrl);
-        data.licenseFrontUrl = `/uploads/license-photos/${front.filename}`;
-      }
-      if (back) {
-        deleteUploadedPhoto(driver.licenseBackUrl);
-        data.licenseBackUrl = `/uploads/license-photos/${back.filename}`;
-      }
-
-      const updated = await prisma.driver.update({ where: { id }, data });
-      res.json({ licenseFrontUrl: updated.licenseFrontUrl, licenseBackUrl: updated.licenseBackUrl });
-    } catch (err2) {
-      next(err2);
+      const updated = await prisma.driver.update({
+        where: { id },
+        data: { licenseNumber: body.licenseNumber },
+      });
+      res.json({
+        driver: {
+          id: updated.id,
+          licenseNumber: updated.licenseNumber,
+          licenseVerificationStatus: updated.licenseVerificationStatus,
+        },
+      });
+      return;
     }
-  });
+
+    if (!driver.licenseFrontUrl) {
+      res.status(400).json({ error: 'This driver has not submitted a license photo yet.' });
+      return;
+    }
+    if (body.status === 'APPROVED' && !body.licenseNumber) {
+      res.status(400).json({ error: 'License number is required to approve.' });
+      return;
+    }
+
+    const updated = await prisma.driver.update({
+      where: { id },
+      data: {
+        licenseVerificationStatus: body.status,
+        licenseNumber: body.status === 'APPROVED' ? body.licenseNumber : driver.licenseNumber,
+      },
+    });
+
+    await notifyDriver({
+      recipientId: id,
+      title: body.status === 'APPROVED' ? 'License verified' : 'License submission rejected',
+      message:
+        body.status === 'APPROVED'
+          ? 'Your submitted license photo has been verified.'
+          : 'Your submitted license photo was rejected. Please submit a clearer photo from Settings.',
+      type: body.status === 'APPROVED' ? 'LICENSE_APPROVED' : 'LICENSE_REJECTED',
+    });
+
+    res.json({
+      driver: {
+        id: updated.id,
+        licenseNumber: updated.licenseNumber,
+        licenseVerificationStatus: updated.licenseVerificationStatus,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // The two fixed routes this fleet services — same constant as
@@ -742,12 +784,49 @@ router.patch('/drivers/:id/plate-number', requireAuth('admin'), async (req, res,
   }
 });
 
+// Date of birth is no longer editable by the driver themselves (see
+// PATCH /driver/me) — only an admin can set/correct it now, same
+// verified-by-a-human reasoning as plate number and license number.
+const setDateOfBirthSchema = z.object({ dateOfBirth: dateOnly.nullable() });
+
+router.patch('/drivers/:id/date-of-birth', requireAuth('admin'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const body = setDateOfBirthSchema.parse(req.body);
+
+    const driver = await prisma.driver.update({ where: { id }, data: { dateOfBirth: body.dateOfBirth } });
+
+    res.json({
+      driver: {
+        id: driver.id,
+        dateOfBirth: driver.dateOfBirth ? formatDateOnly(driver.dateOfBirth) : null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // The real, operator-gated version of what POST /api/driver/signup's own
 // comment calls out as still missing — drivers don't self-register, an
 // admin creates the account on their behalf.
+// toE164 (utils/phone.ts) never throws — it just mangles whatever it's
+// given into *some* +63-prefixed string, so without this check a garbage
+// mobileNumber (e.g. "abc") would silently become "+63" and still create
+// an account. Mirrors the PH-format check every self-serve signup/login
+// screen already does client-side before ever reaching this shape of
+// request.
+const phMobileNumberRegex = /^(?:\+63\d{10}|09\d{9})$/;
+
 const createDriverSchema = z.object({
   fullName: z.string().trim().min(1).transform(toTitleCase),
-  mobileNumber: z.string().trim().min(1),
+  mobileNumber: z
+    .string()
+    .trim()
+    .transform((value) => value.replace(/[\s-]/g, ''))
+    .refine((value) => phMobileNumberRegex.test(value), {
+      message: 'Enter a valid PH mobile number (e.g. 09171234567 or +639171234567).',
+    }),
   password: z.string().min(8),
   plateNumber: z
     .string()
@@ -757,6 +836,16 @@ const createDriverSchema = z.object({
     .refine(isValidPlateNumber, {
       message: 'Plate number must be 3 letters followed by 3 or 4 numbers (e.g. ABC123 or ABC1234).',
     }),
+  // Required — an admin records this on file at creation. Doesn't set
+  // licenseVerificationStatus by itself, though: the driver still has to
+  // submit a license photo (Settings -> License Number) and get that
+  // reviewed and approved before they can start a trip (see POST
+  // /driver/trips/start's own check). This is just the number on record,
+  // not proof of it.
+  licenseNumber: z.string().trim().min(1),
+  // Optional — an admin may not have this on hand at creation time; can
+  // always be added/corrected later via PATCH /drivers/:id/date-of-birth.
+  dateOfBirth: dateOnly.nullable().optional(),
 });
 
 router.post('/drivers', requireAuth('admin'), async (req, res, next) => {
@@ -778,6 +867,8 @@ router.post('/drivers', requireAuth('admin'), async (req, res, next) => {
         mobileNumber,
         passwordHash,
         plateNumber: body.plateNumber,
+        licenseNumber: body.licenseNumber,
+        dateOfBirth: body.dateOfBirth ?? null,
         qrToken: await generateQrToken(),
       },
     });
@@ -789,7 +880,8 @@ router.post('/drivers', requireAuth('admin'), async (req, res, next) => {
         fullName: driver.fullName,
         mobileNumber: driver.mobileNumber,
         plateNumber: driver.plateNumber,
-        dateOfBirth: null,
+        licenseNumber: driver.licenseNumber,
+        dateOfBirth: driver.dateOfBirth ? formatDateOnly(driver.dateOfBirth) : null,
         photoUrl: null,
         isActive: driver.isActive,
         createdAt: driver.createdAt,
@@ -901,6 +993,27 @@ router.patch('/commuters/:id/status', requireAuth('admin'), async (req, res, nex
     }
 
     res.json({ commuter: { id: commuter.id, isActive: commuter.isActive } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Date of birth is no longer editable by the commuter themselves (see
+// PATCH /commuter/me) — only an admin can set/correct it now, same
+// verified-by-a-human reasoning as a driver's plate/license number.
+router.patch('/commuters/:id/date-of-birth', requireAuth('admin'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const body = setDateOfBirthSchema.parse(req.body);
+
+    const commuter = await prisma.commuter.update({ where: { id }, data: { dateOfBirth: body.dateOfBirth } });
+
+    res.json({
+      commuter: {
+        id: commuter.id,
+        dateOfBirth: commuter.dateOfBirth ? formatDateOnly(commuter.dateOfBirth) : null,
+      },
+    });
   } catch (err) {
     next(err);
   }

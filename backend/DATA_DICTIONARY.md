@@ -4,7 +4,7 @@ Field-by-field reference for every table in the ManibelApp database
 (PostgreSQL via Prisma). Companion to [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md),
 which explains the *why* behind the design — this file is the exhaustive
 *what*: every column, its type, its constraints, and a one-line
-description. Current as of 2026-08-16; source of truth is
+description. Current as of 2026-08-18; source of truth is
 [`prisma/schema.prisma`](prisma/schema.prisma).
 
 **Legend:** PK = Primary Key · FK* = references another table's id, but
@@ -23,7 +23,7 @@ Rider account. Table name: `Commuter`.
 | `fullName` | String | NOT NULL | |
 | `mobileNumber` | String | U, NOT NULL | E.164 format, `+63XXXXXXXXXX` |
 | `passwordHash` | String | NOT NULL | bcrypt hash, never plaintext |
-| `dateOfBirth` | Date | N | |
+| `dateOfBirth` | Date | N | Collected at signup itself; **admin-only to edit** afterward — `PATCH /commuter/me` doesn't accept it, only `PATCH /admin/commuters/:id/date-of-birth` |
 | `photoUrl` | String | N | Relative path, e.g. `/uploads/profile-photos/xyz.png` |
 | `phoneVerifiedAt` | DateTime | N | Set once signup OTP is verified |
 | `idType` | String | N | Government ID type submitted at signup |
@@ -46,10 +46,12 @@ Jeepney driver account, admin-created. Table name: `Driver`.
 | `mobileNumber` | String | U, NOT NULL | E.164 format |
 | `passwordHash` | String | NOT NULL | |
 | `plateNumber` | String | NOT NULL | |
-| `dateOfBirth` | Date | N | |
+| `dateOfBirth` | Date | N | Optional at Add Driver; **admin-only to edit** afterward, same as `Commuter.dateOfBirth` |
 | `photoUrl` | String | N | |
-| `licenseFrontUrl` | String | N | Uploaded by an admin, not self-serve |
+| `licenseFrontUrl` | String | N | Submitted by the **driver themselves** (Settings → License Number), both sides required together — no admin-side upload exists |
 | `licenseBackUrl` | String | N | |
+| `licenseNumber` | String | N | Always admin-entered — recorded directly (Add Driver / a correction) or typed in while reviewing a photo. Never OCR'd |
+| `licenseVerificationStatus` | Enum `IdVerificationStatus` | N, default: none | null → `PENDING` (photos submitted) → `APPROVED`/`REJECTED` (admin review). **Gates `POST /driver/trips/start`** |
 | `qrToken` | String | U, N | Permanent token encoded into the driver's QR code |
 | `isActive` | Boolean | NOT NULL, default `true` | Soft-disable flag |
 | `createdAt` | DateTime | NOT NULL, default: now | |
@@ -80,6 +82,7 @@ Staging row for an in-progress commuter signup. Table name: `PendingCommuterSign
 | `fullName` | String | NOT NULL | |
 | `mobileNumber` | String | NOT NULL | Not yet unique-constrained (no Commuter row exists yet) |
 | `passwordHash` | String | NOT NULL | Hashed before staging, never plaintext |
+| `dateOfBirth` | Date | N | Collected on the signup form itself; copied to `Commuter.dateOfBirth` on redemption |
 | `idType` | String | N | |
 | `idFrontUrl` | String | N | |
 | `idBackUrl` | String | N | |
@@ -229,7 +232,7 @@ Driver's once-a-day self-reported operations summary. Table name: `DriverDailyLo
 
 | Enum | Values | Used by |
 |---|---|---|
-| `IdVerificationStatus` | `PENDING`, `APPROVED`, `REJECTED` | `Commuter.verificationStatus` |
+| `IdVerificationStatus` | `PENDING`, `APPROVED`, `REJECTED` | `Commuter.verificationStatus`, `Driver.licenseVerificationStatus` |
 | `TripStatus` | `ACTIVE`, `COMPLETED` | `Trip.status` |
 | `TripReviewStatus` | `PENDING`, `REVIEWED`, `VALID`, `INVALID` | `Trip.reviewStatus` |
 | `ComplaintStatus` | `PENDING`, `INVESTIGATING`, `RESOLVED`, `REJECTED` | `Complaint.status` |

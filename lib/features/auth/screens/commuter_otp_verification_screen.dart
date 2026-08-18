@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/utils/date_only.dart';
 import 'commuter_verification_screen.dart';
 
 /// Verifies the mobile number entered during commuter sign up. No account
@@ -19,6 +20,7 @@ class CommuterOtpVerificationScreen extends StatefulWidget {
     required this.fullName,
     required this.mobileNumber,
     required this.password,
+    required this.dateOfBirth,
   });
 
   final String fullName;
@@ -27,6 +29,8 @@ class CommuterOtpVerificationScreen extends StatefulWidget {
   final String mobileNumber;
 
   final String password;
+
+  final DateTime dateOfBirth;
 
   @override
   State<CommuterOtpVerificationScreen> createState() => _CommuterOtpVerificationScreenState();
@@ -96,6 +100,7 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
         'fullName': widget.fullName,
         'mobileNumber': widget.mobileNumber,
         'password': widget.password,
+        'dateOfBirth': DateOnly.format(widget.dateOfBirth),
         'code': _code,
       });
 

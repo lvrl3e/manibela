@@ -8,6 +8,11 @@ class DriverMenuDrawer extends StatelessWidget {
   final String driverId;
   final String? photoUrl;
 
+  /// null | 'PENDING' | 'APPROVED' | 'REJECTED' — see
+  /// DriverSession.refreshLicenseStatus. Shown as a badge near the
+  /// driver's name in the profile header below.
+  final String? licenseVerificationStatus;
+
   final VoidCallback? onSettingsTap;
   final VoidCallback? onQrCodeTap;
   final VoidCallback? onTripHistoryTap;
@@ -18,6 +23,7 @@ class DriverMenuDrawer extends StatelessWidget {
     required this.driverName,
     required this.driverId,
     this.photoUrl,
+    this.licenseVerificationStatus,
     this.onSettingsTap,
     this.onQrCodeTap,
     this.onTripHistoryTap,
@@ -283,6 +289,10 @@ class DriverMenuDrawer extends StatelessWidget {
 
                 const SizedBox(height: 6),
 
+                _LicenseStatusBadge(status: licenseVerificationStatus),
+
+                const SizedBox(height: 6),
+
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -410,6 +420,63 @@ class DriverMenuDrawer extends StatelessWidget {
       height: 1,
       thickness: 1,
       color: Colors.black.withOpacity(0.08),
+    );
+  }
+}
+
+/// Quick-glance license status, right under the driver's name — the full
+/// detail (submit/resubmit, the verified number once approved) lives on
+/// the License Number screen (Settings -> License Number); this badge is
+/// read-only.
+class _LicenseStatusBadge extends StatelessWidget {
+  const _LicenseStatusBadge({required this.status});
+
+  /// null | 'PENDING' | 'APPROVED' | 'REJECTED'
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    late final Color bg;
+    late final Color fg;
+    late final IconData icon;
+    late final String label;
+    switch (status) {
+      case 'PENDING':
+        bg = const Color(0xFFFFF4CC);
+        fg = const Color(0xFF92600A);
+        icon = Icons.hourglass_top_rounded;
+        label = 'License Pending Review';
+        break;
+      case 'APPROVED':
+        bg = const Color(0xFFDDF7E3);
+        fg = const Color(0xFF1B7A3D);
+        icon = Icons.verified_rounded;
+        label = 'License Verified';
+        break;
+      case 'REJECTED':
+        bg = const Color(0xFFFDE2E2);
+        fg = const Color(0xFFB91C1C);
+        icon = Icons.error_outline_rounded;
+        label = 'License Rejected';
+        break;
+      default:
+        bg = Colors.white.withOpacity(0.5);
+        fg = AppColors.onPrimary;
+        icon = Icons.badge_outlined;
+        label = 'License Not Verified';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: fg),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: fg)),
+        ],
+      ),
     );
   }
 }

@@ -2,7 +2,7 @@
 
 PostgreSQL, managed with Prisma. Source of truth is
 [`prisma/schema.prisma`](prisma/schema.prisma) — this file is a readable
-companion to it, current as of 2026-08-16. Regenerate/update it by hand
+companion to it, current as of 2026-08-18. Regenerate/update it by hand
 whenever the schema changes materially; it isn't auto-generated.
 
 ## Overview
@@ -44,6 +44,7 @@ Rider account. Logs in with `mobileNumber` (E.164 `+63XXXXXXXXXX`) + password.
 | `passwordHash` | String | bcrypt |
 | `photoUrl` | String? | `/uploads/profile-photos/...` |
 | `phoneVerifiedAt` | DateTime? | Set once signup OTP is verified |
+| `dateOfBirth` | Date? | Collected at signup itself now (not a later step); **admin-only to edit afterward** — the commuter's own `PATCH /me` no longer accepts it, only `PATCH /admin/commuters/:id/date-of-birth` does |
 | `idType`, `idFrontUrl`, `idBackUrl`, `selfieUrl` | String? | KYC docs captured at signup |
 | `verificationStatus` | `IdVerificationStatus?` | null → PENDING → APPROVED/REJECTED, admin-reviewed only |
 | `isActive` | Boolean | Login gate — false until admin approves |
@@ -56,7 +57,10 @@ self-registered — there's no driver signup flow with review.
 |---|---|---|
 | `driverId` | String, unique | e.g. `DR-00001` |
 | `plateNumber` | String | |
-| `licenseFrontUrl`, `licenseBackUrl` | String? | Uploaded by an admin after account creation |
+| `dateOfBirth` | Date? | Optional at Add Driver; **admin-only to edit** afterward, same as `Commuter.dateOfBirth` |
+| `licenseFrontUrl`, `licenseBackUrl` | String? | Submitted by the **driver themselves** (Settings → License Number → upload both → submit) — no admin-side photo upload exists anymore |
+| `licenseNumber` | String? | Always admin-entered — either recorded directly (Add Driver, or a later correction) or typed in while reviewing a submitted photo. Never OCR'd |
+| `licenseVerificationStatus` | `IdVerificationStatus?` | null → PENDING (photos submitted) → APPROVED/REJECTED (admin review). **Gates `POST /driver/trips/start`** — a driver can't start a trip until this is APPROVED |
 | `qrToken` | String?, unique | Permanent, backend-verified — encoded into the driver's QR |
 | `isActive` | Boolean | default `true` (opposite default from Commuter) |
 
@@ -79,7 +83,8 @@ exactly one `MAIN_ADMIN` row is enforced by a partial unique index —
 Staging row for a commuter mid-signup (phone verified, ID/selfie upload
 in progress) — no `Commuter` row exists yet. Redeemed by ticket into a
 real `Commuter` once complete; has its own `expiresAt` separate from the
-OTP's.
+OTP's. Holds `dateOfBirth` too now — collected on the signup form itself
+and carried over to the `Commuter` row on redemption.
 
 ## Trips & rides
 
@@ -205,3 +210,14 @@ notes.
 - **Uploads are local disk** (`backend/uploads/`, gitignored), referenced
   by relative URL strings (`/uploads/id-photos/xyz.jpg`) — not a blob
   column and not S3. Flagged as a pre-release scaling concern.
+- **`dateOfBirth` is admin-only to edit** for both `Commuter` and
+  `Driver` — neither self-service `PATCH /me` endpoint accepts it
+  anymore; only `PATCH /admin/{commuters,drivers}/:id/date-of-birth`
+  does. The app's own Settings screens show it read-only.
+- **`PATCH /admin/drivers/:id/license-number` is dual-purpose** —
+  whether `status` is in the request body decides which of two unrelated
+  things happens: omit it for a plain correction (just updates
+  `licenseNumber`, no photo required), include it (`APPROVED`/
+  `REJECTED`) to review a submitted photo (sets `licenseNumber` +
+  `licenseVerificationStatus` together, requires `licenseFrontUrl` to
+  exist). Easy to miss reading the route alone — check the request body.

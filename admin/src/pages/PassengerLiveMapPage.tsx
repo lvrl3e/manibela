@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LiveMap, clusterDemandSignals, type JeepneyMarker } from '../components/LiveMap';
 import { LogoMark } from '../components/Logo';
+import { RoutePill } from '../components/RoutePill';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 
@@ -35,9 +36,12 @@ function BackIcon() {
 }
 
 export default function PassengerLiveMapPage() {
-  const [trips, setTrips] = useState<ActiveTripRow[]>([]);
-  const [onboard, setOnboard] = useState<OnboardPassenger[]>([]);
-  const [demandSignals, setDemandSignals] = useState<DemandSignalRow[]>([]);
+  // null = not yet loaded for each — distinct from "loaded, genuinely
+  // empty," so the sidebar doesn't flash "No one is on board" / "No ride
+  // requests" before the first fetch even resolves.
+  const [trips, setTrips] = useState<ActiveTripRow[] | null>(null);
+  const [onboard, setOnboard] = useState<OnboardPassenger[] | null>(null);
+  const [demandSignals, setDemandSignals] = useState<DemandSignalRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   function fetchTrips() {
@@ -78,7 +82,7 @@ export default function PassengerLiveMapPage() {
 
   const passengersByTrip = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const p of onboard) {
+    for (const p of onboard ?? []) {
       const list = map.get(p.tripId) ?? [];
       list.push(p.commuterName);
       map.set(p.tripId, list);
@@ -91,7 +95,7 @@ export default function PassengerLiveMapPage() {
   // on the road (that's Jeepney Monitoring's job).
   const markers: JeepneyMarker[] = useMemo(
     () =>
-      trips
+      (trips ?? [])
         .filter((t) => t.currentLat != null && t.currentLng != null && (passengersByTrip.get(t.id)?.length ?? 0) > 0)
         .map((t) => ({
           id: t.id,
@@ -105,29 +109,40 @@ export default function PassengerLiveMapPage() {
     [trips, passengersByTrip],
   );
 
-  const focusPosition = useMemo<[number, number] | null>(() => {
-    const selected = markers.find((m) => m.id === selectedId);
-    return selected ? [selected.lat, selected.lng] : null;
-  }, [markers, selectedId]);
+  const demandMarkers = useMemo(() => clusterDemandSignals(demandSignals ?? []), [demandSignals]);
 
-  const demandMarkers = useMemo(() => clusterDemandSignals(demandSignals), [demandSignals]);
+  // Shared selection for both lists below — a jeepney and a demand
+  // cluster live in different id spaces (a Trip id vs. a cell-bucket key),
+  // so there's no real risk of one selection accidentally matching both.
+  const focusPosition = useMemo<[number, number] | null>(() => {
+    const selectedJeepney = markers.find((m) => m.id === selectedId);
+    if (selectedJeepney) return [selectedJeepney.lat, selectedJeepney.lng];
+    const selectedDemand = demandMarkers.find((d) => d.id === selectedId);
+    return selectedDemand ? [selectedDemand.lat, selectedDemand.lng] : null;
+  }, [markers, demandMarkers, selectedId]);
+
+  // Loaded once every feed has resolved at least once — used only to
+  // decide skeleton vs. real content in the sidebar below.
+  const hasLoaded = trips !== null && onboard !== null && demandSignals !== null;
 
   return (
     <div className="flex h-screen w-full flex-col bg-surface-page">
-      <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <header className="flex items-center gap-3 bg-gradient-to-r from-[#111c4d] via-ink to-black px-4 py-3 shadow-[0_1px_3px_rgba(16,24,40,0.12)]">
         <Link
           to="/passenger-monitoring"
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
         >
           <BackIcon />
           Back
         </Link>
-        <div className="h-5 w-px bg-gray-200" />
+        <div className="h-5 w-px bg-white/15" />
         <LogoMark size={26} />
         <div>
-          <p className="text-sm font-bold text-gray-900">Live Passenger Map</p>
-          <p className="text-xs text-gray-500">
-            {markers.length} jeepney(s) currently carrying passengers · {demandSignals.length} ride request(s) in the last 15 minutes
+          <p className="font-display text-sm font-bold text-white">Live Passenger Map</p>
+          <p className="text-xs text-white/60">
+            {hasLoaded
+              ? `${markers.length} jeepney(s) currently carrying passengers · ${(demandSignals ?? []).length} ride request(s) in the last 15 minutes`
+              : 'Loading…'}
           </p>
         </div>
       </header>
@@ -135,22 +150,33 @@ export default function PassengerLiveMapPage() {
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col border-r border-gray-200 bg-white">
           <div className="border-b border-gray-100 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Jeepneys with riders</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Jeepneys with passengers</p>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {markers.length === 0 && <p className="p-4 text-sm text-gray-400">No one is currently on board.</p>}
+            {!hasLoaded &&
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-start gap-1.5 border-b border-gray-100 px-4 py-3">
+                  <div className="h-4 w-20 animate-pulse rounded bg-gray-100" />
+                  <div className="h-3 w-32 animate-pulse rounded bg-gray-100" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-gray-100" />
+                </div>
+              ))}
+            {hasLoaded && markers.length === 0 && (
+              <p className="p-4 text-sm text-gray-400">No one is currently on board.</p>
+            )}
             {markers.map((m) => (
               <button
                 key={m.id}
                 onClick={() => setSelectedId(m.id)}
-                className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${
+                className={`flex w-full flex-col items-start gap-1 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${
                   selectedId === m.id ? 'bg-blue-50' : ''
                 }`}
               >
-                <span className="text-sm font-semibold text-gray-900">{m.plateNumber}</span>
-                <span className="text-xs text-gray-500">
-                  {m.driverName} · {m.route ?? 'No route set'}
+                <span className="flex w-full items-center justify-between">
+                  <span className="font-display text-sm font-semibold text-gray-900">{m.plateNumber}</span>
+                  <RoutePill route={m.route} />
                 </span>
+                <span className="text-xs text-gray-500">{m.driverName}</span>
                 <span className="text-xs text-gray-400">Onboard: {m.passengers?.join(', ')}</span>
               </button>
             ))}
@@ -160,22 +186,43 @@ export default function PassengerLiveMapPage() {
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ride Requests (last 15 min)</p>
           </div>
           <div className="max-h-48 overflow-y-auto">
-            {demandMarkers.length === 0 && <p className="p-4 text-sm text-gray-400">No ride requests right now.</p>}
+            {!hasLoaded &&
+              Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+                  <div className="h-3 w-24 animate-pulse rounded bg-gray-100" />
+                  <div className="h-5 w-16 animate-pulse rounded-full bg-gray-100" />
+                </div>
+              ))}
+            {hasLoaded && demandMarkers.length === 0 && (
+              <p className="p-4 text-sm text-gray-400">No ride requests right now.</p>
+            )}
             {demandMarkers.map((d) => (
-              <div key={d.id} className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+              <button
+                key={d.id}
+                onClick={() => setSelectedId(d.id)}
+                className={`flex w-full items-center justify-between border-b border-gray-100 px-4 py-2.5 text-left transition hover:bg-gray-50 ${
+                  selectedId === d.id ? 'bg-blue-50' : ''
+                }`}
+              >
                 <span className="text-xs text-gray-600">
                   {d.lat.toFixed(4)}, {d.lng.toFixed(4)}
                 </span>
-                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                <span className="rounded-full bg-status-good-bg px-2 py-0.5 text-xs font-semibold text-status-good">
                   {d.count} request{d.count === 1 ? '' : 's'}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </aside>
 
         <div className="flex-1">
-          <LiveMap jeepneys={markers} demandSignals={demandMarkers} zoom={14} focusPosition={focusPosition} />
+          <LiveMap
+            jeepneys={markers}
+            demandSignals={demandMarkers}
+            zoom={14}
+            focusPosition={focusPosition}
+            onDeselect={() => setSelectedId(null)}
+          />
         </div>
       </div>
     </div>

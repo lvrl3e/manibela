@@ -473,7 +473,7 @@ export function DriverDetailPanel({
               <div className="flex gap-6">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Rating</p>
-                  <p className="mt-1 flex items-baseline gap-1 text-2xl font-semibold text-gray-900">
+                  <p className="mt-1 flex items-baseline gap-1 font-display text-2xl font-semibold text-gray-900">
                     {driver.averageRating != null ? driver.averageRating.toFixed(1) : '—'}
                     {driver.averageRating != null && <span className="text-sm font-medium text-gray-400">/5</span>}
                   </p>
@@ -483,7 +483,7 @@ export function DriverDetailPanel({
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Report Count</p>
-                  <p className="mt-1 text-2xl font-semibold text-gray-900">{driver.reportCount}</p>
+                  <p className="mt-1 font-display text-2xl font-semibold text-gray-900">{driver.reportCount}</p>
                 </div>
               </div>
               {driver.qrToken && (

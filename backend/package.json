@@ -12,6 +12,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "seed": "ts-node prisma/seed.ts",
+    "seed:demo": "ts-node prisma/seedDemoData.ts",
     "create-driver": "ts-node scripts/create-driver.ts",
     "create-admin": "ts-node scripts/create-admin.ts"
   },

@@ -37,6 +37,11 @@ export function NotificationBell({
   hasNextPage,
   isLoadingMore,
   onLoadMore,
+  /** Trigger-button styling for a colored header — white icon/hover
+   * instead of the gray-on-white default. The dropdown panel itself
+   * stays light regardless, since it's an overlay meant to be read
+   * against page content, not the header bar. */
+  light = false,
 }: {
   notifications: AdminNotification[];
   unreadCount: number;
@@ -44,6 +49,7 @@ export function NotificationBell({
   hasNextPage: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
+  light?: boolean;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -77,19 +83,25 @@ export function NotificationBell({
     <div ref={containerRef} className="relative">
       <button
         onClick={handleToggle}
-        className="relative rounded-lg p-2 text-gray-600 transition hover:bg-gray-100"
+        className={`relative rounded-lg p-2 transition ${
+          light ? 'text-white hover:bg-white/15' : 'text-gray-600 hover:bg-gray-100'
+        }`}
         aria-label="Notifications"
       >
         <BellIcon />
         {unreadCount > 0 && (
-          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+          <span
+            className={`absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ${
+              light ? 'ring-2 ring-ink' : ''
+            }`}
+          >
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-80 max-w-[90vw] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+        <div className="absolute right-0 z-30 mt-2 w-80 max-w-[90vw] overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-[0_12px_32px_-8px_rgba(16,24,40,0.18)]">
           <div className="border-b border-gray-100 px-4 py-3">
             <p className="text-sm font-semibold text-gray-900">Notifications</p>
           </div>

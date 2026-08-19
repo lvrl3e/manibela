@@ -1,10 +1,40 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { EyeIcon } from '../components/EyeIcon';
+import { Card, SectionHeader } from '../components/Card';
 import { useAuth, type AdminRole } from '../lib/auth';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { formatManilaDate, formatManilaDateTime } from '../lib/formatDate';
+
+function UserIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5" />
+    </svg>
+  );
+}
+
+function TeamIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" strokeLinecap="round" />
+      <circle cx="17" cy="8.5" r="2.4" />
+      <path d="M15.5 13.3c2.6.4 4.2 2.3 4.2 5.7" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function ProfileSection() {
   const { admin, refreshAdmin } = useAuth();
@@ -31,8 +61,8 @@ function ProfileSection() {
   }
 
   return (
-    <div className="rounded-xl border border-border-subtle bg-surface-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-      <h2 className="text-sm font-semibold text-gray-900">Profile</h2>
+    <Card>
+      <SectionHeader icon={<UserIcon />} title="Profile" />
       <form onSubmit={handleSubmit} className="mt-4 max-w-sm space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Email</label>
@@ -64,7 +94,7 @@ function ProfileSection() {
           {isSubmitting ? 'Saving...' : 'Save Changes'}
         </button>
       </form>
-    </div>
+    </Card>
   );
 }
 
@@ -105,8 +135,8 @@ function PasswordSection() {
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-border-subtle bg-surface-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-      <h2 className="text-sm font-semibold text-gray-900">Change Password</h2>
+    <Card className="mt-6">
+      <SectionHeader icon={<LockIcon />} title="Change Password" />
       <form onSubmit={handleSubmit} className="mt-4 max-w-sm space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700" htmlFor="currentPassword">
@@ -194,7 +224,7 @@ function PasswordSection() {
           {isSubmitting ? 'Updating...' : 'Update Password'}
         </button>
       </form>
-    </div>
+    </Card>
   );
 }
 
@@ -362,7 +392,7 @@ function EditRoleModal({ target, onClose, onDone }: { target: AdminAccount; onCl
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="text-base font-semibold text-gray-900">Edit Role</h2>
+        <h2 className="font-display text-base font-semibold text-gray-900">Edit Role</h2>
         <p className="mt-1 text-sm text-gray-500">{target.fullName}</p>
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700">Role</label>
@@ -424,7 +454,7 @@ function ResetPasswordModal({ target, onClose, onDone }: { target: AdminAccount;
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={done ? onDone : onClose} />
       <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="text-base font-semibold text-gray-900">Reset Password</h2>
+        <h2 className="font-display text-base font-semibold text-gray-900">Reset Password</h2>
         <p className="mt-1 text-sm text-gray-500">Set a new password for {target.fullName}.</p>
 
         {done ? (
@@ -537,23 +567,24 @@ function AdminAccountsSection() {
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-border-subtle bg-surface-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-900">Admin Accounts</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            {isMainAdmin ? 'Manage who has access to this dashboard.' : 'Everyone with access to this dashboard.'}
-          </p>
-        </div>
-        {isMainAdmin && (
-          <button
-            onClick={() => setShowCreateForm((v) => !v)}
-            className="rounded-lg bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
-          >
-            {showCreateForm ? 'Cancel' : 'Create Admin'}
-          </button>
-        )}
-      </div>
+    <Card className="mt-6">
+      <SectionHeader
+        icon={<TeamIcon />}
+        title="Admin Accounts"
+        action={
+          isMainAdmin && (
+            <button
+              onClick={() => setShowCreateForm((v) => !v)}
+              className="rounded-lg bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
+            >
+              {showCreateForm ? 'Cancel' : 'Create Admin'}
+            </button>
+          )
+        }
+      />
+      <p className="mt-1 pl-9 text-sm text-gray-500">
+        {isMainAdmin ? 'Manage who has access to this dashboard.' : 'Everyone with access to this dashboard.'}
+      </p>
 
       {showCreateForm && isMainAdmin && (
         <CreateAdminForm
@@ -567,7 +598,18 @@ function AdminAccountsSection() {
 
       {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
       {actionError && <p className="mt-4 text-sm font-medium text-brand-red">{actionError}</p>}
-      {!admins && !error && <p className="mt-4 text-sm text-gray-500">Loading...</p>}
+      {!admins && !error && (
+        <div className="mt-4 divide-y divide-gray-100 overflow-hidden rounded-lg border border-border-subtle">
+          <div className="h-10 bg-gray-50" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-6 px-4 py-3">
+              {Array.from({ length: 5 }).map((_, c) => (
+                <div key={c} className="h-3.5 flex-1 animate-pulse rounded bg-gray-100" />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {admins && (
         <div className="mt-4 overflow-x-auto rounded-lg border border-border-subtle">
@@ -656,15 +698,14 @@ function AdminAccountsSection() {
           onDone={() => setResetPasswordTarget(null)}
         />
       )}
-    </div>
+    </Card>
   );
 }
 
 export default function SettingsPage() {
   return (
-    <DashboardLayout>
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Settings</h1>
-      <p className="mt-1 text-sm text-gray-500">Manage your admin account.</p>
+    <DashboardLayout title="Settings">
+      <p className="text-sm text-gray-500">Manage your admin account.</p>
 
       <div className="mt-6">
         <ProfileSection />

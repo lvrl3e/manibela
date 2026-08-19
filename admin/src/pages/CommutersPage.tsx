@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { StatCard } from '../components/StatCard';
+import { SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
 import { PaginationControls } from '../components/PaginationControls';
 import { VerificationBadge, type VerificationStatus } from '../components/VerificationBadge';
 import { CommuterDetailPanel } from '../components/CommuterDetailPanel';
@@ -111,7 +113,6 @@ export default function CommutersPage() {
   const [data, setData] = useState<CommutersResponse | null>(null);
   const [stats, setStats] = useState<CommuterStats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['value']>('all');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -139,9 +140,7 @@ export default function CommutersPage() {
   usePolling(fetchStats, 8000);
 
   useEffect(() => {
-    setIsLoading(true);
     fetchCommuters();
-    setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, debouncedSearch, page]);
   usePolling(fetchCommuters, 8000);
@@ -158,11 +157,10 @@ export default function CommutersPage() {
   const commuters = data?.commuters ?? [];
 
   return (
-    <DashboardLayout>
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Commuters</h1>
-      <p className="mt-1 text-sm text-gray-500">{data ? `${data.totalCommuters} account(s)` : '…'}</p>
+    <DashboardLayout title="Commuters">
+      <p className="text-sm text-gray-500">Manage commuter accounts on Manibela App.</p>
 
-      {stats && (
+      {stats ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
             label="Total Commuters"
@@ -171,12 +169,26 @@ export default function CommutersPage() {
             changePercent={stats.totalCommutersChangePercent}
             changeLabel="vs last month"
           />
-          <StatCard label="Active Commuters" value={stats.activeCommuters} icon={<CheckIcon />} />
-          <StatCard label="Inactive Commuters" value={stats.inactiveCommuters} icon={<WarningIcon />} />
+          <StatCard label="Active Commuters" value={stats.activeCommuters} icon={<CheckIcon />} tone="good" />
+          <StatCard label="Inactive Commuters" value={stats.inactiveCommuters} icon={<WarningIcon />} tone="critical" />
+        </div>
+      ) : (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
         </div>
       )}
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-6">
+        <SectionHeader
+          icon={<PeopleIcon />}
+          title="Commuter Accounts"
+          action={<p className="text-sm text-gray-500">{data ? `${data.totalCommuters} account(s)` : ''}</p>}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((f) => (
             <button
@@ -201,14 +213,14 @@ export default function CommutersPage() {
         </div>
       </div>
 
-      {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
-      {isLoading && <p className="mt-6 text-sm text-gray-500">Loading...</p>}
-      {!isLoading && commuters.length === 0 && !error && (
-        <p className="mt-6 text-sm text-gray-500">No commuters in this category.</p>
+      {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
+      {!error && data === null && <TableSkeleton columns={8} />}
+      {!error && data !== null && commuters.length === 0 && (
+        <p className="mt-4 text-sm text-gray-500">No commuters in this category.</p>
       )}
 
       {commuters.length > 0 && (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>

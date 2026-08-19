@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { StatCard } from '../components/StatCard';
+import { Card, SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
 import { MoneyTrendChart, type MoneyPoint } from '../components/MoneyTrendChart';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
@@ -273,6 +275,24 @@ function SearchIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4-4" />
+    </svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 20V10M12 20V4M20 20v-7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DriverSmallIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="2" />
+      <path d="M12 4v5M5 17l4.5-3M19 17l-4.5-3" strokeLinecap="round" />
     </svg>
   );
 }
@@ -801,10 +821,9 @@ export default function ReportsPage() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title="Reports">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Reports</h1>
           <p className="text-sm text-gray-500">
             Operations report — earnings, fuel, and other expenses drivers log each day.
           </p>
@@ -897,6 +916,21 @@ export default function ReportsPage() {
       {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
       {exportError && <p className="mt-2 text-sm font-medium text-brand-red">{exportError}</p>}
 
+      {!report && !error && (
+        <div className="animate-pulse">
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <StatCardSkeleton key={i} />
+            ))}
+          </div>
+          <div className="mt-6 rounded-xl border border-border-subtle bg-surface-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+            <div className="h-4 w-48 rounded bg-gray-100" />
+            <div className="mt-4 h-[260px] w-full rounded-lg bg-gray-100" />
+          </div>
+          <TableSkeleton columns={7} />
+        </div>
+      )}
+
       {report && (
         <>
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -910,19 +944,19 @@ export default function ReportsPage() {
             <StatCard label="Total Trips" value={report.totalTrips} icon={<TripIcon />} />
           </div>
 
-          <div className="mt-6 rounded-xl border border-border-subtle bg-surface-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-            <h2 className="text-sm font-semibold text-gray-900">Earnings vs. Expenses</h2>
-            <p className="text-xs text-gray-500">
+          <Card className="mt-6">
+            <SectionHeader icon={<ChartIcon />} title="Earnings vs. Expenses" />
+            <p className="pl-9 text-xs text-gray-500">
               {report.daysWithLogs} day{report.daysWithLogs === 1 ? '' : 's'} with logged entries in the last {days} days.
             </p>
             <div className="mt-4">
               <MoneyTrendChart series={report.series} />
             </div>
-          </div>
+          </Card>
 
           <div className="mt-6 rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4">
-              <h2 className="text-sm font-semibold text-gray-900">By Driver</h2>
+              <SectionHeader icon={<DriverSmallIcon />} title="By Driver" />
               <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-white px-3 py-1.5 sm:w-64">
                 <SearchIcon />
                 <input

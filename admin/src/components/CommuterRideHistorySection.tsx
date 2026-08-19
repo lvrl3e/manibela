@@ -3,6 +3,7 @@ import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { formatManilaDateTime } from '../lib/formatDate';
 import { PaginationControls } from './PaginationControls';
+import { RoutePill } from './RoutePill';
 
 interface RideHistoryRow {
   id: string;
@@ -75,8 +76,9 @@ export function CommuterRideHistorySection({ commuterId, compact = false }: { co
                   <span className="font-medium text-gray-900">{r.driverName}</span>
                   <span className="text-xs text-gray-500">{r.plateNumber}</span>
                 </div>
-                <p className="text-xs text-gray-500">
-                  {r.route ?? 'No route set'} · {formatManilaDateTime(r.boardedAt)}
+                <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500">
+                  <RoutePill route={r.route} />
+                  <span>· {formatManilaDateTime(r.boardedAt)}</span>
                 </p>
               </li>
             ))}
@@ -122,7 +124,9 @@ export function CommuterRideHistorySection({ commuterId, compact = false }: { co
                 <tr key={r.id} className="transition hover:bg-gray-50">
                   <td className="px-5 py-3 font-medium text-gray-900">{r.driverName}</td>
                   <td className="px-5 py-3 text-gray-600">{r.plateNumber}</td>
-                  <td className="px-5 py-3 text-gray-600">{r.route ?? '—'}</td>
+                  <td className="px-5 py-3">
+                    <RoutePill route={r.route} />
+                  </td>
                   <td className="px-5 py-3 text-gray-600">{formatManilaDateTime(r.boardedAt)}</td>
                 </tr>
               ))}

@@ -264,6 +264,8 @@ router.get('/stats', requireAuth('admin'), async (_req, res, next) => {
       newDriversThisWeek,
       commutersPriorWeek,
       driversPriorWeek,
+      activeTrips,
+      openComplaints,
     ] = await Promise.all([
       prisma.driver.count(),
       prisma.commuter.count(),
@@ -275,6 +277,12 @@ router.get('/stats', requireAuth('admin'), async (_req, res, next) => {
       prisma.driver.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
       prisma.commuter.count({ where: { createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } } }),
       prisma.driver.count({ where: { createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } } }),
+      // Fleet oversight — the operational counts the dashboard was missing
+      // entirely (it only ever covered account growth + ID verification).
+      // Deliberately no flagged-trips count here — kept dashboard-only to
+      // active trips + open complaints per explicit request.
+      prisma.trip.count({ where: { status: 'ACTIVE' } }),
+      prisma.complaint.count({ where: { status: { in: ['PENDING', 'INVESTIGATING'] } } }),
     ]);
 
     res.json({
@@ -288,6 +296,13 @@ router.get('/stats', requireAuth('admin'), async (_req, res, next) => {
       newDriversThisWeek,
       commutersChangePercent: percentChange(newCommutersThisWeek, commutersPriorWeek),
       driversChangePercent: percentChange(newDriversThisWeek, driversPriorWeek),
+      // Growth of the overall base, not the weekly signup pace above — the
+      // total as of 7 days ago is just today's total minus this week's
+      // new signups (no deletions to account for).
+      totalDriversChangePercent: percentChange(totalDrivers, totalDrivers - newDriversThisWeek),
+      totalCommutersChangePercent: percentChange(totalCommuters, totalCommuters - newCommutersThisWeek),
+      activeTrips,
+      openComplaints,
     });
   } catch (err) {
     next(err);
@@ -1443,6 +1458,55 @@ router.patch('/trips/:id/flag', requireAuth('admin'), async (req, res, next) => 
       recipientId: updated.driverId,
       title: 'Trip Flagged for Review',
       message: `${updated.route ?? 'Your trip'} was flagged by an admin for review. Tap to explain what happened.`,
+      type: 'TRIP_SHORT_FLAGGED',
+      referenceId: updated.id,
+    });
+
+    res.json({ trip: { id: updated.id, isShortTrip: updated.isShortTrip, flagReason: updated.flagReason } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Undoes an admin-initiated flag — deliberately narrower than "clear any
+// flag": only reverses one this same endpoint set (matched by the exact
+// [flagReason] it writes), and only before a review has happened. A
+// backend-auto-detected short trip carries real duration signal that
+// shouldn't be erasable from the admin UI, and once reviewStatus has moved
+// past PENDING the flag is part of the permanent review trail (see this
+// route file's Trip records are never hard-deleted comment above) — this
+// is purely an "I clicked Flag by mistake" undo, not a way to un-review
+// something.
+router.delete('/trips/:id/flag', requireAuth('admin'), async (req, res, next) => {
+  try {
+    const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip) {
+      res.status(404).json({ error: 'Trip not found.' });
+      return;
+    }
+    if (!trip.isShortTrip) {
+      res.status(400).json({ error: 'This trip is not flagged.' });
+      return;
+    }
+    if (trip.flagReason !== 'Flagged by admin for review.') {
+      res.status(400).json({ error: 'Only an admin-initiated flag can be undone — this trip was flagged automatically.' });
+      return;
+    }
+    if (trip.reviewStatus !== 'PENDING') {
+      res.status(400).json({ error: 'This flag has already been reviewed and is part of the trip record.' });
+      return;
+    }
+
+    const updated = await prisma.trip.update({
+      where: { id },
+      data: { isShortTrip: false, flagReason: null, driverExplanation: null, explanationSubmittedAt: null },
+    });
+
+    await notifyDriver({
+      recipientId: updated.driverId,
+      title: 'Trip Flag Removed',
+      message: `${updated.route ?? 'Your trip'} is no longer flagged for review — no action needed.`,
       type: 'TRIP_SHORT_FLAGGED',
       referenceId: updated.id,
     });

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
+import { StatCard } from '../components/StatCard';
+import { SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
 import { PaginationControls } from '../components/PaginationControls';
 import { VerificationBadge, type VerificationStatus } from '../components/VerificationBadge';
 import { apiClient, ApiError } from '../lib/apiClient';
@@ -29,6 +32,12 @@ interface CommutersResponse {
   hasNextPage: boolean;
 }
 
+interface VerificationStats {
+  pendingVerifications: number;
+  approvedVerifications: number;
+  rejectedVerifications: number;
+}
+
 type Filter = 'all' | 'pending' | 'approved' | 'rejected';
 
 const filters: { key: Filter; label: string }[] = [
@@ -47,6 +56,42 @@ function SearchIcon() {
   );
 }
 
+function ClockIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.5 2.3 2.3 4.7-4.8" />
+    </svg>
+  );
+}
+
+function CrossIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9 9 6 6m0-6-6 6" />
+    </svg>
+  );
+}
+
+function ShieldCheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z" strokeLinejoin="round" />
+      <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 const PAGE_SIZE = 25;
 
 export default function IdVerificationPage() {
@@ -54,9 +99,13 @@ export default function IdVerificationPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
   const [data, setData] = useState<CommutersResponse | null>(null);
+  const [stats, setStats] = useState<VerificationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
+
+  function fetchStats() {
+    apiClient.get<VerificationStats>('/api/admin/stats').then(setStats).catch(() => {});
+  }
 
   function fetchCommuters() {
     const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE), submittedOnly: 'true' });
@@ -71,10 +120,11 @@ export default function IdVerificationPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Could not load commuters.'));
   }
 
+  useEffect(fetchStats, []);
+  usePolling(fetchStats, 8000);
+
   useEffect(() => {
-    setIsLoading(true);
     fetchCommuters();
-    setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, debouncedSearch, page]);
   usePolling(fetchCommuters, 8000);
@@ -86,13 +136,34 @@ export default function IdVerificationPage() {
   const commuters = data?.commuters ?? [];
 
   return (
-    <DashboardLayout>
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">ID Verification</h1>
-      <p className="mt-1 text-sm text-gray-500">
+    <DashboardLayout title="ID Verification">
+      <p className="text-sm text-gray-500">
         Review government ID and selfie submissions. No automated face-match runs yet — every decision here is manual.
       </p>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
+      {stats ? (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard label="Pending Review" value={stats.pendingVerifications} icon={<ClockIcon />} tone="warning" />
+          <StatCard label="Approved" value={stats.approvedVerifications} icon={<CheckIcon />} tone="good" />
+          <StatCard label="Rejected" value={stats.rejectedVerifications} icon={<CrossIcon />} tone="critical" />
+        </div>
+      ) : (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-6">
+        <SectionHeader
+          icon={<ShieldCheckIcon />}
+          title="Submissions"
+          action={<p className="text-sm text-gray-500">{data ? `${data.totalCommuters} submission(s)` : ''}</p>}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
         <div className="flex gap-1">
           {filters.map((f) => (
             <button
@@ -119,14 +190,14 @@ export default function IdVerificationPage() {
         </div>
       </div>
 
-      {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
-      {isLoading && <p className="mt-6 text-sm text-gray-500">Loading...</p>}
-      {!isLoading && commuters.length === 0 && !error && (
-        <p className="mt-6 text-sm text-gray-500">No submissions in this category.</p>
+      {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
+      {!error && data === null && <TableSkeleton columns={5} />}
+      {!error && data !== null && commuters.length === 0 && (
+        <p className="mt-4 text-sm text-gray-500">No submissions in this category.</p>
       )}
 
       {commuters.length > 0 && (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>

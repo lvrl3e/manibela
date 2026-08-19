@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { StatCard } from '../components/StatCard';
+import { SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
 import { PaginationControls } from '../components/PaginationControls';
 import { ComplaintDetailPanel } from '../components/ComplaintDetailPanel';
+import { ComplaintStatusBadge, type ComplaintStatus } from '../components/ComplaintStatusBadge';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { formatManilaDate } from '../lib/formatDate';
-
-type ComplaintStatus = 'PENDING' | 'INVESTIGATING' | 'RESOLVED' | 'REJECTED';
 
 interface ComplaintStats {
   totalComplaints: number;
@@ -50,13 +51,6 @@ const FILTERS: { label: string; value: '' | 'pending' | 'investigating' | 'resol
 // Must match COMPLAINT_TYPES in the backend's admin.ts/commuter.ts — what a
 // commuter's complaintType is actually restricted to at submission.
 const COMPLAINT_TYPES = ['Reckless Driving', 'Overcharging', 'Rude Behavior', 'Route Deviation', 'Other'];
-
-const STATUS_STYLES: Record<ComplaintStatus, string> = {
-  PENDING: 'bg-gray-100 text-gray-600',
-  INVESTIGATING: 'bg-amber-100 text-amber-700',
-  RESOLVED: 'bg-status-good-bg text-status-good',
-  REJECTED: 'bg-status-critical-bg text-status-critical',
-};
 
 function AlertIcon() {
   return (
@@ -103,6 +97,24 @@ function EyeIcon() {
   );
 }
 
+function CrossIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9 9 6 6m0-6-6 6" />
+    </svg>
+  );
+}
+
+function AlertSmallIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3.5 2.5 20h19L12 3.5Z" strokeLinejoin="round" />
+      <path d="M12 10v4.5M12 17.5h.01" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const PAGE_SIZE = 25;
 
 export default function IncidentReportsPage() {
@@ -114,7 +126,6 @@ export default function IncidentReportsPage() {
   const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(searchParams.get('complaintId'));
 
@@ -153,9 +164,7 @@ export default function IncidentReportsPage() {
   usePolling(fetchStats, 8000);
 
   useEffect(() => {
-    setIsLoading(true);
     fetchComplaints();
-    setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, typeFilter, debouncedSearch, page]);
   usePolling(fetchComplaints, 8000);
@@ -167,12 +176,11 @@ export default function IncidentReportsPage() {
   const filteredComplaints = data?.complaints ?? [];
 
   return (
-    <DashboardLayout>
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Incident Reports</h1>
-      <p className="mt-1 text-sm text-gray-500">Complaints filed by commuters against drivers.</p>
+    <DashboardLayout title="Incident Reports">
+      <p className="text-sm text-gray-500">Complaints filed by commuters against drivers.</p>
 
-      {stats && (
-        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      {stats ? (
+        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard
             label="Total Complaints"
             value={stats.totalComplaints}
@@ -180,13 +188,28 @@ export default function IncidentReportsPage() {
             changePercent={stats.totalComplaintsChangePercent}
             changeLabel="vs last month"
           />
-          <StatCard label="Pending" value={stats.pending} icon={<ClockIcon />} />
+          <StatCard label="Pending" value={stats.pending} icon={<ClockIcon />} tone="warning" />
           <StatCard label="Investigating" value={stats.investigating} icon={<SearchIcon />} />
-          <StatCard label="Resolved" value={stats.resolved} icon={<CheckIcon />} />
+          <StatCard label="Resolved" value={stats.resolved} icon={<CheckIcon />} tone="good" />
+          <StatCard label="Rejected" value={stats.rejected} icon={<CrossIcon />} tone="critical" />
+        </div>
+      ) : (
+        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
         </div>
       )}
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-6">
+        <SectionHeader
+          icon={<AlertSmallIcon />}
+          title="Complaints"
+          action={<p className="text-sm text-gray-500">{data ? `${data.totalComplaints} complaint(s)` : ''}</p>}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((f) => (
             <button
@@ -225,14 +248,14 @@ export default function IncidentReportsPage() {
         </div>
       </div>
 
-      {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
-      {isLoading && <p className="mt-6 text-sm text-gray-500">Loading...</p>}
-      {!isLoading && filteredComplaints.length === 0 && !error && (
-        <p className="mt-6 text-sm text-gray-500">No complaints found.</p>
+      {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
+      {!error && data === null && <TableSkeleton columns={7} />}
+      {!error && data !== null && filteredComplaints.length === 0 && (
+        <p className="mt-4 text-sm text-gray-500">No complaints found.</p>
       )}
 
       {filteredComplaints.length > 0 && (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
           <table className="w-full min-w-[840px] text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>
@@ -253,11 +276,7 @@ export default function IncidentReportsPage() {
                   <td className="px-5 py-3 text-gray-600">{c.plateNumber}</td>
                   <td className="px-5 py-3 text-gray-600">{c.complaintType}</td>
                   <td className="px-5 py-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[c.status]}`}
-                    >
-                      {c.status}
-                    </span>
+                    <ComplaintStatusBadge status={c.status} />
                   </td>
                   <td className="px-5 py-3 text-gray-600">{formatManilaDate(c.createdAt)}</td>
                   <td className="px-5 py-3">

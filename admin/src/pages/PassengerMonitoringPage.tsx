@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { StatCard } from '../components/StatCard';
+import { SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
+import { RoutePill } from '../components/RoutePill';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { formatManilaTime } from '../lib/formatDate';
@@ -73,11 +76,23 @@ function PinIcon() {
   );
 }
 
+function OnboardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="5" width="18" height="11" rx="2.5" />
+      <path d="M3 11h18" />
+      <circle cx="7.5" cy="19" r="1.4" />
+      <circle cx="16.5" cy="19" r="1.4" />
+    </svg>
+  );
+}
+
 export default function PassengerMonitoringPage() {
   const [stats, setStats] = useState<PassengerStats | null>(null);
-  const [onboard, setOnboard] = useState<OnboardPassenger[]>([]);
+  // null = not yet loaded, distinct from "loaded, nobody's on board" — see
+  // the same fix on Jeepney Monitoring's fleet list.
+  const [onboard, setOnboard] = useState<OnboardPassenger[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
   function fetchStats() {
     apiClient.get<PassengerStats>('/api/admin/commuter-stats').then(setStats).catch(() => {});
@@ -93,16 +108,14 @@ export default function PassengerMonitoringPage() {
   useEffect(() => {
     fetchStats();
     fetchOnboard();
-    setIsLoading(false);
   }, []);
   usePolling(fetchStats, 8000);
   usePolling(fetchOnboard, 5000);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title="Passenger Monitoring">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Passenger Monitoring</h1>
           <p className="text-sm text-gray-500">Who's actually riding right now.</p>
         </div>
         <Link
@@ -114,7 +127,7 @@ export default function PassengerMonitoringPage() {
         </Link>
       </div>
 
-      {stats && (
+      {stats ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Currently On Board" value={stats.currentlyOnBoard} icon={<BusPersonIcon />} />
           <StatCard
@@ -127,11 +140,20 @@ export default function PassengerMonitoringPage() {
           <StatCard label="Active Commuters" value={stats.activeCommuters} icon={<CheckIcon />} />
           <StatCard label="Ride Requests Today" value={stats.demandSignalsToday} icon={<PinIcon />} />
         </div>
+      ) : (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
       )}
 
-      <div className="mt-8 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">Currently On Board</h2>
-        <p className="text-sm text-gray-500">{onboard.length} passenger(s)</p>
+      <div className="mt-8">
+        <SectionHeader
+          icon={<OnboardIcon />}
+          title="Currently On Board"
+          action={<p className="text-sm text-gray-500">{onboard ? `${onboard.length} passenger(s)` : ''}</p>}
+        />
       </div>
       <p className="mt-1 text-sm text-gray-500">
         Recorded whenever a commuter scans a driver's QR code while that driver has an active trip — cleared once the
@@ -139,12 +161,12 @@ export default function PassengerMonitoringPage() {
       </p>
 
       {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
-      {isLoading && <p className="mt-4 text-sm text-gray-500">Loading...</p>}
-      {!isLoading && onboard.length === 0 && !error && (
+      {!error && onboard === null && <TableSkeleton columns={5} />}
+      {!error && onboard !== null && onboard.length === 0 && (
         <p className="mt-4 text-sm text-gray-500">No one is currently on board.</p>
       )}
 
-      {onboard.length > 0 && (
+      {onboard !== null && onboard.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -162,7 +184,9 @@ export default function PassengerMonitoringPage() {
                   <td className="px-5 py-3 font-medium text-gray-900">{p.commuterName}</td>
                   <td className="px-5 py-3 text-gray-600">{p.driverName}</td>
                   <td className="px-5 py-3 text-gray-600">{p.plateNumber}</td>
-                  <td className="px-5 py-3 text-gray-600">{p.route ?? '—'}</td>
+                  <td className="px-5 py-3">
+                    <RoutePill route={p.route} />
+                  </td>
                   <td className="px-5 py-3 text-gray-600">{formatManilaTime(p.boardedAt)}</td>
                 </tr>
               ))}

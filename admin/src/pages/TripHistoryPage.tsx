@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { ShortTripFlagReviewPanel, type FlaggedTripDetail } from '../components/ShortTripFlagReviewPanel';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { formatManilaDateTime } from '../lib/formatDate';
@@ -55,6 +56,15 @@ function FlagIcon() {
   );
 }
 
+function UndoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 10h9a6 6 0 0 1 0 12h-2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 5 4 10l4 5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function EyeIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -82,8 +92,10 @@ export default function TripHistoryPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [flaggingId, setFlaggingId] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
   const [reviewingTripId, setReviewingTripId] = useState<string | null>(null);
+  const [confirmingFlagTrip, setConfirmingFlagTrip] = useState<TripRow | null>(null);
+  const [confirmingUnflagTrip, setConfirmingUnflagTrip] = useState<TripRow | null>(null);
 
   function fetchTrips() {
     const params = new URLSearchParams({ page: String(page), pageSize: '25' });
@@ -105,18 +117,33 @@ export default function TripHistoryPage() {
     setPage(1);
   }, [filter]);
 
-  async function handleFlag(trip: TripRow) {
-    if (!window.confirm(`Flag this trip (${trip.plateNumber}, ${trip.driverName}) for review?`)) {
-      return;
-    }
-    setFlaggingId(trip.id);
+  async function handleConfirmFlag() {
+    const trip = confirmingFlagTrip;
+    if (!trip) return;
+    setActingId(trip.id);
     try {
       await apiClient.patch(`/api/admin/trips/${trip.id}/flag`, {});
       fetchTrips();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not flag trip.');
     } finally {
-      setFlaggingId(null);
+      setActingId(null);
+      setConfirmingFlagTrip(null);
+    }
+  }
+
+  async function handleConfirmUnflag() {
+    const trip = confirmingUnflagTrip;
+    if (!trip) return;
+    setActingId(trip.id);
+    try {
+      await apiClient.delete(`/api/admin/trips/${trip.id}/flag`);
+      fetchTrips();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not undo the flag.');
+    } finally {
+      setActingId(null);
+      setConfirmingUnflagTrip(null);
     }
   }
 
@@ -125,7 +152,7 @@ export default function TripHistoryPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title="Trip History">
       <Link
         to="/jeepney-monitoring"
         className="flex w-fit items-center gap-1.5 text-sm font-semibold text-brand-blue hover:underline"
@@ -136,8 +163,7 @@ export default function TripHistoryPage() {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Trip History</h1>
-          <p className="mt-1 text-sm text-gray-500">Every trip a driver has started, online or completed.</p>
+          <p className="text-sm text-gray-500">Every trip a driver has started, online or completed.</p>
         </div>
       </div>
 
@@ -202,22 +228,35 @@ export default function TripHistoryPage() {
                       </td>
                       <td className="px-5 py-3">
                         {t.isShortTrip ? (
-                          <button
-                            onClick={() => setReviewingTripId(t.id)}
-                            className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-brand-blue"
-                          >
-                            <EyeIcon />
-                            Review
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setReviewingTripId(t.id)}
+                              className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-brand-blue"
+                            >
+                              <EyeIcon />
+                              Review
+                            </button>
+                            {t.flagReason === 'Flagged by admin for review.' && t.reviewStatus === 'PENDING' && (
+                              <button
+                                onClick={() => setConfirmingUnflagTrip(t)}
+                                disabled={actingId === t.id}
+                                title="Undo this flag"
+                                className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <UndoIcon />
+                                Unflag
+                              </button>
+                            )}
+                          </div>
                         ) : t.status === 'COMPLETED' ? (
                           <button
-                            onClick={() => handleFlag(t)}
-                            disabled={flaggingId === t.id}
+                            onClick={() => setConfirmingFlagTrip(t)}
+                            disabled={actingId === t.id}
                             title="Flag this trip for review"
                             className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <FlagIcon />
-                            {flaggingId === t.id ? 'Flagging…' : 'Flag'}
+                            Flag
                           </button>
                         ) : (
                           <span
@@ -272,6 +311,32 @@ export default function TripHistoryPage() {
                 : prev,
             )
           }
+        />
+      )}
+
+      {confirmingFlagTrip && (
+        <ConfirmDialog
+          icon={<FlagIcon />}
+          title="Flag this trip?"
+          message={`${confirmingFlagTrip.plateNumber}, ${confirmingFlagTrip.driverName} — the driver will be notified and asked to explain what happened.`}
+          confirmLabel="Flag"
+          tone="warning"
+          isSubmitting={actingId === confirmingFlagTrip.id}
+          onCancel={() => setConfirmingFlagTrip(null)}
+          onConfirm={handleConfirmFlag}
+        />
+      )}
+
+      {confirmingUnflagTrip && (
+        <ConfirmDialog
+          icon={<UndoIcon />}
+          title="Undo this flag?"
+          message={`${confirmingUnflagTrip.plateNumber}, ${confirmingUnflagTrip.driverName} — the driver will be notified that no explanation is needed.`}
+          confirmLabel="Unflag"
+          tone="neutral"
+          isSubmitting={actingId === confirmingUnflagTrip.id}
+          onCancel={() => setConfirmingUnflagTrip(null)}
+          onConfirm={handleConfirmUnflag}
         />
       )}
     </DashboardLayout>

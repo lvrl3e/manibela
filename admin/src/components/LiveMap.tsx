@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvent } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatManilaDateTime } from '../lib/formatDate';
@@ -116,12 +116,59 @@ function FlyToTarget({ target }: { target: [number, number] | null }) {
   return null;
 }
 
+/** Frames the map to whatever markers actually exist, once, the first time
+ * they arrive — the fixed PASIG_CITY_CENTER default is a fallback for
+ * before any data has loaded, not a promise that live jeepneys/demand will
+ * fall inside that view. A real route can run for several km, easily
+ * outside the default viewport, which otherwise reads as "the map is
+ * empty" even though every marker is rendering correctly just off-screen.
+ * Runs once per mount (not on every poll refresh) so the view doesn't keep
+ * re-centering under an admin who's already looking at something. Skipped
+ * entirely when a specific `focusPosition` was requested (e.g. "View
+ * Location" from the Fleet table) — that's a more specific intent than
+ * "show me everything," and the two shouldn't fight over the viewport at
+ * the same time. */
+function FitBoundsOnLoad({ positions, skip }: { positions: [number, number][]; skip: boolean }) {
+  const map = useMap();
+  const hasFitRef = useRef(false);
+  useEffect(() => {
+    if (skip || hasFitRef.current || positions.length === 0) return;
+    hasFitRef.current = true;
+    if (positions.length === 1) {
+      map.setView(positions[0], 16);
+    } else {
+      map.fitBounds(L.latLngBounds(positions), { padding: [48, 48], maxZoom: 16 });
+    }
+  }, [skip, positions, map]);
+  return null;
+}
+
+/** Clicking empty map area (not a marker — Leaflet doesn't bubble marker
+ * clicks up to the map) clears whatever sidebar selection is driving
+ * `focusPosition` and zooms back out to frame the fleet again. Without
+ * this, tapping a sidebar item to zoom in was a one-way trip — there was
+ * no way back except picking another item, since a click on open water or
+ * open road did nothing. */
+function ClickToDeselect({ positions, onDeselect }: { positions: [number, number][]; onDeselect: () => void }) {
+  const map = useMap();
+  useMapEvent('click', () => {
+    onDeselect();
+    if (positions.length === 1) {
+      map.flyTo(positions[0], 16, { duration: 0.8 });
+    } else if (positions.length > 1) {
+      map.flyToBounds(L.latLngBounds(positions), { padding: [48, 48], maxZoom: 16, duration: 0.8 });
+    }
+  });
+  return null;
+}
+
 export function LiveMap({
   jeepneys = [],
   demandSignals = [],
   center = PASIG_CITY_CENTER,
   zoom = 15,
   focusPosition = null,
+  onDeselect,
 }: {
   jeepneys?: JeepneyMarker[];
   demandSignals?: DemandMarker[];
@@ -130,13 +177,27 @@ export function LiveMap({
   /** When set, smoothly pans/zooms the map to this position (e.g. a
    * sidebar list item was clicked) — see FlyToTarget above. */
   focusPosition?: [number, number] | null;
+  /** Called when the admin clicks empty map area — the caller should clear
+   * whatever selection is driving `focusPosition` (see ClickToDeselect
+   * above). Omit on a map with no selectable sidebar list. */
+  onDeselect?: () => void;
 }) {
+  const markerPositions: [number, number][] = [
+    ...jeepneys.map((j): [number, number] => [j.lat, j.lng]),
+    ...demandSignals.map((d): [number, number] => [d.lat, d.lng]),
+  ];
+
   return (
     <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
+      <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
+      {/* Only listens while a selection is actually active — otherwise an
+          admin who's freely panned/zoomed the map themselves would get
+          yanked back to the fleet overview on every idle click. */}
+      {onDeselect && focusPosition && <ClickToDeselect positions={markerPositions} onDeselect={onDeselect} />}
       {jeepneys.map((j) => (
         <Marker key={j.id} position={[j.lat, j.lng]} icon={jeepneyIcon}>
           <Popup>

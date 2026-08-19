@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { LiveMap, type JeepneyMarker } from '../components/LiveMap';
 import { LogoMark } from '../components/Logo';
+import { RoutePill } from '../components/RoutePill';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { isManilaToday } from '../lib/formatDate';
@@ -46,7 +47,10 @@ function SearchIcon() {
  * read from. */
 export default function JeepneyLiveMapPage() {
   const [searchParams] = useSearchParams();
-  const [jeepneys, setJeepneys] = useState<JeepneyRow[]>([]);
+  // null = not yet loaded, distinct from "loaded, nobody has a location
+  // today" — otherwise the sidebar can flash "No jeepneys..." before the
+  // first fetch even resolves.
+  const [jeepneys, setJeepneys] = useState<JeepneyRow[] | null>(null);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('driverId'));
 
@@ -62,7 +66,7 @@ export default function JeepneyLiveMapPage() {
 
   const markers: JeepneyMarker[] = useMemo(
     () =>
-      jeepneys
+      (jeepneys ?? [])
         .filter((j) => j.lastLat != null && j.lastLng != null && j.lastLocationUpdatedAt != null && isManilaToday(j.lastLocationUpdatedAt))
         .map((j) => ({
           id: j.driverId,
@@ -93,19 +97,21 @@ export default function JeepneyLiveMapPage() {
 
   return (
     <div className="flex h-screen w-full flex-col bg-surface-page">
-      <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <header className="flex items-center gap-3 bg-gradient-to-r from-[#111c4d] via-ink to-black px-4 py-3 shadow-[0_1px_3px_rgba(16,24,40,0.12)]">
         <Link
           to="/jeepney-monitoring"
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
         >
           <BackIcon />
           Back
         </Link>
-        <div className="h-5 w-px bg-gray-200" />
+        <div className="h-5 w-px bg-white/15" />
         <LogoMark size={26} />
         <div>
-          <p className="text-sm font-bold text-gray-900">Live Jeepney Map</p>
-          <p className="text-xs text-gray-500">{markers.length} jeepney(s) with a location updated today</p>
+          <p className="font-display text-sm font-bold text-white">Live Jeepney Map</p>
+          <p className="text-xs text-white/60">
+            {jeepneys === null ? 'Loading…' : `${markers.length} jeepney(s) with a location updated today`}
+          </p>
         </div>
       </header>
 
@@ -123,7 +129,15 @@ export default function JeepneyLiveMapPage() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {filtered.length === 0 && (
+            {jeepneys === null &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-start gap-1.5 border-b border-gray-100 px-4 py-3">
+                  <div className="h-4 w-20 animate-pulse rounded bg-gray-100" />
+                  <div className="h-3 w-28 animate-pulse rounded bg-gray-100" />
+                  <div className="h-3 w-16 animate-pulse rounded bg-gray-100" />
+                </div>
+              ))}
+            {jeepneys !== null && filtered.length === 0 && (
               <p className="p-4 text-sm text-gray-400">No jeepneys with a location updated today.</p>
             )}
             {filtered.map((m) => (
@@ -135,7 +149,7 @@ export default function JeepneyLiveMapPage() {
                 }`}
               >
                 <span className="flex w-full items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900">{m.plateNumber}</span>
+                  <span className="font-display text-sm font-semibold text-gray-900">{m.plateNumber}</span>
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       m.isOnline ? 'bg-status-good-bg text-status-good' : 'bg-gray-100 text-gray-500'
@@ -145,14 +159,19 @@ export default function JeepneyLiveMapPage() {
                   </span>
                 </span>
                 <span className="text-xs text-gray-500">{m.driverName}</span>
-                <span className="text-xs text-gray-400">{m.route ?? 'No route set'}</span>
+                <RoutePill route={m.route} />
               </button>
             ))}
           </div>
         </aside>
 
         <div className="flex-1">
-          <LiveMap jeepneys={filtered} zoom={14} focusPosition={focusPosition} />
+          <LiveMap
+            jeepneys={filtered}
+            zoom={14}
+            focusPosition={focusPosition}
+            onDeselect={() => setSelectedId(null)}
+          />
         </div>
       </div>
     </div>

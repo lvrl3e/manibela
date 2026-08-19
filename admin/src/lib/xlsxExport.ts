@@ -118,7 +118,7 @@ function thinBorder(): Partial<ExcelJS.Borders> {
 
 export function createReportWorkbook(): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'ManibelApp Admin';
+  wb.creator = 'Manibela App Admin';
   wb.created = new Date();
   return wb;
 }

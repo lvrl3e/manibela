@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { LogoMark } from './Logo';
 import { LogoutConfirmDialog } from './LogoutConfirmDialog';
 import { NotificationBell } from './NotificationBell';
@@ -118,12 +118,21 @@ function AlertIcon() {
   );
 }
 
-function PanelToggleIcon({ collapsed }: { collapsed: boolean }) {
+function ChevronIcon({ collapsed }: { collapsed: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-      <path d="M9.5 4.5v15" />
-      {collapsed ? <path d="M13 9.5l3 2.5-3 2.5" /> : <path d="M16 9.5l-3 2.5 3 2.5" />}
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="transition-transform duration-300 ease-out"
+      style={{ transform: collapsed ? 'rotate(180deg)' : 'none' }}
+    >
+      <path d="M15 6l-6 6 6 6" />
     </svg>
   );
 }
@@ -131,54 +140,91 @@ function PanelToggleIcon({ collapsed }: { collapsed: boolean }) {
 /** Who's currently signed in — an initial avatar + name, next to the
  * notification bell in both header bars, so it's obvious at a glance
  * which admin is using the site (useful once more than one exists). */
-function AdminIdentity() {
+function AdminIdentity({ light = false }: { light?: boolean }) {
   const { admin } = useAuth();
   if (!admin) return null;
   const initial = admin.fullName.trim().charAt(0).toUpperCase() || '?';
 
   return (
     <div className="flex items-center gap-2" title={admin.email}>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-blue text-xs font-bold text-white">
+      <div
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+          light ? 'bg-white text-brand-blue' : 'bg-brand-blue text-white'
+        }`}
+      >
         {initial}
       </div>
-      <span className="hidden max-w-[10rem] truncate text-sm font-medium text-gray-700 sm:inline">
+      <span
+        className={`hidden max-w-[10rem] truncate text-sm font-medium sm:inline ${light ? 'text-white' : 'text-gray-700'}`}
+      >
         {admin.fullName}
       </span>
     </div>
   );
 }
 
+// `groupStart` gets each item extra top margin instead of a visible
+// divider line — quiet breathing room between Overview/Fleet/People/
+// System clusters rather than another hard rule to render.
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: GridIcon, end: true },
-  { to: '/jeepney-monitoring', label: 'Jeepney Monitoring', icon: RouteIcon, end: false },
-  { to: '/passenger-monitoring', label: 'Passenger Monitoring', icon: MapPinIcon, end: false },
-  { to: '/drivers', label: 'Drivers', icon: SteeringWheelIcon, end: false },
-  { to: '/commuters', label: 'Commuters', icon: PeopleIcon, end: false },
-  { to: '/id-verification', label: 'ID Verification', icon: BadgeCheckIcon, end: false },
-  { to: '/incident-reports', label: 'Incident Reports', icon: AlertIcon, end: false },
-  { to: '/reports', label: 'Reports', icon: ReportIcon, end: false },
-  { to: '/settings', label: 'Settings', icon: GearIcon, end: false },
+  { to: '/', label: 'Dashboard', icon: GridIcon, end: true, groupStart: false },
+  { to: '/jeepney-monitoring', label: 'Jeepney Monitoring', icon: RouteIcon, end: false, groupStart: true },
+  { to: '/passenger-monitoring', label: 'Passenger Monitoring', icon: MapPinIcon, end: false, groupStart: false },
+  { to: '/drivers', label: 'Drivers', icon: SteeringWheelIcon, end: false, groupStart: true },
+  { to: '/commuters', label: 'Commuters', icon: PeopleIcon, end: false, groupStart: false },
+  { to: '/id-verification', label: 'ID Verification', icon: BadgeCheckIcon, end: false, groupStart: false },
+  { to: '/incident-reports', label: 'Incident Reports', icon: AlertIcon, end: false, groupStart: false },
+  { to: '/reports', label: 'Reports', icon: ReportIcon, end: false, groupStart: true },
+  { to: '/settings', label: 'Settings', icon: GearIcon, end: false, groupStart: false },
 ];
 
-function SidebarContent({
-  onNavigate,
-  collapsed = false,
-}: {
-  onNavigate?: () => void;
-  collapsed?: boolean;
-}) {
+// Precomputed pixel offsets for the sliding active-indicator below — kept
+// in sync with each row's actual height (h-11 = 44px), the flex gap
+// between rows (gap-0.5 = 2px), and the extra top margin a groupStart
+// row gets (mt-3.5 = 14px). Static data, so this only needs to run once
+// at module load, not on every render.
+const ROW_HEIGHT = 44;
+const ROW_GAP = 2;
+const GROUP_GAP_EXTRA = 14;
+const navOffsets: number[] = (() => {
+  let y = 0;
+  return navItems.map((item, i) => {
+    if (i > 0) y += ROW_HEIGHT + ROW_GAP + (item.groupStart ? GROUP_GAP_EXTRA : 0);
+    return y;
+  });
+})();
+
+function isNavItemActive(pathname: string, to: string, end: boolean): boolean {
+  return end ? pathname === to : pathname === to || pathname.startsWith(`${to}/`);
+}
+
+function SidebarContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const { admin, logout } = useAuth();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const { pathname } = useLocation();
+  const activeIndex = navItems.findIndex(({ to, end }) => isNavItemActive(pathname, to, end));
 
   return (
     <>
-      <div className={`flex items-center gap-3 px-6 py-5 ${collapsed ? 'justify-center px-0' : ''}`}>
-        <LogoMark size={40} />
-        {!collapsed && <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Admin</p>}
+      {/* Logo centered in its own row — previously it sat alone at the
+          left with a big dead gap before the corner chevron (that used to
+          balance against the "Admin" label, since removed). Centering it
+          reads as deliberate branding instead. */}
+      <div className="relative flex items-center justify-center py-6">
+        <LogoMark size={68} />
       </div>
 
-      <nav className="mt-2 flex flex-1 flex-col gap-0.5 overflow-y-auto px-3">
-        {navItems.map(({ to, label, icon: Icon, end }) => (
+      <nav className="relative mt-2 flex flex-1 flex-col gap-0.5 overflow-y-auto px-3">
+        {/* Sliding active-indicator — one shared pill that moves between
+            rows instead of each row instantly swapping its own
+            background, so navigating reads as continuous motion. */}
+        {activeIndex >= 0 && (
+          <div
+            className="absolute left-3 right-3 h-11 rounded-lg bg-brand-blue shadow-sm transition-transform duration-300 ease-out"
+            style={{ transform: `translateY(${navOffsets[activeIndex]}px)` }}
+          />
+        )}
+        {navItems.map(({ to, label, icon: Icon, end, groupStart }) => (
           <NavLink
             key={to}
             to={to}
@@ -186,9 +232,11 @@ function SidebarContent({
             onClick={onNavigate}
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition ${
+              `relative z-10 flex h-11 items-center gap-3 rounded-lg px-3.5 text-sm font-medium transition-colors duration-150 ${
                 collapsed ? 'justify-center px-0' : ''
-              } ${isActive ? 'bg-brand-blue text-white shadow-sm' : 'text-white/65 hover:bg-white/10 hover:text-white'}`
+              } ${groupStart ? 'mt-3.5' : ''} ${
+                isActive ? 'text-white' : 'text-white/65 hover:bg-white/10 hover:text-white'
+              }`
             }
           >
             <Icon />
@@ -202,7 +250,7 @@ function SidebarContent({
         <button
           onClick={() => setConfirmingLogout(true)}
           title={collapsed ? 'Log Out' : undefined}
-          className={`mt-2 flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium text-white/65 transition hover:bg-white/10 hover:text-white ${
+          className={`mt-2 flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium text-white/65 transition-colors duration-150 hover:bg-status-critical/15 hover:text-white ${
             collapsed ? 'justify-center px-0' : ''
           }`}
         >
@@ -220,7 +268,7 @@ function SidebarContent({
 
 const COLLAPSE_STORAGE_KEY = 'adminSidebarCollapsed';
 
-export function DashboardLayout({ children }: { children: ReactNode }) {
+export function DashboardLayout({ children, title }: { children: ReactNode; title?: string }) {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_STORAGE_KEY) === 'true');
@@ -281,9 +329,9 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
       </div>
 
       {/* Desktop sidebar — permanent column at lg+, collapsible to an
-          icon-only rail. */}
+          icon-only rail via the floating circle button on its edge. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-black/10 bg-ink transition-[width] duration-200 lg:flex ${
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-black/10 bg-gradient-to-b from-[#111c4d] via-ink to-black transition-[width] duration-200 lg:flex ${
           collapsed ? 'w-20' : 'w-64'
         }`}
       >
@@ -294,40 +342,63 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          <PanelToggleIcon collapsed={collapsed} />
+          <ChevronIcon collapsed={collapsed} />
         </button>
       </aside>
 
-      {/* Mobile sidebar — slide-over drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-ink shadow-xl">
-            <button
-              onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-4 rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
-              aria-label="Close menu"
-            >
-              <CloseIcon />
-            </button>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      )}
+      {/* Mobile sidebar — slide-over drawer. Always mounted (not
+          conditionally rendered) so the transitions below actually have
+          something to animate on close, not just an instant unmount. */}
+      <div
+        className={`fixed inset-0 z-40 lg:hidden ${mobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
+        aria-hidden={!mobileOpen}
+      >
+        {/* Inline transition styles here, not Tailwind's duration and ease
+            utilities — in Tailwind v4, transition-opacity and transition-
+            transform bundle their own default duration+timing, which won
+            the cascade over the duration-300/ease-in-out classes and made
+            both of these snap open in ~30ms instead of the intended
+            300ms (confirmed by polling getComputedStyle().transitionDuration
+            mid-animation: it read 0.2s, not 300ms). Inline style has no
+            such conflict. */}
+        <div
+          className={`absolute inset-0 bg-black/40 ${mobileOpen ? 'opacity-100' : 'opacity-0'}`}
+          style={{ transition: 'opacity 300ms ease-in-out' }}
+          onClick={() => setMobileOpen(false)}
+        />
+        <aside
+          className={`absolute inset-y-0 left-0 flex w-72 flex-col overflow-hidden bg-gradient-to-b from-[#111c4d] via-ink to-black shadow-xl ${
+            mobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+          // Tailwind v4's translate-x-* utilities animate the standalone
+          // CSS `translate` property, not `transform` — transitioning
+          // `transform` here was a no-op since it never actually changes.
+          style={{ transition: 'translate 300ms ease-in-out' }}
+        >
+          <button
+            onClick={() => setMobileOpen(false)}
+            className="absolute right-3 top-4 z-10 rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
+            aria-label="Close menu"
+          >
+            <CloseIcon />
+          </button>
+          <SidebarContent onNavigate={() => setMobileOpen(false)} />
+        </aside>
+      </div>
 
       {/* Mobile top bar */}
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:hidden">
+      <header className="relative sticky top-0 z-20 flex items-center gap-3 bg-gradient-to-r from-[#111c4d] via-ink to-black px-4 py-3 shadow-[0_1px_3px_rgba(16,24,40,0.12)] lg:hidden">
         <button
           onClick={() => setMobileOpen(true)}
-          className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100"
+          className="relative rounded-lg p-1.5 text-white hover:bg-white/15"
           aria-label="Open menu"
         >
           <MenuIcon />
         </button>
         <LogoMark size={28} />
-        <span className="text-sm font-bold text-gray-900">ManibelaApp Admin</span>
-        <div className="ml-auto flex items-center gap-3">
-          <AdminIdentity />
+        <span className="relative font-display text-sm font-bold text-white">Manibela App Admin</span>
+        <div className="relative ml-auto flex items-center gap-3">
+          <AdminIdentity light />
           <NotificationBell
             notifications={notifications}
             unreadCount={unreadCount}
@@ -335,23 +406,30 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
             hasNextPage={hasNextPage}
             isLoadingMore={isLoadingMore}
             onLoadMore={loadMore}
+            light
           />
         </div>
       </header>
 
       <main className={`transition-[padding] duration-200 ${collapsed ? 'lg:pl-20' : 'lg:pl-64'}`}>
         {/* Desktop top bar — the mobile header above already carries the
-            bell, so this is lg-only to avoid rendering it twice. */}
-        <div className="sticky top-0 z-20 hidden items-center justify-end gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:flex lg:px-8">
-          <AdminIdentity />
-          <NotificationBell
-            notifications={notifications}
-            unreadCount={unreadCount}
-            onMarkAllRead={markAllRead}
-            hasNextPage={hasNextPage}
-            isLoadingMore={isLoadingMore}
-            onLoadMore={loadMore}
-          />
+            bell, so this is lg-only to avoid rendering it twice. Title on
+            the left mirrors whatever <h1> the page itself renders below,
+            so there's still page context once you've scrolled past it. */}
+        <div className="sticky top-0 z-20 relative hidden items-center justify-between gap-3 bg-gradient-to-r from-[#111c4d] via-ink to-black px-4 py-3 shadow-[0_1px_3px_rgba(16,24,40,0.12)] lg:flex lg:px-8">
+          <h2 className="relative truncate font-display text-sm font-semibold text-white">{title}</h2>
+          <div className="relative flex items-center gap-3">
+            <AdminIdentity light />
+            <NotificationBell
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onMarkAllRead={markAllRead}
+              hasNextPage={hasNextPage}
+              isLoadingMore={isLoadingMore}
+              onLoadMore={loadMore}
+              light
+            />
+          </div>
         </div>
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
       </main>

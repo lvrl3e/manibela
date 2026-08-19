@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
+import { Card, SectionHeader } from '../components/Card';
 import { VerificationBadge, type VerificationStatus } from '../components/VerificationBadge';
 import { CommuterRideHistorySection } from '../components/CommuterRideHistorySection';
 import { apiClient, ApiError } from '../lib/apiClient';
@@ -22,6 +23,47 @@ interface CommuterDetail {
   isActive: boolean;
   totalSignals: number;
   createdAt: string;
+}
+
+function IdCardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="8.5" cy="11" r="1.8" />
+      <path d="M6 15.5c.5-1.3 1.5-2 2.5-2s2 .7 2.5 2M14 10h4M14 13.5h4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Shaped like the content it's replaced by, matching every other page's
+// skeleton pattern — this page previously rendered nothing at all while
+// loading (not even a "Loading..." line), which read as a broken/blank
+// page rather than "still fetching."
+function DetailSkeleton() {
+  return (
+    <div className="mt-4 animate-pulse">
+      <div className="flex items-center gap-4">
+        <div className="h-16 w-16 shrink-0 rounded-full bg-gray-100" />
+        <div className="space-y-2">
+          <div className="h-5 w-40 rounded bg-gray-100" />
+          <div className="h-4 w-56 rounded bg-gray-100" />
+        </div>
+      </div>
+      <div className="mt-6 grid grid-cols-1 gap-4 rounded-xl border border-border-subtle bg-surface-card p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            <div className="h-3 w-20 rounded bg-gray-100" />
+            <div className="h-4 w-16 rounded bg-gray-100" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="aspect-video rounded-xl bg-gray-100" />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function PhotoTile({ label, url }: { label: string; url: string | null }) {
@@ -85,12 +127,14 @@ export default function CommuterDetailPage() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title={commuter?.fullName ?? 'Commuter'}>
       <Link to="/commuters" className="text-sm font-medium text-brand-blue hover:underline">
         ← Back to Commuters
       </Link>
 
       {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
+
+      {!commuter && !error && <DetailSkeleton />}
 
       {commuter && (
         <>
@@ -106,7 +150,7 @@ export default function CommuterDetailPage() {
                 )}
               </div>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{commuter.fullName}</h1>
+                <p className="font-display text-lg font-semibold tracking-tight text-gray-900">{commuter.fullName}</p>
                 <p className="text-sm text-gray-500">
                   {commuter.commuterId} · {formatPhone(commuter.mobileNumber)}
                 </p>
@@ -135,7 +179,7 @@ export default function CommuterDetailPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 rounded-xl border border-border-subtle bg-surface-card p-5 sm:grid-cols-4">
+          <Card className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Date of Birth</p>
               <p className="mt-1 text-sm text-gray-800">{commuter.dateOfBirth ?? '—'}</p>
@@ -152,34 +196,36 @@ export default function CommuterDetailPage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ride Requests</p>
               <p className="mt-1 text-sm text-gray-800">{commuter.totalSignals}</p>
             </div>
-          </div>
+          </Card>
 
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">KYC Documents</h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Submitted during sign-up. No automated face-match runs against these yet — review manually.
-              </p>
-            </div>
-
-            {commuter.idFrontUrl && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleVerify('REJECTED')}
-                  disabled={isSubmitting || commuter.verificationStatus === 'REJECTED'}
-                  className="rounded-lg border border-status-critical px-4 py-2 text-sm font-semibold text-status-critical transition hover:bg-status-critical-bg disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Reject
-                </button>
-                <button
-                  onClick={() => handleVerify('APPROVED')}
-                  disabled={isSubmitting || commuter.verificationStatus === 'APPROVED'}
-                  className="rounded-lg bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Approve
-                </button>
-              </div>
-            )}
+          <div className="mt-8">
+            <SectionHeader
+              icon={<IdCardIcon />}
+              title="KYC Documents"
+              action={
+                commuter.idFrontUrl && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleVerify('REJECTED')}
+                      disabled={isSubmitting || commuter.verificationStatus === 'REJECTED'}
+                      className="rounded-lg border border-status-critical px-4 py-2 text-sm font-semibold text-status-critical transition hover:bg-status-critical-bg disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => handleVerify('APPROVED')}
+                      disabled={isSubmitting || commuter.verificationStatus === 'APPROVED'}
+                      className="rounded-lg bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
+                  </div>
+                )
+              }
+            />
+            <p className="mt-1 pl-9 text-sm text-gray-500">
+              Submitted during sign-up. No automated face-match runs against these yet — review manually.
+            </p>
           </div>
 
           {actionError && <p className="mt-2 text-sm font-medium text-brand-red">{actionError}</p>}

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { StatCard } from '../components/StatCard';
+import { SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
+import { RoutePill } from '../components/RoutePill';
 import { JeepneyTripsPanel } from '../components/JeepneyTripsPanel';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
@@ -88,6 +91,17 @@ function SearchIcon() {
   );
 }
 
+function FleetIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="7" width="18" height="9" rx="2" />
+      <path d="M3 11h18" />
+      <circle cx="7.5" cy="18" r="1.6" />
+      <circle cx="16.5" cy="18" r="1.6" />
+    </svg>
+  );
+}
+
 function formatLocation(lat: number | null, lng: number | null): string {
   if (lat === null || lng === null) return '—';
   return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -109,9 +123,10 @@ const ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig'];
 
 export default function JeepneyMonitoringPage() {
   const [stats, setStats] = useState<JeepneyStats | null>(null);
-  const [jeepneys, setJeepneys] = useState<JeepneyRow[]>([]);
+  // null = not yet loaded, distinct from "loaded, zero jeepneys" — needed so
+  // the empty state and the skeleton don't collapse into the same check.
+  const [jeepneys, setJeepneys] = useState<JeepneyRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [viewingTripsFor, setViewingTripsFor] = useState<JeepneyRow | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]['value']>('');
@@ -131,12 +146,12 @@ export default function JeepneyMonitoringPage() {
   useEffect(() => {
     fetchStats();
     fetchJeepneys();
-    setIsLoading(false);
   }, []);
   usePolling(fetchStats, 8000);
   usePolling(fetchJeepneys, 8000);
 
   const filteredJeepneys = useMemo(() => {
+    if (!jeepneys) return [];
     const q = search.trim().toLowerCase();
     return jeepneys.filter((j) => {
       if (statusFilter === 'online' && !j.isOnline) return false;
@@ -148,13 +163,19 @@ export default function JeepneyMonitoringPage() {
   }, [jeepneys, search, statusFilter, routeFilter]);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title="Jeepney Monitoring">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Jeepney Monitoring</h1>
           <p className="text-sm text-gray-500">Live on the road, right now.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            to="/jeepney-monitoring/history"
+            className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-card px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            <ClockIcon />
+            Trip History
+          </Link>
           <Link
             to="/jeepney-monitoring/map"
             className="flex items-center gap-2 rounded-lg bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white hover:brightness-110"
@@ -165,7 +186,7 @@ export default function JeepneyMonitoringPage() {
         </div>
       </div>
 
-      {stats && (
+      {stats ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard label="Registered Jeepneys" value={stats.registeredJeepneys} icon={<MapPinFilledIcon />} />
           <StatCard
@@ -177,13 +198,24 @@ export default function JeepneyMonitoringPage() {
           />
           <StatCard label="Offline" value={stats.offline} icon={<OfflineIcon />} />
         </div>
+      ) : (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
       )}
 
-      <div className="mt-6 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">Fleet</h2>
-        <p className="text-sm text-gray-500">
-          {filteredJeepneys.length} of {jeepneys.length} jeepney(s)
-        </p>
+      <div className="mt-6">
+        <SectionHeader
+          icon={<FleetIcon />}
+          title="Fleet"
+          action={
+            <p className="text-sm text-gray-500">
+              {jeepneys ? `${filteredJeepneys.length} of ${jeepneys.length} jeepney(s)` : ''}
+            </p>
+          }
+        />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -224,11 +256,11 @@ export default function JeepneyMonitoringPage() {
       </div>
 
       {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
-      {isLoading && <p className="mt-4 text-sm text-gray-500">Loading...</p>}
-      {!isLoading && jeepneys.length === 0 && !error && (
+      {!error && jeepneys === null && <TableSkeleton columns={7} />}
+      {!error && jeepneys !== null && jeepneys.length === 0 && (
         <p className="mt-4 text-sm text-gray-500">No jeepneys registered yet.</p>
       )}
-      {!isLoading && jeepneys.length > 0 && filteredJeepneys.length === 0 && !error && (
+      {!error && jeepneys !== null && jeepneys.length > 0 && filteredJeepneys.length === 0 && (
         <p className="mt-4 text-sm text-gray-500">No jeepneys match your search or filter.</p>
       )}
 
@@ -262,7 +294,9 @@ export default function JeepneyMonitoringPage() {
                     </div>
                   </td>
                   <td className="px-5 py-3 text-gray-600">{j.driverName}</td>
-                  <td className="px-5 py-3 text-gray-600">{j.route ?? '—'}</td>
+                  <td className="px-5 py-3">
+                    <RoutePill route={j.route} />
+                  </td>
                   <td className="px-5 py-3 text-gray-600">
                     {j.currentTripStart ? formatManilaTime(j.currentTripStart) : '—'}
                   </td>

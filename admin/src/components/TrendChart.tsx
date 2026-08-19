@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 export interface TrendPoint {
   date: string; // "YYYY-MM-DD"
@@ -26,6 +26,12 @@ function formatDateShort(iso: string): string {
 export function TrendChart({ series }: { series: TrendPoint[] }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Unique per instance so two TrendCharts on one page don't fight over the
+  // same <filter>/<linearGradient> id.
+  const uid = useId();
+  const glowFilterId = `trend-glow-${uid}`;
+  const driversAreaId = `trend-area-drivers-${uid}`;
+  const commutersAreaId = `trend-area-commuters-${uid}`;
 
   // When the chart is wider than its card (narrow/mobile screens), start
   // scrolled to the most recent days — that's the part of the story
@@ -48,6 +54,13 @@ export function TrendChart({ series }: { series: TrendPoint[] }) {
 
   const linePath = (key: 'drivers' | 'commuters') =>
     series.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p[key])}`).join(' ');
+
+  // Same line, closed down to the baseline — the soft gradient fill under
+  // each line that gives the chart its glow.
+  const areaPath = (key: 'drivers' | 'commuters') =>
+    series.length === 0
+      ? ''
+      : `${linePath(key)} L ${xFor(series.length - 1)} ${PAD.top + plotH} L ${xFor(0)} ${PAD.top + plotH} Z`;
 
   // Dedupe after rounding — for a small maxValue (e.g. 1), a naive
   // [0, max/2, max] can round two different ticks to the same label
@@ -86,6 +99,20 @@ export function TrendChart({ series }: { series: TrendPoint[] }) {
           pattern as the data tables elsewhere in this app. */}
       <div ref={scrollRef} className="overflow-x-auto">
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="block" style={{ minWidth: WIDTH, width: '100%' }} role="img" aria-label="Registrations over time">
+        <defs>
+          <filter id={glowFilterId} x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="4" />
+          </filter>
+          <linearGradient id={driversAreaId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-series-drivers)" stopOpacity={0.22} />
+            <stop offset="100%" stopColor="var(--color-series-drivers)" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id={commutersAreaId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-series-commuters)" stopOpacity={0.22} />
+            <stop offset="100%" stopColor="var(--color-series-commuters)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+
         {/* Gridlines — hairline, recessive */}
         {yTicks.map((t) => (
           <g key={t}>
@@ -124,6 +151,32 @@ export function TrendChart({ series }: { series: TrendPoint[] }) {
           />
         )}
 
+        {/* Soft gradient fill under each line — glow rising from the baseline */}
+        <path d={areaPath('drivers')} fill={`url(#${driversAreaId})`} stroke="none" />
+        <path d={areaPath('commuters')} fill={`url(#${commutersAreaId})`} stroke="none" />
+
+        {/* Blurred backing stroke — the actual "glow", sitting behind the crisp line */}
+        <path
+          d={linePath('drivers')}
+          fill="none"
+          stroke="var(--color-series-drivers)"
+          strokeWidth={5}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity={0.55}
+          filter={`url(#${glowFilterId})`}
+        />
+        <path
+          d={linePath('commuters')}
+          fill="none"
+          stroke="var(--color-series-commuters)"
+          strokeWidth={5}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity={0.55}
+          filter={`url(#${glowFilterId})`}
+        />
+
         {/* Lines */}
         <path d={linePath('drivers')} fill="none" stroke="var(--color-series-drivers)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         <path d={linePath('commuters')} fill="none" stroke="var(--color-series-commuters)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
@@ -131,6 +184,8 @@ export function TrendChart({ series }: { series: TrendPoint[] }) {
         {/* End-of-line markers, with a surface ring so they read where lines cross */}
         {series.length > 0 && (
           <>
+            <circle cx={xFor(series.length - 1)} cy={yFor(series[series.length - 1].drivers)} r={7} fill="var(--color-series-drivers)" opacity={0.35} filter={`url(#${glowFilterId})`} />
+            <circle cx={xFor(series.length - 1)} cy={yFor(series[series.length - 1].commuters)} r={7} fill="var(--color-series-commuters)" opacity={0.35} filter={`url(#${glowFilterId})`} />
             <circle cx={xFor(series.length - 1)} cy={yFor(series[series.length - 1].drivers)} r={4} fill="var(--color-series-drivers)" stroke="#fff" strokeWidth={2} />
             <circle cx={xFor(series.length - 1)} cy={yFor(series[series.length - 1].commuters)} r={4} fill="var(--color-series-commuters)" stroke="#fff" strokeWidth={2} />
           </>

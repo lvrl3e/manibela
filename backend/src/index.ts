@@ -16,17 +16,25 @@ const app = express();
 // The Flutter app calls this API directly (no browser, no Origin header),
 // so CORS only ever applies to browser clients — the admin website.
 // CORS_ORIGINS lets a real deployment add its production admin domain
-// without touching code; the localhost default keeps `npm run dev`
-// working exactly as before.
-const allowedOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
+// without touching code.
+const allowedOrigins = (process.env.CORS_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// Any localhost port, always allowed (in every environment, not just
+// dev) — `npm run dev` for the admin site can land on 5173, 5174, 5175...
+// depending on what else is already running on the machine, and an
+// Origin header of "localhost" can only ever come from a browser on the
+// same machine anyway, so there's nothing for a remote attacker to spoof
+// here. Keeps local dev working with zero config regardless of which
+// port Vite happens to pick.
+const localhostOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/;
+
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin) || localhostOriginPattern.test(origin)) {
         callback(null, true);
       } else {
         callback(new Error(`Origin not allowed: ${origin}`));

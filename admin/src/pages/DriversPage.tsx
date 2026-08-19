@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { StatCard } from '../components/StatCard';
+import { SectionHeader } from '../components/Card';
+import { StatCardSkeleton, TableSkeleton } from '../components/Skeleton';
 import { PaginationControls } from '../components/PaginationControls';
 import { DriverDetailPanel } from '../components/DriverDetailPanel';
 import { EyeIcon } from '../components/EyeIcon';
@@ -68,6 +70,14 @@ function WarningIcon() {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M5 5l14 14M19 5 5 19" />
+    </svg>
+  );
+}
+
 function SearchIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -120,12 +130,25 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-gray-900">Add Driver</h2>
-        <p className="mt-1 text-sm text-gray-500">Creates the account directly — drivers don't self-register.</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative flex max-h-[90vh] w-full max-w-md flex-col rounded-xl bg-white shadow-xl">
+        <div className="flex items-start justify-between px-6 pt-6">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-gray-900">Add Driver</h2>
+            <p className="mt-1 text-sm text-gray-500">Creates the account directly — drivers don't self-register.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="-mr-1.5 -mt-1.5 shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            aria-label="Close"
+          >
+            <CloseIcon />
+          </button>
+        </div>
 
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4 overflow-y-auto px-6 pb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700">Full Name</label>
             <input
@@ -239,7 +262,6 @@ export default function DriversPage() {
   const [data, setData] = useState<DriversResponse | null>(null);
   const [stats, setStats] = useState<DriverStats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(searchParams.get('driverId'));
@@ -282,9 +304,7 @@ export default function DriversPage() {
   usePolling(fetchStats, 8000);
 
   useEffect(() => {
-    setIsLoading(true);
     fetchDrivers();
-    setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, debouncedSearch, page]);
   usePolling(fetchDrivers, 8000);
@@ -297,12 +317,9 @@ export default function DriversPage() {
   const drivers = data?.drivers ?? [];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title="Drivers">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Drivers</h1>
-          <p className="mt-1 text-sm text-gray-500">{data ? `${data.totalDrivers} account(s)` : '…'}</p>
-        </div>
+        <p className="text-sm text-gray-500">Manage driver accounts on the fleet.</p>
         <button
           onClick={() => setShowAddModal(true)}
           className="self-start rounded-lg bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white hover:brightness-110 sm:self-auto"
@@ -311,7 +328,7 @@ export default function DriversPage() {
         </button>
       </div>
 
-      {stats && (
+      {stats ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
             label="Total Drivers"
@@ -320,12 +337,26 @@ export default function DriversPage() {
             changePercent={stats.totalDriversChangePercent}
             changeLabel="vs last month"
           />
-          <StatCard label="Active Drivers" value={stats.activeDrivers} icon={<CheckIcon />} />
-          <StatCard label="Inactive Drivers" value={stats.inactiveDrivers} icon={<WarningIcon />} />
+          <StatCard label="Active Drivers" value={stats.activeDrivers} icon={<CheckIcon />} tone="good" />
+          <StatCard label="Inactive Drivers" value={stats.inactiveDrivers} icon={<WarningIcon />} tone="critical" />
+        </div>
+      ) : (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
         </div>
       )}
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-6">
+        <SectionHeader
+          icon={<DriverIcon />}
+          title="Driver Accounts"
+          action={<p className="text-sm text-gray-500">{data ? `${data.totalDrivers} account(s)` : ''}</p>}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((f) => (
             <button
@@ -350,15 +381,15 @@ export default function DriversPage() {
         </div>
       </div>
 
-      {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
-      {isLoading && <p className="mt-6 text-sm text-gray-500">Loading...</p>}
+      {error && <p className="mt-4 text-sm font-medium text-brand-red">{error}</p>}
+      {!error && data === null && <TableSkeleton columns={7} />}
 
-      {!isLoading && drivers.length === 0 && !error && (
-        <p className="mt-6 text-sm text-gray-500">No drivers in this category.</p>
+      {!error && data !== null && drivers.length === 0 && (
+        <p className="mt-4 text-sm text-gray-500">No drivers in this category.</p>
       )}
 
       {drivers.length > 0 && (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-border-subtle bg-surface-card shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>

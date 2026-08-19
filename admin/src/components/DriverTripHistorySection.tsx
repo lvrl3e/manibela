@@ -3,6 +3,7 @@ import { apiClient, ApiError } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { formatManilaDate, formatManilaTime, manilaDateRangeForCustom, manilaDateRangeForPreset } from '../lib/formatDate';
 import { ShortTripFlagReviewPanel, type FlaggedTripDetail } from './ShortTripFlagReviewPanel';
+import { RoutePill } from './RoutePill';
 
 interface DriverTrip extends FlaggedTripDetail {
   status: 'ACTIVE' | 'COMPLETED';
@@ -236,7 +237,9 @@ export function DriverTripHistorySection({
               <tbody className="divide-y divide-gray-100">
                 {data.trips.map((t) => (
                   <tr key={t.id}>
-                    <td className="px-3 py-2 font-medium text-gray-900">{t.route ?? 'No route set'}</td>
+                    <td className="px-3 py-2">
+                      <RoutePill route={t.route} />
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{formatManilaDate(t.startedAt)}</td>
                     <td className="px-3 py-2 text-gray-600">{formatManilaTime(t.startedAt)}</td>
                     <td className="px-3 py-2 text-gray-600">{t.endedAt ? formatManilaTime(t.endedAt) : '—'}</td>

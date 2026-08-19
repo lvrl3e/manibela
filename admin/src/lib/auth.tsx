@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, ApiError } from './apiClient';
+import { LoadingScreen } from '../components/LoadingScreen';
 
 export type AdminRole = 'MAIN_ADMIN' | 'ADMIN';
 
@@ -36,6 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // redirect-on-no-admin sits out — see the comment on logout() below for
   // why that redirect can't be trusted to fire here.
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  // Drives the full-screen takeover during the login request itself —
+  // separate from ProtectedRoute's own gating since LoginPage isn't a
+  // protected route.
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -57,15 +62,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(email: string, password: string, rememberMe: boolean) {
-    const res = await apiClient.post<{ token: string; admin: Admin }>('/api/admin/login', {
-      email,
-      password,
-    });
-    // "Remember me" persists across browser restarts (localStorage);
-    // otherwise the session only lasts the tab (sessionStorage).
-    (rememberMe ? localStorage : sessionStorage).setItem('adminToken', res.token);
-    setIsLoggingOut(false);
-    setAdmin(res.admin);
+    setIsLoggingIn(true);
+    try {
+      const res = await apiClient.post<{ token: string; admin: Admin }>('/api/admin/login', {
+        email,
+        password,
+      });
+      // "Remember me" persists across browser restarts (localStorage);
+      // otherwise the session only lasts the tab (sessionStorage).
+      (rememberMe ? localStorage : sessionStorage).setItem('adminToken', res.token);
+      setIsLoggingOut(false);
+      setAdmin(res.admin);
+    } finally {
+      // On success the dashboard route mounts with `admin` already set, so
+      // this is effectively instant; on failure it clears the takeover so
+      // LoginPage's own error message is visible again.
+      setIsLoggingIn(false);
+    }
   }
 
   function logout() {
@@ -83,6 +96,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoggingOut(true);
     navigate('/login', { replace: true });
     setAdmin(null);
+    // Logging out is otherwise instant (no request, just local storage) —
+    // held a beat so the takeover screen is actually seen instead of
+    // flashing on and off within the same frame.
+    setTimeout(() => setIsLoggingOut(false), 500);
   }
 
   // Any request, anywhere, can discover mid-session that this admin was
@@ -101,9 +118,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAdmin(res.admin);
   }
 
+  // One shared takeover for every auth transition, rendered here (above
+  // <Routes>) rather than inside ProtectedRoute, so it stays on screen
+  // straight through a route change instead of unmounting with whichever
+  // page triggered it — logout's navigate() to /login would otherwise cut
+  // the screen off mid-transition.
+  const loadingLabel = isLoggingIn
+    ? 'Signing you in…'
+    : isLoggingOut
+      ? 'Signing you out…'
+      : isLoading
+        ? 'Loading…'
+        : null;
+
   return (
     <AuthContext.Provider value={{ admin, isLoading, isLoggingOut, login, logout, refreshAdmin }}>
       {children}
+      {loadingLabel && <LoadingScreen label={loadingLabel} />}
     </AuthContext.Provider>
   );
 }

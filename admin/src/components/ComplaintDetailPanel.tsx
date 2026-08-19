@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { formatManilaDateTime } from '../lib/formatDate';
-
-type ComplaintStatus = 'PENDING' | 'INVESTIGATING' | 'RESOLVED' | 'REJECTED';
+import { ComplaintStatusBadge, type ComplaintStatus } from './ComplaintStatusBadge';
 
 interface ComplaintDetail {
   id: string;
@@ -24,13 +23,6 @@ function CloseIcon() {
     </svg>
   );
 }
-
-const STATUS_STYLES: Record<ComplaintStatus, string> = {
-  PENDING: 'bg-gray-100 text-gray-600',
-  INVESTIGATING: 'bg-amber-100 text-amber-700',
-  RESOLVED: 'bg-status-good-bg text-status-good',
-  REJECTED: 'bg-status-critical-bg text-status-critical',
-};
 
 export function ComplaintDetailPanel({
   complaintId,
@@ -91,11 +83,7 @@ export function ComplaintDetailPanel({
                 <p className="font-semibold text-gray-900">{complaint.complaintType}</p>
                 <p className="text-xs text-gray-500">{formatManilaDateTime(complaint.createdAt)}</p>
               </div>
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[complaint.status]}`}
-              >
-                {complaint.status}
-              </span>
+              <ComplaintStatusBadge status={complaint.status} />
             </div>
 
             <div>
@@ -144,7 +132,7 @@ export function ComplaintDetailPanel({
               <button
                 onClick={() => handleSetStatus('INVESTIGATING')}
                 disabled={isSubmitting || complaint.status === 'INVESTIGATING'}
-                className="rounded-lg border border-amber-500 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border border-brand-blue py-2 text-xs font-semibold text-brand-blue transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Investigating
               </button>

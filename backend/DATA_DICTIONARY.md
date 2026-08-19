@@ -104,8 +104,8 @@ One jeepney run, start to end. Table name: `Trip`.
 | `locationUpdatedAt` | DateTime | N | Timestamp of the last location ping |
 | `startedAt` | DateTime | NOT NULL, default: now | |
 | `endedAt` | DateTime | N | |
-| `isShortTrip` | Boolean | NOT NULL, default `false` | Auto-flagged if duration < 60s |
-| `flagReason` | String | N | Backend-generated explanation |
+| `isShortTrip` | Boolean | NOT NULL, default `false` | Auto-flagged if duration < 5 min (two tiers: < 60s and 60s–5 min, see `flagReason`); also settable manually by an admin |
+| `flagReason` | String | N | Backend-generated explanation — wording distinguishes the < 60s tier from the 60s–5 min tier |
 | `driverExplanation` | String | N | Driver's own account of a flagged trip |
 | `explanationSubmittedAt` | DateTime | N | |
 | `reviewStatus` | Enum `TripReviewStatus` | NOT NULL, default `PENDING` | `PENDING` \| `REVIEWED` \| `VALID` \| `INVALID` |

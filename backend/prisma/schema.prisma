@@ -164,16 +164,24 @@ model Trip {
   endedAt    DateTime?
 
   /// Set by the backend, never the client, the moment a trip ends (see
-  /// POST /api/driver/trips/:id/end) — an unusually short trip (currently:
-  /// under 60 seconds; would also weigh trip distance if this app ever
-  /// tracked one) is far more likely an accidental/test tap of Start Trip
-  /// immediately followed by End Trip than a real completed run. Flagged,
-  /// not hidden or auto-deleted — the record stays permanently and just
-  /// carries a review trail (see the fields below).
+  /// POST /api/driver/trips/:id/end) — two escalating duration tiers,
+  /// both far more likely to indicate a problem than a real completed
+  /// Pasig-Quiapo run: under 60 seconds (almost certainly an
+  /// accidental/test tap of Start Trip immediately followed by End
+  /// Trip) and under 5 minutes (still unusually brief — more likely a
+  /// genuinely aborted trip than a mis-tap). Would also weigh trip
+  /// distance if this app ever tracked one. Flagged, not hidden or
+  /// auto-deleted — the record stays permanently and just carries a
+  /// review trail (see the fields below). Also settable by an admin
+  /// directly (see PATCH /api/admin/trips/:id/flag) for a manual flag
+  /// unrelated to duration.
   isShortTrip Boolean @default(false)
 
   /// Auto-generated explanation of *why* the backend flagged this trip
-  /// (e.g. "Trip lasted 0m 34s, below the 60s minimum."). Distinct from
+  /// (e.g. "Trip lasted 0m 34s, below the 60-second minimum." or "Trip
+  /// lasted 2m 10s — unusually brief for a completed Pasig–Quiapo run.")
+  /// — the wording is what tells the two duration tiers apart, since
+  /// they share the same isShortTrip boolean. Distinct from
   /// [driverExplanation] below, which is the driver's own account of what
   /// happened. Null for trips that were never flagged.
   flagReason String?

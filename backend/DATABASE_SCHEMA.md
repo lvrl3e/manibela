@@ -96,8 +96,8 @@ tracked here — `TripBoarding` is the per-rider record.
 |---|---|---|
 | `status` | `TripStatus` | `ACTIVE` \| `COMPLETED` |
 | `currentLat`/`currentLng`/`locationUpdatedAt` | | Overwritten in place on each location ping — no ping-history table, just "where is it right now" |
-| `isShortTrip` | Boolean | Auto-flagged if trip duration < 60s (likely an accidental tap, not a real ride) |
-| `flagReason` | String? | Backend-generated explanation |
+| `isShortTrip` | Boolean | Auto-flagged in two tiers: < 60s (likely an accidental tap, not a real ride) or 60s–5min (too short for a real Pasig–Quiapo run, more likely a genuinely aborted trip); also settable manually by an admin |
+| `flagReason` | String? | Backend-generated explanation — wording tells the two tiers apart |
 | `driverExplanation` / `explanationSubmittedAt` | | Driver's own account of a flagged trip |
 | `reviewStatus` | `TripReviewStatus` | `PENDING` → `REVIEWED` / `VALID` / `INVALID`, admin-set |
 | `reviewedAt` / `reviewedBy` / `adminReviewNote` | | Admin review trail |

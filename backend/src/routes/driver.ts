@@ -90,27 +90,43 @@ function toPublicTrip(trip: {
   };
 }
 
-// A trip lasting under a minute is far more likely to be an
-// accidental/test tap of Start Trip immediately followed by End Trip
-// than a real completed run. Distance would sharpen this (a short trip
-// that still covered real distance is probably genuine), but this app
-// doesn't track a trip's traveled distance anywhere yet — only a live
-// currentLat/currentLng snapshot, not a path — so duration is the only
-// honest signal available. Server-side and fixed, not client-supplied,
-// so neither the Flutter app nor any other caller can influence it.
-const SHORT_TRIP_THRESHOLD_MS = 60_000;
+// Two escalating tiers, both duration-based. Distance would sharpen this
+// (a short trip that still covered real distance is probably genuine),
+// but this app doesn't track a trip's traveled distance anywhere yet —
+// only a live currentLat/currentLng snapshot, not a path — so duration
+// is the only honest signal available. Server-side and fixed, not
+// client-supplied, so neither the Flutter app nor any other caller can
+// influence it.
+//
+// - Under 60s: almost certainly an accidental/test tap of Start Trip
+//   immediately followed by End Trip, not a real completed run.
+// - Under 5 minutes (but at least 60s): still far too short for a real
+//   Pasig–Quiapo run even in light traffic — less likely a mis-tap, more
+//   likely a genuinely aborted trip (breakdown, no passengers, gaming
+//   the system), which is arguably the more useful signal for admin
+//   review. Both tiers reuse the same isShortTrip/flagReason/review/
+//   explanation pipeline — only the wording differs, so admins and
+//   drivers can tell the two apart from the Flag Reason text alone.
+const IMMEDIATE_TAP_THRESHOLD_MS = 60_000; // 1 minute
+const BRIEF_TRIP_THRESHOLD_MS = 5 * 60_000; // 5 minutes
 
 function computeShortTripFlag(startedAt: Date, endedAt: Date): { isShortTrip: boolean; flagReason: string | null } {
   const durationMs = endedAt.getTime() - startedAt.getTime();
-  if (durationMs >= SHORT_TRIP_THRESHOLD_MS) {
+  if (durationMs >= BRIEF_TRIP_THRESHOLD_MS) {
     return { isShortTrip: false, flagReason: null };
   }
   const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+  if (durationMs < IMMEDIATE_TAP_THRESHOLD_MS) {
+    return {
+      isShortTrip: true,
+      flagReason: `Trip lasted ${minutes}m ${seconds}s, below the 60-second minimum.`,
+    };
+  }
   return {
     isShortTrip: true,
-    flagReason: `Trip lasted ${minutes}m ${seconds}s, below the 60-second minimum.`,
+    flagReason: `Trip lasted ${minutes}m ${seconds}s — unusually brief for a completed Pasig–Quiapo run.`,
   };
 }
 

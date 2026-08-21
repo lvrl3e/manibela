@@ -126,6 +126,21 @@ class _LoadingScreenState extends State<LoadingScreen> {
                   ],
                 ),
               ),
+
+              const SizedBox(height: 28),
+
+              // Spinner — the wordmark alone gave no sign the app was
+              // actually doing anything for the full 3 seconds, same gap
+              // the admin website's own loading screen had before it got
+              // one.
+              const SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
+                ),
+              ),
             ],
           ),
         ),

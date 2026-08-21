@@ -220,7 +220,7 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout title="Dashboard">
-      <p className="text-sm text-gray-500">An overview of drivers and commuters on Manibela App.</p>
+      <p className="text-sm text-gray-500">An overview of drivers and commuters on ManibelApp.</p>
 
       {error && <p className="mt-6 text-sm font-medium text-brand-red">{error}</p>}
 

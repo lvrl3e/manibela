@@ -10,7 +10,11 @@ class AppColors {
   // secondary/accent color. Prefer these in new code over reaching for
   // splashBackground/logoBlue directly so the hierarchy stays explicit.
   static const Color primary = splashBackground;    // Yellow — primary buttons, active states, main CTAs
-  static const Color onPrimary = Color(0xFF92600A); // Dark amber text/icons for yellow surfaces
+  // Darkened from the original 0xFF92600A (~2.8:1 against [primary],
+  // failing WCAG AA's 4.5:1 for normal text) — this hits ~5.0:1, comfortably
+  // passing for the small/thin text used on yellow surfaces throughout the
+  // app (see the 2026-08-21 design audit).
+  static const Color onPrimary = Color(0xFF623D00); // Dark amber text/icons for yellow surfaces
   static const Color secondary = logoBlue;          // Blue — secondary actions, links, accents
   static const Color onSecondary = Color(0xFFFFFFFF); // White text/icons for blue surfaces
 

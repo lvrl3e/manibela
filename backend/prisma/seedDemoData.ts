@@ -81,7 +81,12 @@ const COMMUTER_NAMES = [
 ];
 const ID_TYPES = ["Driver's License", 'UMID', 'Passport', 'Postal ID'];
 
-const COMPLAINT_TYPES = ['Reckless Driving', 'Overcharging', 'Rude Behavior', 'Vehicle Condition', 'Route Deviation'];
+// Matches COMPLAINT_TYPES in backend/src/routes/commuter.ts and admin.ts
+// exactly — this seed script writes complaintType straight to the
+// database via Prisma, bypassing the API's Zod validation, so a value
+// outside that enum would produce a demo complaint no real commuter
+// could ever file and the admin website's own filter couldn't match.
+const COMPLAINT_TYPES = ['Reckless Driving', 'Overcharging', 'Rude Behavior', 'Route Deviation', 'Other'];
 const COMPLAINT_DESCRIPTIONS: Record<string, string[]> = {
   'Reckless Driving': [
     'Driver was swerving between lanes near Ortigas Ave and braking suddenly.',
@@ -95,13 +100,13 @@ const COMPLAINT_DESCRIPTIONS: Record<string, string[]> = {
     'Driver shouted at an elderly passenger for not having exact change.',
     'Ignored my "Para po" twice and I had to bang on the roof.',
   ],
-  'Vehicle Condition': [
-    'No functioning door handle on the passenger side, had to climb over.',
-    'Exhaust smoke was very thick inside the cabin the whole ride.',
-  ],
   'Route Deviation': [
     'Took a side street detour without announcing it, made the trip much longer.',
     'Ended the route two blocks early and told everyone to walk the rest.',
+  ],
+  Other: [
+    'No functioning door handle on the passenger side, had to climb over.',
+    'Played loud music the entire ride despite passengers asking to lower it.',
   ],
 };
 

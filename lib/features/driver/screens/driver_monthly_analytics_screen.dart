@@ -13,13 +13,25 @@ class DriverMonthlyAnalyticsScreen extends StatefulWidget {
   const DriverMonthlyAnalyticsScreen({super.key});
 
   @override
-  State<DriverMonthlyAnalyticsScreen> createState() => _DriverMonthlyAnalyticsScreenState();
+  State<DriverMonthlyAnalyticsScreen> createState() =>
+      _DriverMonthlyAnalyticsScreenState();
 }
 
-class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScreen> {
+class _DriverMonthlyAnalyticsScreenState
+    extends State<DriverMonthlyAnalyticsScreen> {
   static const List<String> _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   // 0 = current month, -1 = one month back, etc. Never allowed to go
@@ -69,7 +81,10 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
   @override
   Widget build(BuildContext context) {
     final month = _selectedMonth;
-    final entries = DriverOperationsLog.entriesBetween(month, _selectedMonthEnd);
+    final entries = DriverOperationsLog.entriesBetween(
+      month,
+      _selectedMonthEnd,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6F8),
@@ -86,7 +101,10 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
                 children: [
                   _buildMonthSelector(month),
                   const SizedBox(height: 16),
-                  if (entries.isEmpty) const _EmptyAnalyticsState() else _buildContent(entries),
+                  if (entries.isEmpty)
+                    const _EmptyAnalyticsState()
+                  else
+                    _buildContent(entries),
                 ],
               ),
             ),
@@ -108,10 +126,17 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _MonthNavButton(icon: Icons.chevron_left_rounded, onTap: _goToPreviousMonth),
+          _MonthNavButton(
+            icon: Icons.chevron_left_rounded,
+            onTap: _goToPreviousMonth,
+          ),
           Text(
             '${_monthNames[month.month - 1]} ${month.year}',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
           ),
           _MonthNavButton(
             icon: Icons.chevron_right_rounded,
@@ -123,15 +148,28 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
   }
 
   Widget _buildContent(List<DriverOperationsEntry> entries) {
-    final totalEarnings = entries.fold<double>(0, (sum, e) => sum + e.totalEarnings);
-    final totalExpenses = entries.fold<double>(0, (sum, e) => sum + e.totalExpenses);
-    final totalDistance = entries.fold<double>(0, (sum, e) => sum + e.distanceKm);
+    final totalEarnings = entries.fold<double>(
+      0,
+      (sum, e) => sum + e.totalEarnings,
+    );
+    final totalExpenses = entries.fold<double>(
+      0,
+      (sum, e) => sum + e.totalExpenses,
+    );
+    final totalDistance = entries.fold<double>(
+      0,
+      (sum, e) => sum + e.distanceKm,
+    );
     final totalFuel = entries.fold<double>(0, (sum, e) => sum + e.fuelExpense);
     final netIncome = totalEarnings - totalExpenses;
-    final avgIncomePerKm = totalDistance > 0 ? totalEarnings / totalDistance : 0;
+    final avgIncomePerKm = totalDistance > 0
+        ? totalEarnings / totalDistance
+        : 0;
     final avgFuelCostPerKm = totalDistance > 0 ? totalFuel / totalDistance : 0;
 
-    final bestDay = entries.reduce((a, b) => a.netIncome >= b.netIncome ? a : b);
+    final bestDay = entries.reduce(
+      (a, b) => a.netIncome >= b.netIncome ? a : b,
+    );
 
     // Bucket entries into week-of-month (1-5) for the chart.
     final weeklyNet = List<double>.filled(5, 0);
@@ -139,7 +177,10 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
       final weekIndex = ((e.date.day - 1) ~/ 7).clamp(0, 4);
       weeklyNet[weekIndex] += e.netIncome;
     }
-    final maxWeekly = weeklyNet.fold<double>(0, (max, v) => v.abs() > max ? v.abs() : max);
+    final maxWeekly = weeklyNet.fold<double>(
+      0,
+      (max, v) => v.abs() > max ? v.abs() : max,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,7 +233,10 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
           ],
         ),
         const SizedBox(height: 20),
-        const Text('Best Day This Month', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+        const Text(
+          'Best Day This Month',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 10),
         Container(
           width: double.infinity,
@@ -204,19 +248,30 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
           ),
           child: Row(
             children: [
-              const Icon(Icons.emoji_events_rounded, color: Color(0xFF166534), size: 22),
+              const Icon(
+                Icons.emoji_events_rounded,
+                color: Color(0xFF166534),
+                size: 22,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   '${_monthNames[bestDay.date.month - 1]} ${bestDay.date.day} — ₱${bestDay.netIncome.toStringAsFixed(0)} net income',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF166534)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF166534),
+                  ),
                 ),
               ),
             ],
           ),
         ),
         const SizedBox(height: 20),
-        const Text('Net Income by Week', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+        const Text(
+          'Net Income by Week',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 12),
         Container(
           width: double.infinity,
@@ -233,14 +288,21 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
               children: [
                 for (int i = 0; i < weeklyNet.length; i++)
                   Expanded(
-                    child: _WeekBar(label: 'Wk${i + 1}', net: weeklyNet[i], maxMagnitude: maxWeekly),
+                    child: _WeekBar(
+                      label: 'Wk${i + 1}',
+                      net: weeklyNet[i],
+                      maxMagnitude: maxWeekly,
+                    ),
                   ),
               ],
             ),
           ),
         ),
         const SizedBox(height: 20),
-        const Text('Averages', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+        const Text(
+          'Averages',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 10),
         Container(
           width: double.infinity,
@@ -252,9 +314,15 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
           ),
           child: Column(
             children: [
-              _SummaryRow(label: 'Income per km', value: '₱${avgIncomePerKm.toStringAsFixed(2)}'),
+              _SummaryRow(
+                label: 'Income per km',
+                value: '₱${avgIncomePerKm.toStringAsFixed(2)}',
+              ),
               const Divider(height: 20),
-              _SummaryRow(label: 'Fuel Cost per km', value: '₱${avgFuelCostPerKm.toStringAsFixed(2)}'),
+              _SummaryRow(
+                label: 'Fuel Cost per km',
+                value: '₱${avgFuelCostPerKm.toStringAsFixed(2)}',
+              ),
               const Divider(height: 20),
               _SummaryRow(label: 'Days Logged', value: '${entries.length}'),
             ],
@@ -303,7 +371,11 @@ class _DriverMonthlyAnalyticsScreenState extends State<DriverMonthlyAnalyticsScr
               children: [
                 const Text(
                   'Monthly Analytics',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.onPrimary),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.onPrimary,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -336,7 +408,11 @@ class _MonthNavButton extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: Icon(icon, size: 22, color: enabled ? AppColors.logoBlue : Colors.black26),
+          child: Icon(
+            icon,
+            size: 22,
+            color: enabled ? AppColors.logoBlue : Colors.black26,
+          ),
         ),
       ),
     );
@@ -348,12 +424,18 @@ class _WeekBar extends StatelessWidget {
   final double net;
   final double maxMagnitude;
 
-  const _WeekBar({required this.label, required this.net, required this.maxMagnitude});
+  const _WeekBar({
+    required this.label,
+    required this.net,
+    required this.maxMagnitude,
+  });
 
   @override
   Widget build(BuildContext context) {
     final hasData = net != 0;
-    final ratio = maxMagnitude > 0 ? (net.abs() / maxMagnitude).clamp(0.05, 1.0) : 0.0;
+    final ratio = maxMagnitude > 0
+        ? (net.abs() / maxMagnitude).clamp(0.05, 1.0)
+        : 0.0;
     final barHeight = hasData ? (ratio * 100).clamp(4.0, 100.0) : 4.0;
     final barColor = net >= 0 ? AppColors.logoBlue : const Color(0xFFE23F3F);
 
@@ -369,7 +451,14 @@ class _WeekBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black54)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: Colors.black54,
+          ),
+        ),
       ],
     );
   }
@@ -408,9 +497,22 @@ class _StatTile extends StatelessWidget {
             child: Icon(icon, color: iconColor, size: 18),
           ),
           const SizedBox(height: 10),
-          Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              color: AppColors.textSecondary,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.textPrimary)),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
         ],
       ),
     );
@@ -428,8 +530,22 @@ class _SummaryRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
-        Text(value, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.black54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ],
     );
   }
@@ -450,13 +566,21 @@ class _EmptyAnalyticsState extends StatelessWidget {
             const SizedBox(height: 12),
             const Text(
               'No data yet',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black45),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.black45,
+              ),
             ),
             const SizedBox(height: 4),
             const Text(
               'Log your Daily Operations to see analytics here.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.black38, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.black38,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),

@@ -11,6 +11,7 @@ import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/avatar_image.dart';
 import '../../../core/widgets/logout_confirmation_sheet.dart';
+import '../../../core/widgets/signing_out_screen.dart';
 import '../../auth/screens/driver_login_screen.dart';
 import 'driver_daily_operations_screen.dart';
 import 'driver_history_screen.dart';
@@ -130,9 +131,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         if (mounted) setState(() {});
       });
     });
-    _licenseStatusPollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _refreshLicenseStatus());
+    _licenseStatusPollTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _refreshLicenseStatus(),
+    );
     _fetchDemandSignals();
-    _demandPollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchDemandSignals());
+    _demandPollTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _fetchDemandSignals(),
+    );
   }
 
   /// Pulls raw demand-signal pings from the last hour and clusters them
@@ -164,7 +171,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       final raw = response['signals'] as List<dynamic>? ?? const [];
       final points = raw.map((s) {
         final map = s as Map<String, dynamic>;
-        return LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble());
+        return LatLng(
+          (map['lat'] as num).toDouble(),
+          (map['lng'] as num).toDouble(),
+        );
       }).toList();
       setState(() => _demandStops = _clusterDemandSignals(points));
     } catch (_) {
@@ -180,12 +190,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final token = DriverSession.instance.authToken;
     if (token == null) return;
     try {
-      final response = await ApiClient.get('/api/driver/today-stats', token: token);
+      final response = await ApiClient.get(
+        '/api/driver/today-stats',
+        token: token,
+      );
       if (!mounted) return;
       setState(() {
         _tripsTodayRemote = response['tripsToday'] as int?;
         final earnings = response['earningsToday'];
-        _earningsTodayRemote = earnings == null ? null : (earnings as num).toDouble();
+        _earningsTodayRemote = earnings == null
+            ? null
+            : (earnings as num).toDouble();
       });
     } catch (_) {
       // Keep whatever's currently shown (local fallback).
@@ -230,7 +245,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       }
 
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
 
       if (!mounted) return;
@@ -248,7 +265,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         _locationError = failure.message;
       });
       if (showErrors) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(failure.message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(failure.message)));
       }
     } catch (_) {
       if (!mounted) return;
@@ -276,22 +295,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final confirmed = await showLogoutConfirmationSheet(context);
     if (!confirmed || !mounted) return;
 
-    // Navigate first, clear session second — even if signOut() somehow
-    // throws (a corrupt SharedPreferences write, etc.), the driver still
-    // ends up back at the login screen instead of silently staying on
-    // the dashboard with no visible feedback.
+    // SigningOutScreen does the actual sign-out work itself (see its own
+    // doc comment) — trip history and notifications persist across
+    // logout, same as the rest of the account data
+    // DriverSession.signOut() already keeps on disk.
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const DriverLoginScreen()),
+      MaterialPageRoute(
+        builder: (_) => SigningOutScreen(
+          signOut: DriverSession.instance.signOut,
+          destinationBuilder: (_) => const DriverLoginScreen(),
+        ),
+      ),
       (route) => false,
     );
-    try {
-      // Trip history and notifications persist across logout now, same as
-      // the rest of the account data DriverSession.signOut() already keeps
-      // on disk — they're account data, not session-scoped.
-      await DriverSession.instance.signOut();
-    } catch (_) {
-      // Already navigated away — nothing left to do but not crash.
-    }
   }
 
   Future<void> _openSettings() async {
@@ -322,11 +338,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   Future<void> _refreshLicenseStatus() async {
     await DriverSession.instance.refreshLicenseStatus();
-    if (mounted) setState(() => _licenseStatus = DriverSession.instance.licenseVerificationStatus);
+    if (mounted)
+      setState(
+        () => _licenseStatus = DriverSession.instance.licenseVerificationStatus,
+      );
   }
 
   void _openQrCode() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverQrCodeScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverQrCodeScreen()),
+    );
   }
 
   // Fetches first so mark-read covers anything that arrived since the
@@ -337,11 +359,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     await DriverNotificationsScreen.markAllRead();
     if (!mounted) return;
     setState(() {});
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverNotificationsScreen()));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverNotificationsScreen()),
+    );
   }
 
   Future<void> _openTripHistory() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverHistoryScreen()));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverHistoryScreen()),
+    );
     // Today's Trips comes from the backend (see _fetchTodayStats) — re-pull
     // it once the driver's back, in case anything changed while this
     // screen was open.
@@ -349,7 +377,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Future<void> _openDailyOperations() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverDailyOperationsScreen()));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverDailyOperationsScreen()),
+    );
     // The Earnings stat card reads DriverOperationsLog.todayEntry live, so
     // just refresh the build once the driver's back from logging today's
     // numbers — and re-pull the backend figure too, since that's what the
@@ -359,11 +390,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   void _openWeeklyAnalytics() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverWeeklyAnalyticsScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverWeeklyAnalyticsScreen()),
+    );
   }
 
   void _openMonthlyAnalytics() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverMonthlyAnalyticsScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverMonthlyAnalyticsScreen()),
+    );
   }
 
   // ===================================================================
@@ -375,22 +412,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('License Not Verified'),
-          content: Text(
-            switch (_licenseStatus) {
-              'PENDING' =>
-                "Your license is still being reviewed by an admin. You'll be able to start a trip once it's verified.",
-              'REJECTED' =>
-                "Your license submission was rejected, so you can't start a trip yet. Go to Settings > License Number to submit clearer photos.",
-              _ =>
-                "You need to submit your license for verification before you can start a trip. Go to Settings > License Number to upload it.",
-            },
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
+          title: const Text('License Not Verified'),
+          content: Text(switch (_licenseStatus) {
+            'PENDING' =>
+              "Your license is still being reviewed by an admin. You'll be able to start a trip once it's verified.",
+            'REJECTED' =>
+              "Your license submission was rejected, so you can't start a trip yet. Go to Settings > License Number to submit clearer photos.",
+            _ =>
+              "You need to submit your license for verification before you can start a trip. Go to Settings > License Number to upload it.",
+          }),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.w800)),
+              child: const Text(
+                'OK',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
             ),
           ],
         ),
@@ -498,46 +538,47 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       ),
 
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      // A custom circular button instead of FloatingActionButton — FAB
-      // ignores a wrapping Container's size (it stays at its own default
-      // 56x56), so the icon+label content was overflowing the circle.
-      // This SizedBox size is the button's actual, real size.
+      // A floating pill instead of a circle — icon and label side by
+      // side read faster at a glance than stacked text inside a small
+      // circle, and there's room for genuinely readable text size
+      // (see the 2026-08-21 design audit).
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Material(
           color: _activeTrip == null ? AppColors.primary : AppColors.logoBlue,
-          shape: CircleBorder(
-            side: BorderSide(
-              color: _activeTrip == null ? const Color(0xFFE0A800) : const Color(0xFF0F3EA6),
-              width: 1.5,
-            ),
-          ),
+          borderRadius: BorderRadius.circular(32),
           elevation: 4,
           child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: _activeTrip == null ? _handleStartTrip : () => _openTripInProgress(_activeTrip!),
-            child: SizedBox(
-              width: 82,
-              height: 82,
-              child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _activeTrip == null ? Icons.directions_bus : Icons.map_rounded,
-                color: _activeTrip == null ? AppColors.onPrimary : Colors.white,
-                size: 30,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _activeTrip == null ? 'Start Trip' : 'View Trip',
-                style: TextStyle(
-                  color: _activeTrip == null ? AppColors.onPrimary : Colors.white,
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+            borderRadius: BorderRadius.circular(32),
+            onTap: _activeTrip == null
+                ? _handleStartTrip
+                : () => _openTripInProgress(_activeTrip!),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _activeTrip == null
+                        ? Icons.directions_bus_filled_rounded
+                        : Icons.map_rounded,
+                    color: _activeTrip == null
+                        ? AppColors.onPrimary
+                        : Colors.white,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    _activeTrip == null ? 'Start Trip' : 'View Trip',
+                    style: TextStyle(
+                      color: _activeTrip == null
+                          ? AppColors.onPrimary
+                          : Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -561,10 +602,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   ),
                   RichText(
                     text: const TextSpan(
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'Sans-Serif'),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Sans-Serif',
+                      ),
                       children: [
-                        TextSpan(text: 'Manibel', style: TextStyle(color: AppColors.logoBlue)),
-                        TextSpan(text: 'App', style: TextStyle(color: AppColors.logoRed)),
+                        TextSpan(
+                          text: 'Manibel',
+                          style: TextStyle(color: AppColors.logoBlue),
+                        ),
+                        TextSpan(
+                          text: 'App',
+                          style: TextStyle(color: AppColors.logoRed),
+                        ),
                       ],
                     ),
                   ),
@@ -579,75 +630,137 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
               // Driver Profile Header Card — same yellow gradient banner
               // convention used across the commuter side.
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.primary, Color(0xFFFFDE7A)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AppColors.primary, Color(0xFFFFDE7A)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 2)),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-                      child: CircleAvatar(
-                        radius: 26,
-                        backgroundColor: const Color(0xFFD9D9D9),
-                        backgroundImage: avatarImageProvider(photoUrl: _photoUrl),
-                        child: avatarImageProvider(photoUrl: _photoUrl) == null
-                            ? const Icon(Icons.person, size: 32, color: AppColors.textSecondary)
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _driverName,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.onPrimary),
+                  child: Stack(
+                    children: [
+                      // Background texture — a faint jeepney watermark tucked
+                      // into the bottom-right corner, low-opacity so it reads
+                      // as depth/dimension rather than competing with the
+                      // avatar/name/status content on top.
+                      Positioned(
+                        bottom: -6,
+                        right: -6,
+                        child: Transform.rotate(
+                          angle: -0.1,
+                          child: Icon(
+                            Icons.directions_bus_filled_rounded,
+                            size: 64,
+                            color: Colors.white.withOpacity(0.22),
                           ),
-                          Text(
-                            'Driver ID: $_driverId',
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.onPrimary),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                    // Online/Offline status — reflects whether a trip is
-                    // actually active, no longer a manual toggle.
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.85),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: _isOnline ? Colors.green : AppColors.errorRed),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircleAvatar(radius: 4, backgroundColor: _isOnline ? Colors.green : AppColors.errorRed),
-                          const SizedBox(width: 6),
-                          Text(
-                            _isOnline ? 'On Trip' : 'Offline',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: _isOnline ? Colors.green.shade800 : AppColors.errorRed,
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                              ),
+                              child: CircleAvatar(
+                                radius: 26,
+                                backgroundColor: const Color(0xFFD9D9D9),
+                                backgroundImage: avatarImageProvider(
+                                  photoUrl: _photoUrl,
+                                ),
+                                child:
+                                    avatarImageProvider(photoUrl: _photoUrl) ==
+                                        null
+                                    ? const Icon(
+                                        Icons.person,
+                                        size: 32,
+                                        color: AppColors.textSecondary,
+                                      )
+                                    : null,
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _driverName,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.onPrimary,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Driver ID: $_driverId',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.onPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Online/Offline status — reflects whether a trip is
+                            // actually active, no longer a manual toggle.
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.85),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: _isOnline
+                                      ? Colors.green
+                                      : AppColors.errorRed,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 4,
+                                    backgroundColor: _isOnline
+                                        ? Colors.green
+                                        : AppColors.errorRed,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _isOnline ? 'On Trip' : 'Offline',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: _isOnline
+                                          ? Colors.green.shade800
+                                          : AppColors.errorRed,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -674,7 +787,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 2)),
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
                     ],
                   ),
                   child: Column(
@@ -686,18 +803,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           children: [
                             const Text(
                               'Where Passengers Are Waiting',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: AppColors.textPrimary,
+                              ),
                             ),
                             Row(
                               children: [
-                                CircleAvatar(radius: 4, backgroundColor: _locatingInProgress ? Colors.orange : Colors.green),
+                                CircleAvatar(
+                                  radius: 4,
+                                  backgroundColor: _locatingInProgress
+                                      ? Colors.orange
+                                      : Colors.green,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   _locatingInProgress ? 'Locating…' : 'Live',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
-                                    color: _locatingInProgress ? Colors.orange.shade800 : Colors.green,
+                                    color: _locatingInProgress
+                                        ? Colors.orange.shade800
+                                        : Colors.green,
                                   ),
                                 ),
                               ],
@@ -706,7 +834,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         ),
                       ),
                       ClipRRect(
-                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(16),
+                        ),
                         child: SizedBox(
                           height: 180,
                           width: double.infinity,
@@ -715,8 +845,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               IgnorePointer(
                                 child: _DriverLiveMap(
                                   mapController: _previewMapController,
-                                  currentLocation: _currentLocation ?? _fallbackLocation,
-                                  hasRealFix: _currentLocation != null && _locationError == null,
+                                  currentLocation:
+                                      _currentLocation ?? _fallbackLocation,
+                                  hasRealFix:
+                                      _currentLocation != null &&
+                                      _locationError == null,
                                   interactive: false,
                                   waitingStops: _demandStops,
                                 ),
@@ -725,14 +858,23 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                 top: 10,
                                 left: 10,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: Colors.white.withOpacity(0.9),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    _activeTrip != null ? 'Route: ${_activeTrip!.route}' : 'Tap to view live map',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                    _activeTrip != null
+                                        ? 'Route: ${_activeTrip!.route}'
+                                        : 'Tap to view live map',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -740,14 +882,31 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                 bottom: 10,
                                 right: 10,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(color: AppColors.logoBlue, borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.logoBlue,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                   child: const Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.zoom_out_map, size: 14, color: Colors.white),
+                                      Icon(
+                                        Icons.zoom_out_map,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
                                       SizedBox(width: 4),
-                                      Text('Tap to Expand', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                      Text(
+                                        'Tap to Expand',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -784,7 +943,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       iconBg: AppColors.qrTileBg,
                       iconColor: AppColors.qrIconColor,
                       title: 'Earnings',
-                      value: '₱${(_earningsTodayRemote ?? DriverOperationsLog.todayEntry?.totalEarnings ?? 0).toStringAsFixed(0)}',
+                      value:
+                          '₱${(_earningsTodayRemote ?? DriverOperationsLog.todayEntry?.totalEarnings ?? 0).toStringAsFixed(0)}',
                       subtitle: 'Today',
                     ),
                   ),
@@ -797,7 +957,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 iconBg: AppColors.settingsTileBg,
                 iconColor: AppColors.settingsIconColor,
                 title: 'Daily Operations Dashboard',
-                subtitle: 'Check if your revenue is higher than your gas expense',
+                subtitle:
+                    'Check if your revenue is higher than your gas expense',
                 onTap: _openDailyOperations,
               ),
               const SizedBox(height: 12),
@@ -844,7 +1005,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.logoBlue.withOpacity(0.25)),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 2)),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Column(
@@ -855,26 +1020,50 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 Container(
                   width: 34,
                   height: 34,
-                  decoration: const BoxDecoration(color: AppColors.logoBlue, shape: BoxShape.circle),
+                  decoration: const BoxDecoration(
+                    color: AppColors.logoBlue,
+                    shape: BoxShape.circle,
+                  ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.directions_bus_rounded, color: Colors.white, size: 18),
+                  child: const Icon(
+                    Icons.directions_bus_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     trip.route,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(20)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDCFCE7),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       CircleAvatar(radius: 3, backgroundColor: Colors.green),
                       SizedBox(width: 4),
-                      Text('LIVE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.green)),
+                      Text(
+                        'LIVE',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.green,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -883,7 +1072,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             const SizedBox(height: 6),
             Text(
               '${trip.plateNumber} · Started ${_timeOfDay(trip.startTime)}',
-              style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.black54,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
             const Row(
@@ -892,7 +1085,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 SizedBox(width: 4),
                 Text(
                   'Tap to view live map and end trip',
-                  style: TextStyle(fontSize: 10, color: AppColors.logoBlue, fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.logoBlue,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -917,7 +1114,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
@@ -932,12 +1133,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
-                Text(subtitle, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
               ],
             ),
           ),
@@ -964,7 +1181,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 2)),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Row(
@@ -979,13 +1200,30 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.logoBlue),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: AppColors.logoBlue,
+            ),
           ],
         ),
       ),
@@ -1011,16 +1249,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _activeTrip != null ? _activeTrip!.route : 'Where Passengers Are Waiting',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      _activeTrip != null
+                          ? _activeTrip!.route
+                          : 'Where Passengers Are Waiting',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
-                      _locationError ?? 'Your position and nearby waiting passengers',
-                      style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                      _locationError ??
+                          'Your position and nearby waiting passengers',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
               ],
             ),
           ),
@@ -1075,7 +1325,9 @@ class _LicenseVerificationNote extends StatelessWidget {
           children: [
             Icon(
               isPending ? Icons.hourglass_top_rounded : Icons.badge_outlined,
-              color: isPending ? const Color(0xFF92600A) : const Color(0xFFB91C1C),
+              color: isPending
+                  ? const Color(0xFF92600A)
+                  : const Color(0xFFB91C1C),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1084,7 +1336,9 @@ class _LicenseVerificationNote extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: isPending ? const Color(0xFF92600A) : const Color(0xFFB91C1C),
+                  color: isPending
+                      ? const Color(0xFF92600A)
+                      : const Color(0xFFB91C1C),
                 ),
               ),
             ),
@@ -1104,7 +1358,11 @@ class _RoundIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final int badgeCount;
 
-  const _RoundIconButton({required this.icon, required this.onTap, this.badgeCount = 0});
+  const _RoundIconButton({
+    required this.icon,
+    required this.onTap,
+    this.badgeCount = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1140,7 +1398,11 @@ class _RoundIconButton extends StatelessWidget {
               child: Text(
                 badgeCount > 9 ? '9+' : '$badgeCount',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -1199,7 +1461,12 @@ class _DriverLiveMap extends StatelessWidget {
             ),
             if (interactive)
               RichAttributionWidget(
-                attributions: [TextSourceAttribution('© OpenStreetMap contributors', onTap: () {})],
+                attributions: [
+                  TextSourceAttribution(
+                    '© OpenStreetMap contributors',
+                    onTap: () {},
+                  ),
+                ],
               ),
             MarkerLayer(
               markers: [
@@ -1214,14 +1481,20 @@ class _DriverLiveMap extends StatelessWidget {
                       border: Border.all(color: Colors.white, width: 3),
                       boxShadow: [
                         BoxShadow(
-                          color: (hasRealFix ? AppColors.logoBlue : Colors.black38).withOpacity(0.4),
+                          color:
+                              (hasRealFix ? AppColors.logoBlue : Colors.black38)
+                                  .withOpacity(0.4),
                           blurRadius: 8,
                           spreadRadius: 2,
                         ),
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: const Icon(Icons.directions_bus_filled_rounded, size: 16, color: Colors.white),
+                    child: const Icon(
+                      Icons.directions_bus_filled_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
                 for (final stop in waitingStops)
@@ -1239,7 +1512,10 @@ class _DriverLiveMap extends StatelessWidget {
           Positioned(
             right: 12,
             bottom: 20,
-            child: _RoundIconButton(icon: Icons.my_location_rounded, onTap: onRecenter!),
+            child: _RoundIconButton(
+              icon: Icons.my_location_rounded,
+              onTap: onRecenter!,
+            ),
           ),
       ],
     );
@@ -1285,10 +1561,12 @@ List<_WaitingStop> _clusterDemandSignals(List<LatLng> points) {
   }
 
   return buckets.values
-      .map((b) => _WaitingStop(
-            point: LatLng(b.latSum / b.count, b.lngSum / b.count),
-            count: b.count,
-          ))
+      .map(
+        (b) => _WaitingStop(
+          point: LatLng(b.latSum / b.count, b.lngSum / b.count),
+          count: b.count,
+        ),
+      )
       .toList();
 }
 
@@ -1312,11 +1590,19 @@ class _WaitingStopPin extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2.5),
             boxShadow: [
-              BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, spreadRadius: 1),
+              BoxShadow(
+                color: color.withOpacity(0.4),
+                blurRadius: 6,
+                spreadRadius: 1,
+              ),
             ],
           ),
           alignment: Alignment.center,
-          child: const Icon(Icons.person_rounded, size: 17, color: Colors.white),
+          child: const Icon(
+            Icons.person_rounded,
+            size: 17,
+            color: Colors.white,
+          ),
         ),
         Positioned(
           right: -4,
@@ -1332,7 +1618,11 @@ class _WaitingStopPin extends StatelessWidget {
             child: Text(
               '$count',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: color),
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
           ),
         ),

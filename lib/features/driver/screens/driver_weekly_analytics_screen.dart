@@ -13,13 +13,34 @@ class DriverWeeklyAnalyticsScreen extends StatefulWidget {
   const DriverWeeklyAnalyticsScreen({super.key});
 
   @override
-  State<DriverWeeklyAnalyticsScreen> createState() => _DriverWeeklyAnalyticsScreenState();
+  State<DriverWeeklyAnalyticsScreen> createState() =>
+      _DriverWeeklyAnalyticsScreenState();
 }
 
-class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScreen> {
-  static const List<String> _weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+class _DriverWeeklyAnalyticsScreenState
+    extends State<DriverWeeklyAnalyticsScreen> {
+  static const List<String> _weekdayLabels = [
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
+  ];
   static const List<String> _monthAbbrev = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   // 0 = the 7-day window ending today, -1 = the 7 days before that, etc.
@@ -53,7 +74,11 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
 
   DateTime get _windowEnd {
     final today = DateTime.now();
-    return DateTime(today.year, today.month, today.day).subtract(Duration(days: -7 * _weekOffset));
+    return DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(Duration(days: -7 * _weekOffset));
   }
 
   DateTime get _windowStart => _windowEnd.subtract(const Duration(days: 6));
@@ -88,7 +113,10 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
                 children: [
                   _buildWeekSelector(windowStart, windowEnd),
                   const SizedBox(height: 16),
-                  if (entries.isEmpty) const _EmptyAnalyticsState() else _buildContent(windowEnd, entries),
+                  if (entries.isEmpty)
+                    const _EmptyAnalyticsState()
+                  else
+                    _buildContent(windowEnd, entries),
                 ],
               ),
             ),
@@ -114,10 +142,17 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _WeekNavButton(icon: Icons.chevron_left_rounded, onTap: _goToPreviousWeek),
+          _WeekNavButton(
+            icon: Icons.chevron_left_rounded,
+            onTap: _goToPreviousWeek,
+          ),
           Text(
             label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
           ),
           _WeekNavButton(
             icon: Icons.chevron_right_rounded,
@@ -128,21 +163,43 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
     );
   }
 
-  Widget _buildContent(DateTime windowEnd, List<DriverOperationsEntry> entries) {
-    final totalEarnings = entries.fold<double>(0, (sum, e) => sum + e.totalEarnings);
-    final totalExpenses = entries.fold<double>(0, (sum, e) => sum + e.totalExpenses);
-    final totalDistance = entries.fold<double>(0, (sum, e) => sum + e.distanceKm);
+  Widget _buildContent(
+    DateTime windowEnd,
+    List<DriverOperationsEntry> entries,
+  ) {
+    final totalEarnings = entries.fold<double>(
+      0,
+      (sum, e) => sum + e.totalEarnings,
+    );
+    final totalExpenses = entries.fold<double>(
+      0,
+      (sum, e) => sum + e.totalExpenses,
+    );
+    final totalDistance = entries.fold<double>(
+      0,
+      (sum, e) => sum + e.distanceKm,
+    );
     final totalFuel = entries.fold<double>(0, (sum, e) => sum + e.fuelExpense);
     final netIncome = totalEarnings - totalExpenses;
-    final avgIncomePerKm = totalDistance > 0 ? totalEarnings / totalDistance : 0;
+    final avgIncomePerKm = totalDistance > 0
+        ? totalEarnings / totalDistance
+        : 0;
     final avgFuelCostPerKm = totalDistance > 0 ? totalFuel / totalDistance : 0;
 
     // Build the 7 calendar days in the selected window, oldest first,
     // matching a logged entry to each day where one exists.
-    final days = List<DateTime>.generate(7, (i) => windowEnd.subtract(Duration(days: 6 - i)));
+    final days = List<DateTime>.generate(
+      7,
+      (i) => windowEnd.subtract(Duration(days: 6 - i)),
+    );
     final entryByDay = <int, DriverOperationsEntry>{};
     for (final e in entries) {
-      entryByDay[DateTime(e.date.year, e.date.month, e.date.day).millisecondsSinceEpoch] = e;
+      entryByDay[DateTime(
+            e.date.year,
+            e.date.month,
+            e.date.day,
+          ).millisecondsSinceEpoch] =
+          e;
     }
     final maxNet = entries.fold<double>(
       0,
@@ -200,7 +257,10 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
           ],
         ),
         const SizedBox(height: 20),
-        const Text('Net Income by Day', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+        const Text(
+          'Net Income by Day',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 12),
         Container(
           width: double.infinity,
@@ -219,7 +279,12 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
                   Expanded(
                     child: _DayBar(
                       label: _weekdayLabels[day.weekday - 1],
-                      entry: entryByDay[DateTime(day.year, day.month, day.day).millisecondsSinceEpoch],
+                      entry:
+                          entryByDay[DateTime(
+                            day.year,
+                            day.month,
+                            day.day,
+                          ).millisecondsSinceEpoch],
                       maxMagnitude: maxNet,
                     ),
                   ),
@@ -228,7 +293,10 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
           ),
         ),
         const SizedBox(height: 20),
-        const Text('Averages', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+        const Text(
+          'Averages',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 10),
         Container(
           width: double.infinity,
@@ -240,9 +308,15 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
           ),
           child: Column(
             children: [
-              _SummaryRow(label: 'Income per km', value: '₱${avgIncomePerKm.toStringAsFixed(2)}'),
+              _SummaryRow(
+                label: 'Income per km',
+                value: '₱${avgIncomePerKm.toStringAsFixed(2)}',
+              ),
               const Divider(height: 20),
-              _SummaryRow(label: 'Fuel Cost per km', value: '₱${avgFuelCostPerKm.toStringAsFixed(2)}'),
+              _SummaryRow(
+                label: 'Fuel Cost per km',
+                value: '₱${avgFuelCostPerKm.toStringAsFixed(2)}',
+              ),
               const Divider(height: 20),
               _SummaryRow(label: 'Days Logged', value: '${entries.length} / 7'),
             ],
@@ -291,7 +365,11 @@ class _DriverWeeklyAnalyticsScreenState extends State<DriverWeeklyAnalyticsScree
               children: [
                 const Text(
                   'Weekly Analytics',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.onPrimary),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.onPrimary,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -324,7 +402,11 @@ class _WeekNavButton extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: Icon(icon, size: 22, color: enabled ? AppColors.logoBlue : Colors.black26),
+          child: Icon(
+            icon,
+            size: 22,
+            color: enabled ? AppColors.logoBlue : Colors.black26,
+          ),
         ),
       ),
     );
@@ -336,12 +418,18 @@ class _DayBar extends StatelessWidget {
   final DriverOperationsEntry? entry;
   final double maxMagnitude;
 
-  const _DayBar({required this.label, required this.entry, required this.maxMagnitude});
+  const _DayBar({
+    required this.label,
+    required this.entry,
+    required this.maxMagnitude,
+  });
 
   @override
   Widget build(BuildContext context) {
     final net = entry?.netIncome ?? 0;
-    final ratio = maxMagnitude > 0 ? (net.abs() / maxMagnitude).clamp(0.05, 1.0) : 0.0;
+    final ratio = maxMagnitude > 0
+        ? (net.abs() / maxMagnitude).clamp(0.05, 1.0)
+        : 0.0;
     final barHeight = entry == null ? 4.0 : (ratio * 100).clamp(4.0, 100.0);
     final barColor = net >= 0 ? AppColors.logoBlue : const Color(0xFFE23F3F);
 
@@ -357,7 +445,14 @@ class _DayBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black54)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: Colors.black54,
+          ),
+        ),
       ],
     );
   }
@@ -396,9 +491,22 @@ class _StatTile extends StatelessWidget {
             child: Icon(icon, color: iconColor, size: 18),
           ),
           const SizedBox(height: 10),
-          Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              color: AppColors.textSecondary,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.textPrimary)),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
         ],
       ),
     );
@@ -416,8 +524,22 @@ class _SummaryRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
-        Text(value, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.black54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ],
     );
   }
@@ -434,17 +556,29 @@ class _EmptyAnalyticsState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.bar_chart_rounded, size: 56, color: Colors.black26),
+            const Icon(
+              Icons.bar_chart_rounded,
+              size: 56,
+              color: Colors.black26,
+            ),
             const SizedBox(height: 12),
             const Text(
               'No data yet',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black45),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.black45,
+              ),
             ),
             const SizedBox(height: 4),
             const Text(
               'Log your Daily Operations to see analytics here.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.black38, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.black38,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),

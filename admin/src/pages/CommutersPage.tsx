@@ -158,7 +158,7 @@ export default function CommutersPage() {
 
   return (
     <DashboardLayout title="Commuters">
-      <p className="text-sm text-gray-500">Manage commuter accounts on Manibela App.</p>
+      <p className="text-sm text-gray-500">Manage commuter accounts on ManibelApp.</p>
 
       {stats ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">

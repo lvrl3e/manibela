@@ -4,7 +4,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/avatar_image.dart';
 import 'emergency_hotlines_screen.dart';
 import 'commuter_history_screen.dart';
-import 'file_complaint_screen.dart';
 
 class CommuterMenuDrawer extends StatelessWidget {
   final String commuterName;
@@ -39,7 +38,10 @@ class CommuterMenuDrawer extends StatelessWidget {
             _buildProfileHeader(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 20,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -106,27 +108,10 @@ class CommuterMenuDrawer extends StatelessWidget {
 
                     _buildMenuDivider(),
 
-                    // =====================================================
-                    // FILE A COMPLAINT
-                    // =====================================================
-                    _buildMenuButton(
-                      context: context,
-                      icon: Icons.report_gmailerrorred_rounded,
-                      label: "File a Complaint",
-                      iconColor: AppColors.secondary,
-                      onTap: () {
-                        Navigator.pop(context);
-
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const FileComplaintScreen(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    _buildMenuDivider(),
+                    // File a Complaint (plate-number based) is hidden for
+                    // now — reporting a driver from a specific ride in Trip
+                    // History (ReportDriverScreen) is the only entry point
+                    // while that flow is being reworked.
 
                     // =====================================================
                     // LOGOUT
@@ -142,7 +127,9 @@ class CommuterMenuDrawer extends StatelessWidget {
                         if (onLogoutTap != null) {
                           onLogoutTap!();
                         } else {
-                          Navigator.of(context).popUntil((route) => route.isFirst);
+                          Navigator.of(
+                            context,
+                          ).popUntil((route) => route.isFirst);
                         }
                       },
                     ),
@@ -240,7 +227,10 @@ class CommuterMenuDrawer extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.4),
                     borderRadius: BorderRadius.circular(20),

@@ -13,6 +13,7 @@ import 'notifications_screen.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/widgets/logout_confirmation_sheet.dart';
+import '../../../core/widgets/signing_out_screen.dart';
 import '../../auth/screens/commuter_login_screen.dart';
 
 const Color _kBlueDark = Color(0xFF0F3EA6);
@@ -192,14 +193,17 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
     final confirmed = await showLogoutConfirmationSheet(context);
     if (!confirmed || !context.mounted) return;
 
-    // Trip history and notifications persist across logout now, same as
-    // the rest of the account data UserSession.signOut() already keeps on
-    // disk — they're account data, not session-scoped.
-    await UserSession.instance.signOut();
-
-    if (!context.mounted) return;
+    // SigningOutScreen does the actual sign-out work itself (see its own
+    // doc comment) — trip history and notifications persist across
+    // logout, same as the rest of the account data
+    // UserSession.signOut() already keeps on disk.
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const CommuterLoginScreen()),
+      MaterialPageRoute(
+        builder: (_) => SigningOutScreen(
+          signOut: UserSession.instance.signOut,
+          destinationBuilder: (_) => const CommuterLoginScreen(),
+        ),
+      ),
       (route) => false,
     );
   }

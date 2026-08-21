@@ -11,10 +11,12 @@ class DriverDailyOperationsScreen extends StatefulWidget {
   const DriverDailyOperationsScreen({super.key});
 
   @override
-  State<DriverDailyOperationsScreen> createState() => _DriverDailyOperationsScreenState();
+  State<DriverDailyOperationsScreen> createState() =>
+      _DriverDailyOperationsScreenState();
 }
 
-class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScreen> {
+class _DriverDailyOperationsScreenState
+    extends State<DriverDailyOperationsScreen> {
   late final TextEditingController _startOdoController;
   late final TextEditingController _endOdoController;
   late final TextEditingController _earningsController;
@@ -32,13 +34,29 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
   void initState() {
     super.initState();
     final existing = DriverOperationsLog.todayEntry;
-    _startOdoController = TextEditingController(text: _numOrEmpty(existing?.startOdo));
-    _endOdoController = TextEditingController(text: _numOrEmpty(existing?.endOdo));
-    _earningsController = TextEditingController(text: _numOrEmpty(existing?.totalEarnings));
-    _fuelController = TextEditingController(text: _numOrEmpty(existing?.fuelExpense));
-    _otherController = TextEditingController(text: _numOrEmpty(existing?.otherExpenses));
+    _startOdoController = TextEditingController(
+      text: _numOrEmpty(existing?.startOdo),
+    );
+    _endOdoController = TextEditingController(
+      text: _numOrEmpty(existing?.endOdo),
+    );
+    _earningsController = TextEditingController(
+      text: _numOrEmpty(existing?.totalEarnings),
+    );
+    _fuelController = TextEditingController(
+      text: _numOrEmpty(existing?.fuelExpense),
+    );
+    _otherController = TextEditingController(
+      text: _numOrEmpty(existing?.otherExpenses),
+    );
 
-    for (final c in [_startOdoController, _endOdoController, _earningsController, _fuelController, _otherController]) {
+    for (final c in [
+      _startOdoController,
+      _endOdoController,
+      _earningsController,
+      _fuelController,
+      _otherController,
+    ]) {
       c.addListener(_onFieldChanged);
     }
 
@@ -77,7 +95,13 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
 
   @override
   void dispose() {
-    for (final c in [_startOdoController, _endOdoController, _earningsController, _fuelController, _otherController]) {
+    for (final c in [
+      _startOdoController,
+      _endOdoController,
+      _earningsController,
+      _fuelController,
+      _otherController,
+    ]) {
       c.removeListener(_onFieldChanged);
       c.dispose();
     }
@@ -89,13 +113,13 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
   double _parse(TextEditingController c) => double.tryParse(c.text.trim()) ?? 0;
 
   DriverOperationsEntry get _draftEntry => DriverOperationsEntry(
-        date: DateTime.now(),
-        startOdo: _parse(_startOdoController),
-        endOdo: _parse(_endOdoController),
-        totalEarnings: _parse(_earningsController),
-        fuelExpense: _parse(_fuelController),
-        otherExpenses: _parse(_otherController),
-      );
+    date: DateTime.now(),
+    startOdo: _parse(_startOdoController),
+    endOdo: _parse(_endOdoController),
+    totalEarnings: _parse(_earningsController),
+    fuelExpense: _parse(_fuelController),
+    otherExpenses: _parse(_otherController),
+  );
 
   Future<void> _handleSave() async {
     final startOdo = _parse(_startOdoController);
@@ -103,7 +127,9 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
 
     if (endOdo < startOdo) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('End odometer cannot be less than start odometer.')),
+        const SnackBar(
+          content: Text('End odometer cannot be less than start odometer.'),
+        ),
       );
       return;
     }
@@ -111,9 +137,9 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
     await DriverOperationsLog.save(_draftEntry);
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Today's operations saved.")),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Today's operations saved.")));
     Navigator.of(context).pop();
   }
 
@@ -139,7 +165,11 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
                       padding: EdgeInsets.only(bottom: 10),
                       child: Text(
                         'Checking for updates...',
-                        style: TextStyle(fontSize: 10, color: Colors.black38, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.black38,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   Container(
@@ -153,7 +183,11 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
                     child: const Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.warning_amber_rounded, color: Color(0xFFE23F3F), size: 20),
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: Color(0xFFE23F3F),
+                          size: 20,
+                        ),
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -224,11 +258,17 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                       child: const Text(
                         'Save',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.onPrimary,
+                        ),
                       ),
                     ),
                   ),
@@ -252,9 +292,15 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
       ),
       child: Column(
         children: [
-          _SummaryRow(label: 'Distance Traveled', value: '${entry.distanceKm.toStringAsFixed(1)} km'),
+          _SummaryRow(
+            label: 'Distance Traveled',
+            value: '${entry.distanceKm.toStringAsFixed(1)} km',
+          ),
           const Divider(height: 20),
-          _SummaryRow(label: 'Total Expenses', value: '₱${entry.totalExpenses.toStringAsFixed(2)}'),
+          _SummaryRow(
+            label: 'Total Expenses',
+            value: '₱${entry.totalExpenses.toStringAsFixed(2)}',
+          ),
           const Divider(height: 20),
           _SummaryRow(
             label: 'Income per km',
@@ -270,7 +316,9 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: entry.netIncome >= 0 ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+              color: entry.netIncome >= 0
+                  ? const Color(0xFFDCFCE7)
+                  : const Color(0xFFFEE2E2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -278,14 +326,20 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
               children: [
                 const Text(
                   'Net Income',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
                 Text(
                   '₱${entry.netIncome.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
-                    color: entry.netIncome >= 0 ? const Color(0xFF166534) : const Color(0xFFB91C1C),
+                    color: entry.netIncome >= 0
+                        ? const Color(0xFF166534)
+                        : const Color(0xFFB91C1C),
                   ),
                 ),
               ],
@@ -335,7 +389,11 @@ class _DriverDailyOperationsScreenState extends State<DriverDailyOperationsScree
               children: [
                 const Text(
                   'Daily Operations',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.onPrimary),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.onPrimary,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -360,7 +418,11 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black),
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+        color: Colors.black,
+      ),
     );
   }
 }
@@ -370,7 +432,11 @@ class _NumberField extends StatelessWidget {
   final TextEditingController controller;
   final String? hint;
 
-  const _NumberField({required this.label, required this.controller, this.hint});
+  const _NumberField({
+    required this.label,
+    required this.controller,
+    this.hint,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -385,7 +451,14 @@ class _NumberField extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
+            ),
+          ),
           TextField(
             controller: controller,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -415,8 +488,22 @@ class _SummaryRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
-        Text(value, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.black54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ],
     );
   }

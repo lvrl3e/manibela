@@ -12,7 +12,7 @@ import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
-import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto } from '../middleware/upload';
+import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto, uploadBufferToCloudinary } from '../middleware/upload';
 import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
 
@@ -436,7 +436,7 @@ router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
         return;
       }
 
-      const photoUrl = `/uploads/profile-photos/${req.file.filename}`;
+      const photoUrl = await uploadBufferToCloudinary(req.file.buffer, 'profile-photos');
       const driver = await prisma.driver.update({
         where: { id: existing.id },
         data: { photoUrl },
@@ -484,8 +484,10 @@ router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
         return;
       }
 
-      const licenseFrontUrl = `/uploads/license-photos/${front.filename}`;
-      const licenseBackUrl = `/uploads/license-photos/${back.filename}`;
+      const [licenseFrontUrl, licenseBackUrl] = await Promise.all([
+        uploadBufferToCloudinary(front.buffer, 'license-photos'),
+        uploadBufferToCloudinary(back.buffer, 'license-photos'),
+      ]);
       const driver = await prisma.driver.update({
         where: { id: existing.id },
         data: { licenseFrontUrl, licenseBackUrl, licenseVerificationStatus: 'PENDING' },

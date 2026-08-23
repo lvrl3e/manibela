@@ -1,46 +1,19 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { Readable } from 'node:stream';
 import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
 
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
-
-/** Which subdirectory of UPLOAD_DIR a file lands in, keyed by its
- * multipart field name — so profile photos, ID scans, and verification
- * selfies don't all pile up loose in the same folder. */
-const SUBDIR_BY_FIELD: Record<string, string> = {
-  photo: 'profile-photos',
-  front: 'id-photos',
-  back: 'id-photos',
-  selfie: 'selfies',
-  attachment: 'complaint-attachments',
-  licenseFront: 'license-photos',
-  licenseBack: 'license-photos',
-};
-
-for (const subdir of new Set(Object.values(SUBDIR_BY_FIELD))) {
-  fs.mkdirSync(path.join(UPLOAD_DIR, subdir), { recursive: true });
-}
-
-const ALLOWED_EXTENSIONS: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-};
-
-const storage = multer.diskStorage({
-  destination: (_req, file, cb) => {
-    const subdir = SUBDIR_BY_FIELD[file.fieldname] ?? '';
-    cb(null, path.join(UPLOAD_DIR, subdir));
-  },
-  filename: (_req, file, cb) => {
-    const ext = ALLOWED_EXTENSIONS[file.mimetype] ?? '';
-    cb(null, `${randomBytes(16).toString('hex')}${ext}`);
-  },
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const storage = multer.memoryStorage();
+
 const imageFileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
-  if (!(file.mimetype in ALLOWED_EXTENSIONS)) {
+  if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
     cb(new Error('Only JPEG, PNG, or WEBP images are allowed.'));
     return;
   }
@@ -48,6 +21,28 @@ const imageFileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
 };
 
 const IMAGE_LIMITS = { fileSize: 5 * 1024 * 1024 }; // 5 MB
+
+/** Pushes an in-memory upload straight to Cloudinary — nothing ever
+ * touches local disk, so a file survives Render's ephemeral filesystem
+ * being wiped on every restart/redeploy (the actual cause of photos that
+ * showed as "Approved" but rendered as broken images). Returns the
+ * https:// URL Cloudinary serves the image from, which both clients
+ * already pass through unchanged (see ApiClient.resolveUrl). */
+export function uploadBufferToCloudinary(buffer: Buffer, folder: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: `manibelapp/${folder}`, resource_type: 'image' },
+      (error, result) => {
+        if (error || !result) {
+          reject(error ?? new Error('Cloudinary upload failed'));
+          return;
+        }
+        resolve(result.secure_url);
+      },
+    );
+    Readable.from(buffer).pipe(uploadStream);
+  });
+}
 
 export const uploadPhoto = multer({
   storage,
@@ -92,13 +87,19 @@ export const uploadLicensePhotos = multer({
   { name: 'licenseBack', maxCount: 1 },
 ]);
 
-/** Deletes a previously-uploaded photo, keyed by its stored `/uploads/...`
- * path (e.g. `/uploads/profile-photos/xyz.jpg`) — silently no-ops if it's
- * missing or wasn't a local upload (e.g. null). */
-export function deleteUploadedPhoto(photoUrl: string | null): void {
-  if (!photoUrl || !photoUrl.startsWith('/uploads/')) return;
-  const filePath = path.join(UPLOAD_DIR, photoUrl.slice('/uploads/'.length));
-  // Never delete outside the upload dir, however photoUrl got constructed.
-  if (!filePath.startsWith(UPLOAD_DIR)) return;
-  fs.rm(filePath, { force: true }, () => {});
+/** Deletes a previously-uploaded photo from Cloudinary, keyed by its
+ * stored secure_url — silently no-ops if it's missing or wasn't a
+ * Cloudinary URL (e.g. null, or a pre-Cloudinary local /uploads/... path
+ * left over from before this migration, which no longer resolves to a
+ * real file anyway). Best-effort, same as callers' fire-and-forget usage.
+ */
+export async function deleteUploadedPhoto(photoUrl: string | null): Promise<void> {
+  if (!photoUrl || !photoUrl.includes('res.cloudinary.com')) return;
+  const match = photoUrl.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-zA-Z0-9]+$/);
+  if (!match) return;
+  try {
+    await cloudinary.uploader.destroy(match[1]);
+  } catch {
+    // Best-effort — nothing else references this file either way.
+  }
 }

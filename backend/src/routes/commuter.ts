@@ -15,6 +15,7 @@ import {
   uploadSelfie,
   uploadComplaintAttachment,
   deleteUploadedPhoto,
+  uploadBufferToCloudinary,
 } from '../middleware/upload';
 import { normalizePlateNumber } from '../utils/plate';
 import { toTitleCase } from '../utils/text';
@@ -207,8 +208,10 @@ router.post('/signup/:ticket/id-photos', (req, res, next) => {
         return;
       }
 
-      const idFrontUrl = `/uploads/id-photos/${front.filename}`;
-      const idBackUrl = `/uploads/id-photos/${back.filename}`;
+      const [idFrontUrl, idBackUrl] = await Promise.all([
+        uploadBufferToCloudinary(front.buffer, 'id-photos'),
+        uploadBufferToCloudinary(back.buffer, 'id-photos'),
+      ]);
 
       await prisma.pendingCommuterSignup.update({
         where: { id: pending.id },
@@ -250,7 +253,7 @@ router.post('/signup/:ticket/selfie', (req, res, next) => {
         return;
       }
 
-      const selfieUrl = `/uploads/selfies/${req.file.filename}`;
+      const selfieUrl = await uploadBufferToCloudinary(req.file.buffer, 'selfies');
 
       await prisma.pendingCommuterSignup.update({
         where: { id: pending.id },
@@ -635,7 +638,7 @@ router.post('/me/photo', requireAuth('commuter'), (req, res, next) => {
         return;
       }
 
-      const photoUrl = `/uploads/profile-photos/${req.file.filename}`;
+      const photoUrl = await uploadBufferToCloudinary(req.file.buffer, 'profile-photos');
       const commuter = await prisma.commuter.update({
         where: { id: existing.id },
         data: { photoUrl },
@@ -1368,6 +1371,9 @@ router.post('/complaints', requireAuth('commuter'), (req, res, next) => {
         return;
       }
 
+      const attachmentUrl = req.file
+        ? await uploadBufferToCloudinary(req.file.buffer, 'complaint-attachments')
+        : null;
       const complaint = await prisma.complaint.create({
         data: {
           complainantId: req.auth!.sub,
@@ -1375,7 +1381,7 @@ router.post('/complaints', requireAuth('commuter'), (req, res, next) => {
           tripId: body.tripId ?? null,
           complaintType: body.complaintType,
           description: body.description,
-          attachmentUrl: req.file ? `/uploads/complaint-attachments/${req.file.filename}` : null,
+          attachmentUrl,
         },
       });
 

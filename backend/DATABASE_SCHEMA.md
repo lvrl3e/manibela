@@ -117,7 +117,7 @@ collapsed.
 | Field | Type | Notes |
 |---|---|---|
 | `boardedAt` / `alightedAt` | DateTime / DateTime? | Open (still riding) when `alightedAt` is null |
-| `regularRiders`, `studentRiders`, `seniorRiders`, `fare` | Int?/Float? | Party size + computed flat fare at boarding time |
+| `riders` | Int? | Party size at boarding |
 
 **DB constraint (raw SQL):** not a plain `@@unique([tripId, commuterId])`
 (that would cap a commuter to one ride ever per Trip) — instead a
@@ -139,6 +139,7 @@ and driver endpoints only ever return clustered grid cells.
 |---|---|---|
 | `lat`/`lng` | Float | |
 | `route` | String? | Lets a driver's endpoint filter to just their own route |
+| `partySize` | Int? | How many people this ping is requesting a ride for; null treated as 1 |
 | `fulfilledAt` | DateTime? | Set on boarding or explicit cancel; null = still waiting. Row is kept either way (counts toward daily stats), just stops surfacing |
 
 At most one *unfulfilled* signal is kept per commuter (refreshed in

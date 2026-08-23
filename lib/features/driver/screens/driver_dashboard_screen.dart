@@ -171,14 +171,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       );
       if (!mounted) return;
       final raw = response['signals'] as List<dynamic>? ?? const [];
-      final points = raw.map((s) {
+      final pings = raw.map((s) {
         final map = s as Map<String, dynamic>;
-        return LatLng(
-          (map['lat'] as num).toDouble(),
-          (map['lng'] as num).toDouble(),
+        return _DemandPing(
+          point: LatLng(
+            (map['lat'] as num).toDouble(),
+            (map['lng'] as num).toDouble(),
+          ),
+          partySize: (map['partySize'] as num?)?.toInt() ?? 1,
         );
       }).toList();
-      setState(() => _demandStops = _clusterDemandSignals(points));
+      setState(() => _demandStops = _clusterDemandSignals(pings));
     } catch (_) {
       // Best-effort — the map just keeps showing whatever it last had.
     }
@@ -1560,10 +1563,20 @@ class _WaitingStop {
   const _WaitingStop({required this.point, required this.count});
 }
 
+/// One raw demand-signal ping — position plus how many people that
+/// commuter is requesting a ride for (see DemandSignal.partySize's doc
+/// comment in schema.prisma).
+class _DemandPing {
+  final LatLng point;
+  final int partySize;
+  const _DemandPing({required this.point, required this.partySize});
+}
+
 class _DemandBucket {
   double latSum = 0;
   double lngSum = 0;
-  int count = 0;
+  int pingCount = 0;
+  int partySizeSum = 0;
 }
 
 /// Buckets raw pings into ~0.001°-square cells (~100m at this latitude)
@@ -1571,25 +1584,30 @@ class _DemandBucket {
 /// position — same reasoning as a map heatmap: individual pings are noisy
 /// and privacy-sensitive on their own (see DemandSignal's doc comment in
 /// schema.prisma), a cluster is a stable, honest "demand is around here."
-List<_WaitingStop> _clusterDemandSignals(List<LatLng> points) {
+/// The marker's displayed count is the *sum* of party sizes, not the
+/// number of pings — a group of 4 booked from one account reads as 4
+/// waiting, not 1. Position averaging still uses ping count, not party
+/// size, since that's about geometric centering, not headcount.
+List<_WaitingStop> _clusterDemandSignals(List<_DemandPing> pings) {
   const cellSize = 0.001;
   final buckets = <String, _DemandBucket>{};
 
-  for (final point in points) {
-    final cellLat = (point.latitude / cellSize).floor();
-    final cellLng = (point.longitude / cellSize).floor();
+  for (final ping in pings) {
+    final cellLat = (ping.point.latitude / cellSize).floor();
+    final cellLng = (ping.point.longitude / cellSize).floor();
     final key = '$cellLat:$cellLng';
     final bucket = buckets.putIfAbsent(key, () => _DemandBucket());
-    bucket.latSum += point.latitude;
-    bucket.lngSum += point.longitude;
-    bucket.count += 1;
+    bucket.latSum += ping.point.latitude;
+    bucket.lngSum += ping.point.longitude;
+    bucket.pingCount += 1;
+    bucket.partySizeSum += ping.partySize;
   }
 
   return buckets.values
       .map(
         (b) => _WaitingStop(
-          point: LatLng(b.latSum / b.count, b.lngSum / b.count),
-          count: b.count,
+          point: LatLng(b.latSum / b.pingCount, b.lngSum / b.pingCount),
+          count: b.partySizeSum,
         ),
       )
       .toList();

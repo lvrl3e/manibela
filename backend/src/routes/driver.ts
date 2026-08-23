@@ -969,7 +969,7 @@ router.get('/demand-signals', requireAuth('driver'), async (req, res, next) => {
         ...(query.route ? { route: query.route } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, lat: true, lng: true, createdAt: true },
+      select: { id: true, lat: true, lng: true, createdAt: true, partySize: true },
     });
     res.json({ signals });
   } catch (err) {

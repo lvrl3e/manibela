@@ -11,6 +11,7 @@ interface DemandSignalRow {
   lat: number;
   lng: number;
   createdAt: string;
+  partySize?: number | null;
 }
 
 interface ActiveTripRow {

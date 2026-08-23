@@ -8,7 +8,7 @@ import { LogoMark } from './Logo';
 export function LoadingScreen({ label }: { label: string }) {
   return (
     <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 bg-gradient-to-br from-[#111c4d] via-ink to-black">
-      <LogoMark size={64} />
+      <LogoMark size={112} />
       <div className="h-7 w-7 animate-spin rounded-full border-[3px] border-white/15 border-t-white" />
       <p className="font-display text-sm font-medium text-white/70">{label}</p>
     </div>

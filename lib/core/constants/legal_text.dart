@@ -14,7 +14,7 @@ These Terms & Conditions ("Terms") govern your use of the ManibelApp mobile appl
 You must be at least 13 years old to create a commuter account. If you are a minor, you may only use the Service with the consent and supervision of a parent or guardian. Driver accounts are created by an admin after license verification, not through self-registration.
 
 2. What the Service Is
-ManibelApp helps commuters find, track, and board nearby jeepneys on the Pasig–Quiapo route, and helps drivers log trips and report daily operations. The Service is a facilitation tool — it does not itself operate any jeepney, employ any driver, or guarantee the availability, timing, safety, or fare of any ride. Fares shown in the app are flat-rate estimates; jeepney fares are collected in cash by the driver, not processed through the app.
+ManibelApp helps commuters find, track, and board nearby jeepneys on the Pasig–Quiapo route, and helps drivers log trips and report daily operations. The Service is a facilitation tool — it does not itself operate any jeepney, employ any driver, or guarantee the availability, timing, or safety of any ride. Jeepney fares are paid in cash directly to the driver and are not calculated, collected, or processed through the app.
 
 3. Account Responsibilities
 You are responsible for keeping your password confidential and for all activity under your account. Information you provide (name, mobile number, date of birth, identity documents) must be accurate and belong to you. Commuter accounts require identity verification (government ID + selfie) before activation; driver accounts require license verification by an admin. ManibelApp may reject a submission or deactivate an account that fails verification or is later found to be fraudulent.
@@ -56,14 +56,14 @@ By creating an account or using the Service, you consent to the collection and u
 
 1. Information We Collect
 
-Commuters: full name, mobile number, date of birth (account creation); password, stored as a hash, never in plain text (account security); profile photo (personalization); government ID (type, front/back photo) and a selfie (identity verification before your account is activated); trip boarding/alighting records, fare, rider count, ratings, complaints filed (operating and improving the jeepney tracking and fare system); approximate location when requesting a ride ("demand signal") — processed as anonymized location clusters, never exposed with your identity attached.
+Commuters: full name, mobile number, date of birth (account creation); password, stored as a hash, never in plain text (account security); profile photo (personalization); government ID (type, front/back photo) and a selfie (identity verification before your account is activated); trip boarding/alighting records, rider count, ratings, complaints filed (operating and improving the jeepney tracking system); approximate location when requesting a ride ("demand signal") — processed as anonymized location clusters, never exposed with your identity attached.
 
 Drivers: full name, mobile number, date of birth, plate number (account identification); profile photo (shown to commuters for driver recognition); driver's license front/back photo (verifying you are a licensed driver before your account is enabled; submitted through an admin, not self-uploaded); live GPS location while a trip is active (real-time jeepney tracking, and trip-integrity review such as flagging abnormally short trips); daily operations log — odometer readings, earnings, expenses (your own self-reported records, visible to admins for operational review).
 
 Automatically collected: device/app identifiers used for push notifications; timestamps of account, trip, and verification activity.
 
 2. How We Use Your Information
-To create, verify, and secure your account; to operate core features — live jeepney tracking, boarding/fare records, ratings, and complaints; to review flagged trips and investigate complaints; to send you service notifications (e.g. trip status, account status); and to comply with legal obligations and respond to lawful government requests.
+To create, verify, and secure your account; to operate core features — live jeepney tracking, boarding records, ratings, and complaints; to review flagged trips and investigate complaints; to send you service notifications (e.g. trip status, account status); and to comply with legal obligations and respond to lawful government requests.
 
 3. Legal Basis
 We process your personal information based on your consent given at sign-up, and where necessary to perform our contract with you (providing the Service) or to comply with legal obligations. Government ID, license photos, and selfies are treated as sensitive personal information under RA 10173 and are collected only with your explicit consent, solely for identity and driver-eligibility verification.

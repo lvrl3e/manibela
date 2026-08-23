@@ -770,9 +770,10 @@ const nearbyJeepneysQuerySchema = z.object({
 // since this is meant to be genuinely live, not "sometime today".
 const NEARBY_STALENESS_MS = 5 * 60 * 1000;
 
-// A jeepney further than this isn't "nearby" — no point surfacing a trip
-// on the other side of the service area.
-const NEARBY_RADIUS_METERS = 2000;
+// How far out a commuter can see a jeepney on the map/list — deliberately
+// much wider than BOARD_PROXIMITY_METERS below (boarding needs the commuter
+// actually at the jeepney; just watching it approach doesn't).
+const NEARBY_RADIUS_METERS = 20000;
 
 // Rough city-jeepney travel speed for an ETA estimate — this app has no
 // real routing/traffic data, so straight-line distance over an assumed
@@ -894,10 +895,7 @@ router.get('/active-trip', requireAuth('commuter'), async (req, res, next) => {
         photoUrl: driver.photoUrl,
         averageRating: ratingInfo._avg.stars,
         ratingCount: ratingInfo._count.stars,
-        regularRiders: boarding.regularRiders ?? 1,
-        studentRiders: boarding.studentRiders ?? 0,
-        seniorRiders: boarding.seniorRiders ?? 0,
-        fare: boarding.fare,
+        riders: boarding.riders ?? 1,
         boardedAt: boarding.boardedAt,
         // The jeepney's live position — same currentLat/currentLng the
         // driver's own location pings keep fresh (see PATCH
@@ -919,14 +917,6 @@ router.get('/active-trip', requireAuth('commuter'), async (req, res, next) => {
 // for just previewing who a QR belongs to before deciding to ride.
 // ---------------------------------------------------------------------------
 
-// Flat per-rider fare — mirrors FareBreakdown in the app's own
-// fare_calculator.dart exactly (regularFare/discountedFare). Kept here
-// too, rather than trusting a client-computed total, so the stored fare
-// is authoritative even if a client is stale or tampered with; the two
-// must be changed together if the rates ever do.
-const REGULAR_FARE = 15.0;
-const DISCOUNTED_FARE = 12.0; // Student / Senior
-
 // A commuter this far from the jeepney's own last-known position isn't
 // actually standing at it — reject the boarding rather than trust a QR
 // scan or proximity tap alone, since either could be attempted from well
@@ -947,9 +937,7 @@ const boardSchema = z
     // last-known location below — see BOARD_PROXIMITY_METERS.
     lat: z.coerce.number().min(-90).max(90),
     lng: z.coerce.number().min(-180).max(180),
-    regularRiders: z.number().int().min(0).default(1),
-    studentRiders: z.number().int().min(0).default(0),
-    seniorRiders: z.number().int().min(0).default(0),
+    riders: z.number().int().min(1).default(1),
   })
   .refine((data) => !!data.qrToken || !!data.tripId, {
     message: 'Either a QR token or a trip id is required.',
@@ -991,9 +979,6 @@ router.post('/board', requireAuth('commuter'), async (req, res, next) => {
       }
     }
 
-    const fare =
-      body.regularRiders * REGULAR_FARE + (body.studentRiders + body.seniorRiders) * DISCOUNTED_FARE;
-
     // Reuse an *open* boarding on this trip if one exists — scanning the
     // same driver's QR again mid-ride (re-confirming, accidental
     // double-scan) shouldn't duplicate. But once a boarding's been
@@ -1010,22 +995,14 @@ router.post('/board', requireAuth('commuter'), async (req, res, next) => {
     if (openBoarding) {
       boarding = await prisma.tripBoarding.update({
         where: { id: openBoarding.id },
-        data: {
-          regularRiders: body.regularRiders,
-          studentRiders: body.studentRiders,
-          seniorRiders: body.seniorRiders,
-          fare,
-        },
+        data: { riders: body.riders },
       });
     } else {
       boarding = await prisma.tripBoarding.create({
         data: {
           tripId: trip.id,
           commuterId: req.auth!.sub,
-          regularRiders: body.regularRiders,
-          studentRiders: body.studentRiders,
-          seniorRiders: body.seniorRiders,
-          fare,
+          riders: body.riders,
         },
       });
     }
@@ -1102,6 +1079,10 @@ const demandSignalSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   route: z.string().trim().min(1).optional(),
+  // How many people this commuter is requesting a ride for — a cluster's
+  // displayed passenger count sums this instead of counting rows, so a
+  // group of 4 booked from one account reads as 4 waiting, not 1.
+  partySize: z.number().int().min(1).default(1),
 });
 
 router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) => {
@@ -1113,7 +1094,8 @@ router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) =
     // (see jeepney_booking_flow_screen.dart) to keep a genuinely-waiting
     // commuter visible past the staleness window; refreshing the existing
     // row in place (rather than creating another) keeps a cluster's count
-    // meaning "N distinct people," not "N pings from however-many people."
+    // meaning "party sizes of N distinct people," not "N pings from
+    // however-many people."
     // Self-healing: if more than one unfulfilled row somehow already
     // exists for this commuter (e.g. a duplicate created before this
     // dedup logic existed), every send here collapses back down to one —
@@ -1128,7 +1110,13 @@ router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) =
       await prisma.$transaction([
         prisma.demandSignal.update({
           where: { id: keep.id },
-          data: { lat: body.lat, lng: body.lng, route: body.route ?? keep.route, createdAt: new Date() },
+          data: {
+            lat: body.lat,
+            lng: body.lng,
+            route: body.route ?? keep.route,
+            partySize: body.partySize,
+            createdAt: new Date(),
+          },
         }),
         ...(duplicates.length > 0
           ? [prisma.demandSignal.deleteMany({ where: { id: { in: duplicates.map((d) => d.id) } } })]
@@ -1136,7 +1124,13 @@ router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) =
       ]);
     } else {
       await prisma.demandSignal.create({
-        data: { commuterId: req.auth!.sub, lat: body.lat, lng: body.lng, route: body.route },
+        data: {
+          commuterId: req.auth!.sub,
+          lat: body.lat,
+          lng: body.lng,
+          route: body.route,
+          partySize: body.partySize,
+        },
       });
     }
 
@@ -1169,10 +1163,9 @@ router.post('/demand-signals/cancel', requireAuth('commuter'), async (req, res, 
 // TRIP HISTORY — the commuter's own real boardings (see TripBoarding's doc
 // comment in schema.prisma), joined with the trip/driver they rode with.
 // Backs CommuterHistoryScreen, which used to be SharedPreferences-only.
-// Fare/rider-count breakdown stays purely client-side — see FareBreakdown
-// on the Flutter side; there's nothing honestly trackable about it
-// server-side (same reasoning as DriverDailyLog's earnings: cash, no
-// payment system), so this only syncs *which trip, which driver, when*.
+// There's no fare/payment feature in this app — riders is a headcount
+// only, same reasoning as DriverDailyLog's own earnings staying
+// self-reported cash with no payment system behind it.
 // ---------------------------------------------------------------------------
 
 const tripHistoryQuerySchema = z.object({
@@ -1244,13 +1237,10 @@ router.get('/trips', requireAuth('commuter'), async (req, res, next) => {
           route: trip.route,
           boardedAt: b.boardedAt,
           alightedAt: b.alightedAt,
-          // Null on boardings from before these columns existed (see
+          // Null on boardings from before this column existed (see
           // TripBoarding's doc comment) — the client falls back to
           // whatever it has cached locally in that case.
-          regularRiders: b.regularRiders,
-          studentRiders: b.studentRiders,
-          seniorRiders: b.seniorRiders,
-          fare: b.fare,
+          riders: b.riders,
           driverAverageRating: ratingInfo?.avg ?? null,
           driverRatingCount: ratingInfo?.count ?? 0,
           alreadyRated: ratedTripIds.has(trip.id),

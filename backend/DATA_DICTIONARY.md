@@ -123,10 +123,7 @@ One ride segment: a commuter's board→alight on one Trip. Table name: `TripBoar
 | `commuterId` | String | FK* → Commuter.id, NOT NULL | U (partial, raw SQL) with `tripId` where `alightedAt IS NULL` — at most one open ride per commuter per trip |
 | `boardedAt` | DateTime | NOT NULL, default: now | |
 | `alightedAt` | DateTime | N | Null = still riding |
-| `regularRiders` | Int | N | Party size at boarding |
-| `studentRiders` | Int | N | |
-| `seniorRiders` | Int | N | |
-| `fare` | Float | N | Computed flat fare at boarding time |
+| `riders` | Int | N | Party size at boarding |
 
 ## DemandSignal
 Anonymous "I want a ride here" ping. Table name: `DemandSignal`.
@@ -139,6 +136,7 @@ Anonymous "I want a ride here" ping. Table name: `DemandSignal`.
 | `lng` | Float | NOT NULL | |
 | `createdAt` | DateTime | NOT NULL, default: now | |
 | `route` | String | N | |
+| `partySize` | Int | N | How many people this ping is requesting a ride for; null treated as 1 |
 | `fulfilledAt` | DateTime | N | Set on boarding or explicit cancel; null = still waiting |
 
 ## Complaint

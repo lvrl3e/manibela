@@ -49,6 +49,10 @@ interface RawDemandSignal {
   id: string;
   lat: number;
   lng: number;
+  /** How many people this commuter is requesting a ride for — see
+   * DemandSignal.partySize's doc comment in schema.prisma. Null on
+   * signals sent before this existed; treated as 1. */
+  partySize?: number | null;
 }
 
 /** Buckets raw demand-signal pings into ~0.001°-square cells (~100m at this
@@ -56,29 +60,34 @@ interface RawDemandSignal {
  * average position — same reasoning as any map heatmap: individual pings
  * are noisy and (deliberately, see DemandSignal's doc comment in
  * schema.prisma) not tied to a commuter identity on their own; a cluster is
- * a stable, honest "demand is around here." Mirrored exactly by the driver
- * app's own _clusterDemandSignals (driver_dashboard_screen.dart) so both
- * surfaces agree on where passengers are from the same raw rows. */
+ * a stable, honest "demand is around here." A marker's displayed count
+ * sums party sizes, not ping count — a group of 4 booked from one account
+ * reads as 4 waiting, not 1; position averaging still uses ping count, not
+ * party size, since that's geometric centering, not headcount. Mirrored
+ * exactly by the driver app's own _clusterDemandSignals
+ * (driver_dashboard_screen.dart) so both surfaces agree on where
+ * passengers are from the same raw rows. */
 export function clusterDemandSignals(signals: RawDemandSignal[]): DemandMarker[] {
   const CELL_SIZE = 0.001;
-  const buckets = new Map<string, { latSum: number; lngSum: number; count: number }>();
+  const buckets = new Map<string, { latSum: number; lngSum: number; pingCount: number; partySizeSum: number }>();
 
   for (const signal of signals) {
     const cellLat = Math.floor(signal.lat / CELL_SIZE);
     const cellLng = Math.floor(signal.lng / CELL_SIZE);
     const key = `${cellLat}:${cellLng}`;
-    const bucket = buckets.get(key) ?? { latSum: 0, lngSum: 0, count: 0 };
+    const bucket = buckets.get(key) ?? { latSum: 0, lngSum: 0, pingCount: 0, partySizeSum: 0 };
     bucket.latSum += signal.lat;
     bucket.lngSum += signal.lng;
-    bucket.count += 1;
+    bucket.pingCount += 1;
+    bucket.partySizeSum += signal.partySize ?? 1;
     buckets.set(key, bucket);
   }
 
   return [...buckets.entries()].map(([key, b]) => ({
     id: key,
-    lat: b.latSum / b.count,
-    lng: b.lngSum / b.count,
-    count: b.count,
+    lat: b.latSum / b.pingCount,
+    lng: b.lngSum / b.pingCount,
+    count: b.partySizeSum,
   }));
 }
 

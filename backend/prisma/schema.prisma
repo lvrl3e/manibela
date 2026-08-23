@@ -254,16 +254,11 @@ model TripBoarding {
   boardedAt  DateTime  @default(now())
   alightedAt DateTime?
 
-  /// The commuter's own party at the moment they boarded — sent by POST
-  /// /board — plus [fare], the flat-rate total computed from them right
-  /// then (see FareBreakdown in fare_calculator.dart, mirrored server-side
-  /// so this survives a reinstall/new-device sync; previously this was
-  /// local-only and appeared as "—" once a trip returned from a sync with
-  /// no matching local record). Null on boardings from before this existed.
-  regularRiders Int?
-  studentRiders Int?
-  seniorRiders  Int?
-  fare          Float?
+  /// The commuter's own party size at the moment they boarded — sent by
+  /// POST /board, mirrored server-side so this survives a reinstall/
+  /// new-device sync. There's no fare/payment feature in this app — this
+  /// is purely a headcount. Null on boardings from before this existed.
+  riders Int?
 
   // No longer a plain @@unique([tripId, commuterId]) — that made it
   // impossible to log more than one ride per commuter per Trip. Instead,
@@ -301,6 +296,13 @@ model DemandSignal {
   /// ever known (shouldn't happen going forward — the trigger now waits
   /// for route selection — but kept nullable for old rows).
   route String?
+
+  /// How many people this commuter is requesting a ride for — shown
+  /// summed (not row-counted) in a map cluster's passenger count, so a
+  /// group of 4 booked from one account actually reads as 4 waiting, not
+  /// 1. Null on signals sent before this existed; treated as 1 (just the
+  /// account itself) wherever a cluster sums this.
+  partySize Int?
 
   /// Set the moment this signal stops representing someone still actually
   /// waiting — either they boarded a jeepney (see POST /api/commuter/board)

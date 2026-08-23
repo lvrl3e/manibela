@@ -8,7 +8,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/avatar_image.dart';
-import '../../../core/utils/fare_calculator.dart';
 import '../../../core/utils/manila_date_range.dart';
 import 'notifications_screen.dart';
 
@@ -31,11 +30,8 @@ class TripHistoryItem {
   /// app that shows one. Null falls back to an initial-letter avatar.
   final String? photoUrl;
   final String route;
-  final int regularRiders;
-  final int studentRiders;
-  final int seniorRiders;
+  final int riders;
   final String dateTime;
-  final String fare;
 
   /// Raw boarding timestamp — [dateTime] is a pre-formatted display string
   /// that isn't safely re-parseable, so this is what merge/sort against
@@ -44,9 +40,7 @@ class TripHistoryItem {
 
   /// The driver's average rating and how many ratings it's based on — from
   /// the backend's real Rating table (see [CommuterHistoryScreen.syncFromBackend]),
-  /// null/0 until a sync has actually happened. Fare/rider counts stay
-  /// purely local (self-reported, no payment system to verify against),
-  /// but a rating is real, durable data once submitted, so this isn't.
+  /// null/0 until a sync has actually happened.
   final double? driverAverageRating;
   final int driverRatingCount;
 
@@ -65,24 +59,15 @@ class TripHistoryItem {
     required this.plateNumber,
     this.photoUrl,
     required this.route,
-    required this.regularRiders,
-    required this.studentRiders,
-    required this.seniorRiders,
+    required this.riders,
     required this.dateTime,
-    required this.fare,
     required this.boardedAt,
     this.driverAverageRating,
     this.driverRatingCount = 0,
     this.myRating,
   });
 
-  FareBreakdown get fareBreakdown => FareBreakdown(
-    regularRiders: regularRiders,
-    studentRiders: studentRiders,
-    seniorRiders: seniorRiders,
-  );
-
-  String get ridersLabel => fareBreakdown.ridersLabel;
+  String get ridersLabel => '$riders passenger${riders == 1 ? '' : 's'}';
 
   Map<String, dynamic> _toJson() => {
     'boardingId': boardingId,
@@ -91,11 +76,8 @@ class TripHistoryItem {
     'plateNumber': plateNumber,
     'photoUrl': photoUrl,
     'route': route,
-    'regularRiders': regularRiders,
-    'studentRiders': studentRiders,
-    'seniorRiders': seniorRiders,
+    'riders': riders,
     'dateTime': dateTime,
-    'fare': fare,
     'boardedAt': boardedAt.toIso8601String(),
     'driverAverageRating': driverAverageRating,
     'driverRatingCount': driverRatingCount,
@@ -113,11 +95,14 @@ class TripHistoryItem {
         plateNumber: json['plateNumber'] as String,
         photoUrl: json['photoUrl'] as String?,
         route: json['route'] as String,
-        regularRiders: json['regularRiders'] as int,
-        studentRiders: json['studentRiders'] as int,
-        seniorRiders: json['seniorRiders'] as int,
+        // Old entries persisted before regular/student/senior collapsed
+        // into one headcount fall back to summing whatever's there.
+        riders:
+            (json['riders'] as int?) ??
+            ((json['regularRiders'] as int? ?? 0) +
+                (json['studentRiders'] as int? ?? 0) +
+                (json['seniorRiders'] as int? ?? 0)),
         dateTime: json['dateTime'] as String,
-        fare: json['fare'] as String,
         // Older persisted entries (from before this field existed) won't
         // have it — fall back to "now" rather than crash on load.
         boardedAt: json['boardedAt'] != null
@@ -303,22 +288,8 @@ class CommuterHistoryScreen extends StatefulWidget {
             plateNumber: map['plateNumber'] as String,
             photoUrl: (map['photoUrl'] as String?) ?? existing?.photoUrl,
             route: (map['route'] as String?) ?? existing?.route ?? '—',
-            regularRiders:
-                (map['regularRiders'] as num?)?.toInt() ??
-                existing?.regularRiders ??
-                1,
-            studentRiders:
-                (map['studentRiders'] as num?)?.toInt() ??
-                existing?.studentRiders ??
-                0,
-            seniorRiders:
-                (map['seniorRiders'] as num?)?.toInt() ??
-                existing?.seniorRiders ??
-                0,
+            riders: (map['riders'] as num?)?.toInt() ?? existing?.riders ?? 1,
             dateTime: existing?.dateTime ?? _formatBoardedAt(boardedAt),
-            fare: (map['fare'] as num?) != null
-                ? '₱${(map['fare'] as num).toStringAsFixed(2)}'
-                : (existing?.fare ?? '—'),
             boardedAt: boardedAt,
             driverAverageRating: (map['driverAverageRating'] as num?)
                 ?.toDouble(),
@@ -642,13 +613,20 @@ class _TripHistoryCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    trip.fare,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.logoBlue,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.people_alt_rounded, size: 14, color: AppColors.logoBlue),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${trip.riders}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.logoBlue,
+                        ),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 5),
@@ -962,46 +940,9 @@ class _CommuterTripDetailsScreenState extends State<CommuterTripDetailsScreen> {
                         const SizedBox(height: 9),
 
                         _ReceiptRow(
-                          label: 'Passengers',
-                          value: trip.ridersLabel,
-                        ),
-
-                        const SizedBox(height: 9),
-
-                        _ReceiptRow(
                           label: 'Jeepney',
                           value: '${trip.plateNumber} · ${trip.driverName}',
                         ),
-
-                        if (trip.regularRiders > 0) ...[
-                          const SizedBox(height: 9),
-                          _ReceiptRow(
-                            label:
-                                '${trip.regularRiders} × Regular (₱${FareBreakdown.regularFare.toStringAsFixed(2)})',
-                            value:
-                                '₱${trip.fareBreakdown.regularSubtotal.toStringAsFixed(2)}',
-                          ),
-                        ],
-
-                        if (trip.studentRiders > 0) ...[
-                          const SizedBox(height: 9),
-                          _ReceiptRow(
-                            label:
-                                '${trip.studentRiders} × Student (₱${FareBreakdown.discountedFare.toStringAsFixed(2)})',
-                            value:
-                                '₱${trip.fareBreakdown.studentSubtotal.toStringAsFixed(2)}',
-                          ),
-                        ],
-
-                        if (trip.seniorRiders > 0) ...[
-                          const SizedBox(height: 9),
-                          _ReceiptRow(
-                            label:
-                                '${trip.seniorRiders} × Senior/PWD (₱${FareBreakdown.discountedFare.toStringAsFixed(2)})',
-                            value:
-                                '₱${trip.fareBreakdown.seniorSubtotal.toStringAsFixed(2)}',
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -1029,7 +970,7 @@ class _CommuterTripDetailsScreenState extends State<CommuterTripDetailsScreen> {
                   ),
 
                   // ===================================================
-                  // FARE
+                  // TOTAL PASSENGERS
                   // ===================================================
                   Container(
                     width: double.infinity,
@@ -1050,7 +991,7 @@ class _CommuterTripDetailsScreenState extends State<CommuterTripDetailsScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Total Fare',
+                          'Total Passengers',
                           style: TextStyle(
                             fontSize: 9,
                             color: AppColors.onPrimary,
@@ -1059,7 +1000,7 @@ class _CommuterTripDetailsScreenState extends State<CommuterTripDetailsScreen> {
                         ),
 
                         Text(
-                          trip.fare,
+                          '${trip.riders}',
                           style: const TextStyle(
                             fontSize: 15,
                             color: AppColors.textPrimary,

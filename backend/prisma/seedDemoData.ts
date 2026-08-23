@@ -328,18 +328,12 @@ async function seedBoardings(activeTrips: { id: string }[], commuters: { id: str
   for (const trip of activeTrips) {
     const riders = commuters.slice(randInt(0, 6), randInt(0, 6) + randInt(2, 4));
     for (const commuter of riders) {
-      const regular = randInt(1, 2);
-      const student = Math.random() < 0.3 ? 1 : 0;
-      const senior = Math.random() < 0.15 ? 1 : 0;
       await prisma.tripBoarding.create({
         data: {
           tripId: trip.id,
           commuterId: commuter.id,
           boardedAt: new Date(Date.now() - randInt(2, 25) * 60 * 1000),
-          regularRiders: regular,
-          studentRiders: student,
-          seniorRiders: senior,
-          fare: regular * 13 + student * 11 + senior * 11,
+          riders: randInt(1, 4),
         },
       });
       count++;
@@ -379,6 +373,7 @@ async function seedDemandSignals(commuters: { id: string }[]) {
           lat: point[0],
           lng: point[1],
           route: pick(ROUTES),
+          partySize: randInt(1, 4),
           createdAt: new Date(Date.now() - randInt(1, 40) * 60 * 1000),
         },
       });

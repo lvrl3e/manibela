@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_assets.dart';
+import '../../../core/widgets/rolling_road_loader.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/services/user_session.dart';
@@ -127,18 +128,21 @@ class _LoadingScreenState extends State<LoadingScreen> {
                 ),
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 22),
 
-              // Spinner — the wordmark alone gave no sign the app was
-              // actually doing anything for the full 3 seconds, same gap
-              // the admin website's own loading screen had before it got
-              // one.
-              const SizedBox(
-                width: 26,
-                height: 26,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
+              // A jeepney riding a dashed road instead of a generic spinner
+              // — the wordmark alone gave no sign the app was actually
+              // doing anything for the full 3 seconds, same gap the admin
+              // website's own loading screen had before it got one.
+              const RollingRoadLoader(),
+
+              const SizedBox(height: 14),
+              const Text(
+                'Getting your ride ready…',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.onPrimary,
                 ),
               ),
             ],

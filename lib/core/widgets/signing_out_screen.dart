@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_assets.dart';
 import '../constants/app_colors.dart';
+import 'rolling_road_loader.dart';
 
 /// Shown immediately after a confirmed logout, while the actual sign-out
 /// work (clearing the session, but not the account data that persists
@@ -79,16 +80,9 @@ class _SigningOutScreenState extends State<SigningOutScreen> {
                   );
                 },
               ),
-              const SizedBox(height: 28),
-              const SizedBox(
-                width: 26,
-                height: 26,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
-                ),
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 22),
+              const RollingRoadLoader(),
+              const SizedBox(height: 14),
               const Text(
                 'Signing you out...',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.onPrimary),

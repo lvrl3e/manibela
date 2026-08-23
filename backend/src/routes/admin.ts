@@ -1279,7 +1279,7 @@ router.get('/demand-signals', requireAuth('admin'), async (_req, res, next) => {
       // in the table.
       where: { createdAt: { gte: since }, fulfilledAt: null },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, lat: true, lng: true, createdAt: true },
+      select: { id: true, lat: true, lng: true, createdAt: true, partySize: true },
     });
     res.json({ signals });
   } catch (err) {

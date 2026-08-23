@@ -98,9 +98,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
                 photoUrl: raw['photoUrl'] as String?,
                 driverRating: (raw['averageRating'] as num?)?.toDouble() ?? 0,
                 ratingCount: raw['ratingCount'] as int? ?? 0,
-                regularRiders: raw['regularRiders'] as int? ?? 1,
-                studentRiders: raw['studentRiders'] as int? ?? 0,
-                seniorRiders: raw['seniorRiders'] as int? ?? 0,
+                riders: raw['riders'] as int? ?? 1,
               );
       });
     } catch (_) {

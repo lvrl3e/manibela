@@ -8,10 +8,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/qr_constants.dart';
+import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/avatar_image.dart';
-import '../../../core/utils/fare_calculator.dart';
 import 'commuter_history_screen.dart';
 import 'notifications_screen.dart';
 import 'qr_scanner_screen.dart';
@@ -130,9 +130,7 @@ class ResumedTrip {
   final String? photoUrl;
   final double driverRating;
   final int ratingCount;
-  final int regularRiders;
-  final int studentRiders;
-  final int seniorRiders;
+  final int riders;
 
   const ResumedTrip({
     required this.tripId,
@@ -142,9 +140,7 @@ class ResumedTrip {
     required this.photoUrl,
     required this.driverRating,
     required this.ratingCount,
-    required this.regularRiders,
-    required this.studentRiders,
-    required this.seniorRiders,
+    required this.riders,
   });
 }
 
@@ -185,9 +181,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
     final resumed = widget.resumedTrip;
     if (resumed != null) {
       _selectedRoute = resumed.route;
-      _totalRiders = resumed.regularRiders + resumed.studentRiders + resumed.seniorRiders;
-      _studentRiders = resumed.studentRiders;
-      _seniorRiders = resumed.seniorRiders;
+      _totalRiders = resumed.riders;
       _selectedJeepney = _JeepneyOption(
         plateNumber: resumed.plateNumber,
         driverName: resumed.driverName,
@@ -245,11 +239,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   bool _routeDropdownOpen = false;
   String? _selectedRoute;
 
-  // Total riders always includes the commuter themself; student/senior are
-  // a subset of that total — whatever's left over rides at the regular fare.
+  // Total riders always includes the commuter themself.
   int _totalRiders = 1;
-  int _studentRiders = 0;
-  int _seniorRiders = 0;
 
   _JeepneyOption? _selectedJeepney;
 
@@ -269,26 +260,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   bool _hasRated = false;
   bool _hasReported = false;
 
-  FareBreakdown get _fareBreakdown => FareBreakdown(
-        regularRiders: _totalRiders - _studentRiders - _seniorRiders,
-        studentRiders: _studentRiders,
-        seniorRiders: _seniorRiders,
-      );
-
   void _setTotalRiders(int value) {
-    setState(() {
-      _totalRiders = value;
-      // Trim discounted riders (seniors first) if they no longer fit.
-      while (_studentRiders + _seniorRiders > _totalRiders) {
-        if (_seniorRiders > 0) {
-          _seniorRiders--;
-        } else if (_studentRiders > 0) {
-          _studentRiders--;
-        } else {
-          break;
-        }
-      }
-    });
+    setState(() => _totalRiders = value);
   }
 
   void _goTo(_BookingStep step) => setState(() => _step = step);
@@ -402,6 +375,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
           'lat': _center.latitude,
           'lng': _center.longitude,
           if (_selectedRoute != null) 'route': _selectedRoute,
+          'partySize': _totalRiders,
         },
         token: UserSession.instance.authToken,
       ).catchError((_) => <String, dynamic>{}),
@@ -558,9 +532,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
           'tripId': jeepney.tripId,
           'lat': _center.latitude,
           'lng': _center.longitude,
-          'regularRiders': _fareBreakdown.regularRiders,
-          'studentRiders': _fareBreakdown.studentRiders,
-          'seniorRiders': _fareBreakdown.seniorRiders,
+          'riders': _totalRiders,
         },
         token: UserSession.instance.authToken,
       );
@@ -637,9 +609,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
           'qrToken': token,
           'lat': _center.latitude,
           'lng': _center.longitude,
-          'regularRiders': _fareBreakdown.regularRiders,
-          'studentRiders': _fareBreakdown.studentRiders,
-          'seniorRiders': _fareBreakdown.seniorRiders,
+          'riders': _totalRiders,
         },
         token: UserSession.instance.authToken,
       );
@@ -672,7 +642,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       builder: (_) => _OnBoardDialog(
         route: route,
         jeepney: jeepney,
-        fare: _fareBreakdown,
+        riders: _totalRiders,
       ),
     ).then((_) {
       if (!mounted) return;
@@ -791,7 +761,6 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
     if (jeepney == null || route == null) return;
 
     final now = DateTime.now();
-    final fare = _fareBreakdown;
 
     CommuterHistoryScreen.addTrip(
       TripHistoryItem(
@@ -805,11 +774,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         plateNumber: jeepney.plateNumber,
         photoUrl: jeepney.photoUrl,
         route: route,
-        regularRiders: fare.regularRiders,
-        studentRiders: fare.studentRiders,
-        seniorRiders: fare.seniorRiders,
+        riders: _totalRiders,
         dateTime: _formatHistoryDateTime(now),
-        fare: fare.totalLabel,
         boardedAt: now,
       ),
     );
@@ -907,6 +873,34 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
                     TextSourceAttribution('© OpenStreetMap contributors', onTap: () {}),
                   ],
                 ),
+                // The corridor itself, faint, so it's clear which streets
+                // jeepneys on this route actually run along — then each
+                // nearby jeepney's own trail (below) highlights the exact
+                // stretch of it between that jeepney and the commuter,
+                // giving the ETA already shown in its card a path to match.
+                if (_step == _BookingStep.findingJeepneys)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: RoutePath.forRoute(_selectedRoute),
+                        strokeWidth: 3,
+                        color: Colors.black26,
+                      ),
+                      for (final jeepney in _nearbyJeepneys)
+                        if (jeepney.position != null)
+                          Polyline(
+                            points: RoutePath.trailBetween(
+                              jeepney.position!,
+                              _center,
+                              route: _selectedRoute,
+                            ),
+                            strokeWidth: jeepney == _selectedJeepney ? 5 : 3,
+                            color: jeepney == _selectedJeepney
+                                ? _kBlue
+                                : Colors.black54,
+                          ),
+                    ],
+                  ),
                 MarkerLayer(
                   markers: [
                     Marker(
@@ -1027,11 +1021,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
             _routeDropdownOpen = false;
           }),
           totalRiders: _totalRiders,
-          studentRiders: _studentRiders,
-          seniorRiders: _seniorRiders,
           onTotalRidersChanged: _setTotalRiders,
-          onStudentRidersChanged: (value) => setState(() => _studentRiders = value),
-          onSeniorRidersChanged: (value) => setState(() => _seniorRiders = value),
           onContinue: _selectedRoute == null
               ? null
               : () => _startFindingJeepneys(_center),
@@ -1078,7 +1068,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         return _BoardingStatusStep(
           route: _selectedRoute!,
           jeepney: _selectedJeepney!,
-          fare: _fareBreakdown,
+          riders: _totalRiders,
           onEndTrip: _handleEndTrip,
         );
 
@@ -1086,7 +1076,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         return _TripCompletedStep(
           route: _selectedRoute!,
           jeepney: _selectedJeepney!,
-          fare: _fareBreakdown,
+          riders: _totalRiders,
           hasRated: _hasRated,
           hasReported: _hasReported,
           onRateDriver: _showRateDriverSheet,
@@ -1281,11 +1271,7 @@ class _RouteAndCompanionsStep extends StatefulWidget {
   final ValueChanged<String> onSelectRoute;
 
   final int totalRiders;
-  final int studentRiders;
-  final int seniorRiders;
   final ValueChanged<int> onTotalRidersChanged;
-  final ValueChanged<int> onStudentRidersChanged;
-  final ValueChanged<int> onSeniorRidersChanged;
 
   final VoidCallback? onContinue;
 
@@ -1297,11 +1283,7 @@ class _RouteAndCompanionsStep extends StatefulWidget {
     required this.selectedRoute,
     required this.onSelectRoute,
     required this.totalRiders,
-    required this.studentRiders,
-    required this.seniorRiders,
     required this.onTotalRidersChanged,
-    required this.onStudentRidersChanged,
-    required this.onSeniorRidersChanged,
     required this.onContinue,
   });
 
@@ -1336,11 +1318,6 @@ class _RouteAndCompanionsStepState extends State<_RouteAndCompanionsStep> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredRoutes;
-    final fare = FareBreakdown(
-      regularRiders: widget.totalRiders - widget.studentRiders - widget.seniorRiders,
-      studentRiders: widget.studentRiders,
-      seniorRiders: widget.seniorRiders,
-    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1440,69 +1417,6 @@ class _RouteAndCompanionsStepState extends State<_RouteAndCompanionsStep> {
             max: 5,
             onChanged: widget.onTotalRidersChanged,
           ),
-        ),
-
-        const SizedBox(height: 16),
-
-        const Text(
-          'Fare Type',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Student and Senior/PWD riders get a discounted fare.',
-          style: TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F6F8),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: _RiderCounterRow(
-                  label: 'Student',
-                  count: widget.studentRiders,
-                  min: 0,
-                  max: widget.totalRiders - widget.seniorRiders,
-                  onChanged: widget.onStudentRidersChanged,
-                ),
-              ),
-              const Divider(height: 1, color: Color(0xFFE6E6E7)),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: _RiderCounterRow(
-                  label: 'Senior / PWD',
-                  count: widget.seniorRiders,
-                  min: 0,
-                  max: widget.totalRiders - widget.studentRiders,
-                  onChanged: widget.onSeniorRidersChanged,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                fare.ridersLabel,
-                style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w600),
-              ),
-            ),
-            Text(
-              'Est. fare: ${fare.totalLabel}',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _kBlue),
-            ),
-          ],
         ),
 
         const SizedBox(height: 18),
@@ -1866,12 +1780,12 @@ class _ScanQrStep extends StatelessWidget {
 class _OnBoardDialog extends StatelessWidget {
   final String route;
   final _JeepneyOption jeepney;
-  final FareBreakdown fare;
+  final int riders;
 
   const _OnBoardDialog({
     required this.route,
     required this.jeepney,
-    required this.fare,
+    required this.riders,
   });
 
   @override
@@ -1927,8 +1841,7 @@ class _OnBoardDialog extends StatelessWidget {
               child: Column(
                 children: [
                   _SummaryRow(label: 'Route', value: route),
-                  _SummaryRow(label: 'Passengers', value: fare.ridersLabel),
-                  _SummaryRow(label: 'Fare', value: fare.totalLabel),
+                  _SummaryRow(label: 'Passengers', value: '$riders'),
                 ],
               ),
             ),
@@ -2033,13 +1946,13 @@ class _SummaryRow extends StatelessWidget {
 class _BoardingStatusStep extends StatelessWidget {
   final String route;
   final _JeepneyOption jeepney;
-  final FareBreakdown fare;
+  final int riders;
   final VoidCallback onEndTrip;
 
   const _BoardingStatusStep({
     required this.route,
     required this.jeepney,
-    required this.fare,
+    required this.riders,
     required this.onEndTrip,
   });
 
@@ -2093,8 +2006,7 @@ class _BoardingStatusStep extends StatelessWidget {
           child: Column(
             children: [
               _SummaryRow(label: 'Route', value: route),
-              _SummaryRow(label: 'Passengers', value: fare.ridersLabel),
-              _SummaryRow(label: 'Fare', value: fare.totalLabel),
+              _SummaryRow(label: 'Passengers', value: '$riders'),
             ],
           ),
         ),
@@ -2134,7 +2046,7 @@ class _BoardingStatusStep extends StatelessWidget {
 class _TripCompletedStep extends StatelessWidget {
   final String route;
   final _JeepneyOption jeepney;
-  final FareBreakdown fare;
+  final int riders;
   final bool hasRated;
   final bool hasReported;
   final VoidCallback onRateDriver;
@@ -2144,7 +2056,7 @@ class _TripCompletedStep extends StatelessWidget {
   const _TripCompletedStep({
     required this.route,
     required this.jeepney,
-    required this.fare,
+    required this.riders,
     required this.hasRated,
     required this.hasReported,
     required this.onRateDriver,
@@ -2183,8 +2095,7 @@ class _TripCompletedStep extends StatelessWidget {
             children: [
               _SummaryRow(label: 'Route', value: route),
               _SummaryRow(label: 'Jeepney', value: '${jeepney.plateNumber} · ${jeepney.driverName}'),
-              _SummaryRow(label: 'Passengers', value: fare.ridersLabel),
-              _SummaryRow(label: 'Fare', value: fare.totalLabel),
+              _SummaryRow(label: 'Passengers', value: '$riders'),
             ],
           ),
         ),

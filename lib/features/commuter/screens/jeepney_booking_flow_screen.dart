@@ -425,7 +425,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   // imprecision (5-20m typical in the city, see nearby-jeepneys' own doc
   // comment) is unlikely to be confusing it with a different stopped
   // vehicle a full stop-width away.
-  static const double _proximityThresholdMeters = 30;
+  static const double _proximityThresholdMeters = 10;
 
   bool _proximityPromptShowing = false;
 
@@ -444,15 +444,16 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   // long so watching resumes instead of silently stalling.
   static const Duration _proximityPromptTimeout = Duration(seconds: 12);
 
-  // How long the closest jeepney has to *stay* within
-  // [_proximityThresholdMeters] before it's trusted enough to auto-prompt —
-  // a single close poll could just be GPS jitter or a jeepney momentarily
-  // passing within range without actually stopping; requiring it to hold
-  // for a while (a handful of 5s polls) filters that out. Keyed by tripId
-  // so a different jeepney becoming closest starts its own count from zero
-  // rather than inheriting time built up by whichever one was closest before.
+  // Kept as an explicit zero (rather than deleting the mechanism) so the
+  // "how long has the closest jeepney stayed this close" bookkeeping below
+  // still exists if a debounce is ever wanted again — at 10m (tight enough
+  // that GPS jitter or a passing-by jeepney rarely triggers it at all) the
+  // prompt should show the moment that range is reached, not several polls
+  // later. Keyed by tripId so a different jeepney becoming closest starts
+  // its own count from zero rather than inheriting time built up by
+  // whichever one was closest before.
   final Map<String, DateTime> _proximityFirstSeenAt = {};
-  static const Duration _proximitySustainedDuration = Duration(seconds: 30);
+  static const Duration _proximitySustainedDuration = Duration.zero;
 
   // Auto-offers to board the closest jeepney once it's been within
   // [_proximityThresholdMeters] for [_proximitySustainedDuration] — no
@@ -547,6 +548,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         '/api/commuter/board',
         {
           'tripId': jeepney.tripId,
+          'lat': _center.latitude,
+          'lng': _center.longitude,
           'regularRiders': _fareBreakdown.regularRiders,
           'studentRiders': _fareBreakdown.studentRiders,
           'seniorRiders': _fareBreakdown.seniorRiders,
@@ -623,6 +626,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         '/api/commuter/board',
         {
           'qrToken': token,
+          'lat': _center.latitude,
+          'lng': _center.longitude,
           'regularRiders': _fareBreakdown.regularRiders,
           'studentRiders': _fareBreakdown.studentRiders,
           'seniorRiders': _fareBreakdown.seniorRiders,

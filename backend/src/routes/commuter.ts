@@ -772,7 +772,7 @@ const NEARBY_STALENESS_MS = 5 * 60 * 1000;
 
 // A jeepney further than this isn't "nearby" — no point surfacing a trip
 // on the other side of the service area.
-const NEARBY_RADIUS_METERS = 5000;
+const NEARBY_RADIUS_METERS = 2000;
 
 // Rough city-jeepney travel speed for an ETA estimate — this app has no
 // real routing/traffic data, so straight-line distance over an assumed
@@ -927,6 +927,15 @@ router.get('/active-trip', requireAuth('commuter'), async (req, res, next) => {
 const REGULAR_FARE = 15.0;
 const DISCOUNTED_FARE = 12.0; // Student / Senior
 
+// A commuter this far from the jeepney's own last-known position isn't
+// actually standing at it — reject the boarding rather than trust a QR
+// scan or proximity tap alone, since either could be attempted from well
+// outside boarding range (a screenshotted/shared QR code, a stale
+// "nearby" list, etc.). Deliberately tighter than NEARBY_RADIUS_METERS
+// above, which only gates *seeing* a jeepney in the list — this gates
+// actually boarding it.
+const BOARD_PROXIMITY_METERS = 20;
+
 const boardSchema = z
   .object({
     qrToken: z.string().trim().min(1).optional(),
@@ -934,6 +943,10 @@ const boardSchema = z
     /// rather than a scan — the app already has this from GET
     /// /nearby-jeepneys, so there's no code to decode.
     tripId: z.string().trim().min(1).optional(),
+    // The commuter's own current position, checked against the jeepney's
+    // last-known location below — see BOARD_PROXIMITY_METERS.
+    lat: z.coerce.number().min(-90).max(90),
+    lng: z.coerce.number().min(-180).max(180),
     regularRiders: z.number().int().min(0).default(1),
     studentRiders: z.number().int().min(0).default(0),
     seniorRiders: z.number().int().min(0).default(0),
@@ -965,6 +978,17 @@ router.post('/board', requireAuth('commuter'), async (req, res, next) => {
     if (!trip) {
       res.status(409).json({ error: "This driver doesn't have an active trip right now." });
       return;
+    }
+
+    // Only enforceable once the driver has actually pinged a location —
+    // fails open (lets the boarding through) rather than blocking every
+    // boarding on a trip that hasn't gotten its first location update yet.
+    if (trip.currentLat != null && trip.currentLng != null) {
+      const distance = distanceMeters(body.lat, body.lng, trip.currentLat, trip.currentLng);
+      if (distance > BOARD_PROXIMITY_METERS) {
+        res.status(409).json({ error: "You're too far from this jeepney to board. Get closer and try again." });
+        return;
+      }
     }
 
     const fare =

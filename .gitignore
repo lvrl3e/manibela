@@ -3,6 +3,10 @@
 *.log
 *.pyc
 *.swp
+
+# Chapter 4 thesis docs (local only, not for git)
+docs/chapter4_evaluation_instrument.md
+docs/chapter4_test_case_matrix.md
 .DS_Store
 .atom/
 .build/

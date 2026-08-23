@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
+import '../../../core/utils/location_settings.dart';
 
 /// ---------------------------------------------------------------------------
 /// ACTIVE TRIP CONTROLLER
@@ -42,6 +43,15 @@ class DriverActiveTrip {
 
   bool isActive = false;
   bool hasRealFix = false;
+
+  /// Set when live tracking can't start or drops out mid-trip (location
+  /// services turned off, permission revoked) — null while tracking is
+  /// healthy. Previously this failed completely silently: the driver's
+  /// live position would just stop updating on the admin map with no
+  /// indication anything was wrong. See [isLocationErrorServiceDisabled]
+  /// for which settings screen fixes it.
+  String? locationError;
+  bool isLocationErrorServiceDisabled = false;
 
   /// The backend Trip this local trip is mirrored to — null if the
   /// start-trip call failed (bad connectivity shouldn't block a driver
@@ -98,12 +108,11 @@ class DriverActiveTrip {
     // working locally; it just means this trip won't show up on the
     // admin live map (see _backendTripId's doc comment).
     try {
-      final response = await ApiClient.post(
-        '/api/driver/trips/start',
-        {'route': route},
-        token: DriverSession.instance.authToken,
-      );
-      _backendTripId = (response['trip'] as Map<String, dynamic>)['id'] as String?;
+      final response = await ApiClient.post('/api/driver/trips/start', {
+        'route': route,
+      }, token: DriverSession.instance.authToken);
+      _backendTripId =
+          (response['trip'] as Map<String, dynamic>)['id'] as String?;
     } catch (_) {
       _backendTripId = null;
     }
@@ -112,22 +121,26 @@ class DriverActiveTrip {
   void _startElapsedTimer() {
     _elapsedTimer?.cancel();
 
-    _elapsedTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
-        if (!isActive) return;
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!isActive) return;
 
-        updateNotifier.value++;
-      },
-    );
+      updateNotifier.value++;
+    });
   }
+
+  /// Re-attempts starting live tracking after the driver has (hopefully)
+  /// fixed whatever [locationError] described — e.g. after tapping the
+  /// in-app banner to open Location Settings and returning to the app.
+  Future<void> retryLocationTracking() => _startLocationTracking();
 
   Future<void> _startLocationTracking() async {
     try {
-      final serviceEnabled =
-          await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
       if (!serviceEnabled) {
+        locationError = 'Location services are off. Tap to turn them on.';
+        isLocationErrorServiceDisabled = true;
+        updateNotifier.value++;
         return;
       }
 
@@ -139,32 +152,47 @@ class DriverActiveTrip {
 
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        locationError = 'Location permission denied. Tap to open app settings.';
+        isLocationErrorServiceDisabled = false;
+        updateNotifier.value++;
         return;
       }
 
       // Prevent duplicate subscriptions.
       await _positionSubscription?.cancel();
 
-      _positionSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5,
-        ),
-      ).listen(
-        (position) {
-          if (!isActive) return;
+      locationError = null;
+      updateNotifier.value++;
 
-          currentLocation = LatLng(
-            position.latitude,
-            position.longitude,
+      _positionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 5,
+            ),
+          ).listen(
+            (position) {
+              if (!isActive) return;
+
+              currentLocation = LatLng(position.latitude, position.longitude);
+
+              hasRealFix = true;
+              locationError = null;
+
+              updateNotifier.value++;
+              _pingLocationToBackend(position);
+            },
+            onError: (_) {
+              // The stream itself failed mid-trip (e.g. location services
+              // got switched off after tracking had already started) —
+              // surface it the same way an initial failure would be, rather
+              // than leaving the driver's last-known position silently
+              // stale with no explanation.
+              locationError = 'Lost your location. Tap to check your settings.';
+              isLocationErrorServiceDisabled = true;
+              updateNotifier.value++;
+            },
           );
-
-          hasRealFix = true;
-
-          updateNotifier.value++;
-          _pingLocationToBackend(position);
-        },
-      );
     } catch (_) {
       // If live tracking isn't available,
       // the initial location is still retained.
@@ -179,7 +207,8 @@ class DriverActiveTrip {
     if (_backendTripId == null) return;
 
     final now = DateTime.now();
-    if (_lastLocationPingAt != null && now.difference(_lastLocationPingAt!) < const Duration(seconds: 10)) {
+    if (_lastLocationPingAt != null &&
+        now.difference(_lastLocationPingAt!) < const Duration(seconds: 10)) {
       return;
     }
     _lastLocationPingAt = now;
@@ -299,7 +328,10 @@ class _DriverTripInProgressScreenState
 
     _initializeTrip();
     _fetchDemandSignals();
-    _demandPollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchDemandSignals());
+    _demandPollTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _fetchDemandSignals(),
+    );
   }
 
   Future<void> _initializeTrip() async {
@@ -319,8 +351,7 @@ class _DriverTripInProgressScreenState
 
     if (!mounted) return;
 
-    final location =
-        _activeTrip.currentLocation ?? widget.initialLocation;
+    final location = _activeTrip.currentLocation ?? widget.initialLocation;
 
     try {
       _mapController.move(location, 16);
@@ -365,7 +396,10 @@ class _DriverTripInProgressScreenState
       final raw = response['signals'] as List<dynamic>? ?? const [];
       final points = raw.map((s) {
         final map = s as Map<String, dynamic>;
-        return LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble());
+        return LatLng(
+          (map['lat'] as num).toDouble(),
+          (map['lng'] as num).toDouble(),
+        );
       }).toList();
       setState(() => _demandStops = _clusterDemandSignals(points));
     } catch (_) {
@@ -418,10 +452,7 @@ class _DriverTripInProgressScreenState
           ),
           title: const Text(
             'End this trip?',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
           ),
           content: Text(
             'You are about to stop broadcasting '
@@ -432,10 +463,7 @@ class _DriverTripInProgressScreenState
               fontWeight: FontWeight.w500,
             ),
           ),
-          actionsPadding: const EdgeInsets.only(
-            right: 12,
-            bottom: 8,
-          ),
+          actionsPadding: const EdgeInsets.only(right: 12, bottom: 8),
           actions: [
             TextButton(
               onPressed: () {
@@ -463,9 +491,7 @@ class _DriverTripInProgressScreenState
               ),
               child: const Text(
                 'End Trip',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
           ],
@@ -477,17 +503,13 @@ class _DriverTripInProgressScreenState
 
     final now = DateTime.now();
 
-    final startTime =
-        _activeTrip.startTime ?? widget.startTime;
+    final startTime = _activeTrip.startTime ?? widget.startTime;
 
-    final route =
-        _activeTrip.route ?? widget.route;
+    final route = _activeTrip.route ?? widget.route;
 
-    final plateNumber =
-        _activeTrip.plateNumber ?? widget.plateNumber;
+    final plateNumber = _activeTrip.plateNumber ?? widget.plateNumber;
 
-    final durationLabel =
-        _formatDuration(now.difference(startTime));
+    final durationLabel = _formatDuration(now.difference(startTime));
 
     // Stop the active trip — this is also what tells the backend the trip
     // ended, which is what triggers the real "Trip Completed" notification
@@ -529,15 +551,11 @@ class _DriverTripInProgressScreenState
       valueListenable: _activeTrip.updateNotifier,
       builder: (context, _, __) {
         final currentLocation =
-            _activeTrip.currentLocation ??
-                widget.initialLocation;
+            _activeTrip.currentLocation ?? widget.initialLocation;
 
-        final route =
-            _activeTrip.route ?? widget.route;
+        final route = _activeTrip.route ?? widget.route;
 
-        final plateNumber =
-            _activeTrip.plateNumber ??
-                widget.plateNumber;
+        final plateNumber = _activeTrip.plateNumber ?? widget.plateNumber;
 
         return Scaffold(
           backgroundColor: const Color(0xFFE5E7EB),
@@ -546,7 +564,6 @@ class _DriverTripInProgressScreenState
               // =============================================================
               // MAP
               // =============================================================
-
               Positioned.fill(
                 child: FlutterMap(
                   mapController: _mapController,
@@ -560,8 +577,7 @@ class _DriverTripInProgressScreenState
                     TileLayer(
                       urlTemplate:
                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName:
-                          'com.manibel.app',
+                      userAgentPackageName: 'com.manibel.app',
                       maxZoom: 19,
                     ),
 
@@ -582,9 +598,7 @@ class _DriverTripInProgressScreenState
                             point: stop.point,
                             width: 34,
                             height: 34,
-                            child: _WaitingStopPin(
-                              count: stop.count,
-                            ),
+                            child: _WaitingStopPin(count: stop.count),
                           ),
 
                         // Driver vehicle.
@@ -593,8 +607,7 @@ class _DriverTripInProgressScreenState
                           width: 40,
                           height: 40,
                           child: _VehicleMarker(
-                            hasRealFix:
-                                _activeTrip.hasRealFix,
+                            hasRealFix: _activeTrip.hasRealFix,
                           ),
                         ),
                       ],
@@ -606,7 +619,6 @@ class _DriverTripInProgressScreenState
               // =============================================================
               // TOP BAR
               // =============================================================
-
               Positioned(
                 top: 0,
                 left: 0,
@@ -619,13 +631,11 @@ class _DriverTripInProgressScreenState
                       vertical: 12,
                     ),
                     child: Row(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // ---------------------------------------------------
                         // BACK BUTTON
                         // ---------------------------------------------------
-
                         Container(
                           width: 46,
                           height: 46,
@@ -634,22 +644,19 @@ class _DriverTripInProgressScreenState
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color:
-                                    Colors.black.withOpacity(0.15),
+                                color: Colors.black.withOpacity(0.15),
                                 blurRadius: 12,
                                 offset: const Offset(0, 4),
                               ),
                             ],
                           ),
                           child: IconButton(
-                            onPressed:
-                                _handleBackToDashboard,
+                            onPressed: _handleBackToDashboard,
                             icon: const Icon(
                               Icons.arrow_back_rounded,
                               color: AppColors.textPrimary,
                             ),
-                            tooltip:
-                                'Back to Dashboard',
+                            tooltip: 'Back to Dashboard',
                           ),
                         ),
 
@@ -658,22 +665,17 @@ class _DriverTripInProgressScreenState
                         // ---------------------------------------------------
                         // TRIP STATUS
                         // ---------------------------------------------------
-
                         Expanded(
                           child: Container(
-                            padding:
-                                const EdgeInsets.all(14),
+                            padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius:
-                                  BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(18),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black
-                                      .withOpacity(0.15),
+                                  color: Colors.black.withOpacity(0.15),
                                   blurRadius: 12,
-                                  offset:
-                                      const Offset(0, 4),
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
@@ -682,17 +684,13 @@ class _DriverTripInProgressScreenState
                                 Container(
                                   width: 36,
                                   height: 36,
-                                  decoration:
-                                      const BoxDecoration(
-                                    color:
-                                        AppColors.logoBlue,
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.logoBlue,
                                     shape: BoxShape.circle,
                                   ),
-                                  alignment:
-                                      Alignment.center,
+                                  alignment: Alignment.center,
                                   child: const Icon(
-                                    Icons
-                                        .directions_bus_rounded,
+                                    Icons.directions_bus_rounded,
                                     color: Colors.white,
                                     size: 18,
                                   ),
@@ -703,32 +701,24 @@ class _DriverTripInProgressScreenState
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
-                                        CrossAxisAlignment
-                                            .start,
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         route,
                                         maxLines: 1,
-                                        overflow:
-                                            TextOverflow.ellipsis,
-                                        style:
-                                            const TextStyle(
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
                                           fontSize: 14,
-                                          fontWeight:
-                                              FontWeight.w800,
-                                          color: AppColors
-                                              .textPrimary,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.textPrimary,
                                         ),
                                       ),
                                       Text(
                                         plateNumber,
-                                        style:
-                                            const TextStyle(
+                                        style: const TextStyle(
                                           fontSize: 10,
-                                          color:
-                                              Colors.black54,
-                                          fontWeight:
-                                              FontWeight.w600,
+                                          color: Colors.black54,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
@@ -738,45 +728,28 @@ class _DriverTripInProgressScreenState
                                 const SizedBox(width: 8),
 
                                 Container(
-                                  padding:
-                                      const EdgeInsets
-                                          .symmetric(
+                                  padding: const EdgeInsets.symmetric(
                                     horizontal: 10,
                                     vertical: 6,
                                   ),
-                                  decoration:
-                                      BoxDecoration(
-                                    color:
-                                        const Color(
-                                      0xFFDCFCE7,
-                                    ),
-                                    borderRadius:
-                                        BorderRadius.circular(
-                                      20,
-                                    ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFDCFCE7),
+                                    borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Row(
-                                    mainAxisSize:
-                                        MainAxisSize.min,
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       const CircleAvatar(
                                         radius: 3,
-                                        backgroundColor:
-                                            Colors.green,
+                                        backgroundColor: Colors.green,
                                       ),
-                                      const SizedBox(
-                                        width: 6,
-                                      ),
+                                      const SizedBox(width: 6),
                                       Text(
-                                        _activeTrip
-                                            .elapsedLabel,
-                                        style:
-                                            const TextStyle(
+                                        _activeTrip.elapsedLabel,
+                                        style: const TextStyle(
                                           fontSize: 12,
-                                          fontWeight:
-                                              FontWeight.w800,
-                                          color:
-                                              Colors.green,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.green,
                                         ),
                                       ),
                                     ],
@@ -793,9 +766,60 @@ class _DriverTripInProgressScreenState
               ),
 
               // =============================================================
+              // LOCATION WARNING — otherwise this fails completely
+              // silently: the driver's live position just stops updating
+              // on the admin map with zero indication anything is wrong.
+              // =============================================================
+              if (_activeTrip.locationError != null)
+                Positioned(
+                  top: 130,
+                  left: 16,
+                  right: 16,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Material(
+                      color: const Color(0xFFFFF1F1),
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => openRelevantLocationSettings(
+                          isServiceDisabled:
+                              _activeTrip.isLocationErrorServiceDisabled,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.location_off_rounded,
+                                color: Color(0xFFE23F3F),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _activeTrip.locationError!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF7A1F1F),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // =============================================================
               // END TRIP BUTTON
               // =============================================================
-
               Positioned(
                 left: 16,
                 right: 16,
@@ -819,15 +843,11 @@ class _DriverTripInProgressScreenState
                           color: Colors.white,
                         ),
                       ),
-                      style:
-                          ElevatedButton.styleFrom(
-                        backgroundColor:
-                            AppColors.errorRed,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.errorRed,
                         elevation: 4,
-                        shape:
-                            RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(28),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
                         ),
                       ),
                     ),
@@ -849,24 +869,17 @@ class _DriverTripInProgressScreenState
 class _VehicleMarker extends StatelessWidget {
   final bool hasRealFix;
 
-  const _VehicleMarker({
-    required this.hasRealFix,
-  });
+  const _VehicleMarker({required this.hasRealFix});
 
   @override
   Widget build(BuildContext context) {
-    final markerColor = hasRealFix
-        ? AppColors.logoBlue
-        : Colors.black38;
+    final markerColor = hasRealFix ? AppColors.logoBlue : Colors.black38;
 
     return Container(
       decoration: BoxDecoration(
         color: markerColor,
         shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white,
-          width: 3,
-        ),
+        border: Border.all(color: Colors.white, width: 3),
         boxShadow: [
           BoxShadow(
             color: markerColor.withOpacity(0.5),
@@ -892,10 +905,7 @@ class _WaitingStop {
   final LatLng point;
   final int count;
 
-  const _WaitingStop({
-    required this.point,
-    required this.count,
-  });
+  const _WaitingStop({required this.point, required this.count});
 }
 
 class _DemandBucket {
@@ -925,10 +935,12 @@ List<_WaitingStop> _clusterDemandSignals(List<LatLng> points) {
   }
 
   return buckets.values
-      .map((b) => _WaitingStop(
-            point: LatLng(b.latSum / b.count, b.lngSum / b.count),
-            count: b.count,
-          ))
+      .map(
+        (b) => _WaitingStop(
+          point: LatLng(b.latSum / b.count, b.lngSum / b.count),
+          count: b.count,
+        ),
+      )
       .toList();
 }
 
@@ -939,9 +951,7 @@ List<_WaitingStop> _clusterDemandSignals(List<LatLng> points) {
 class _WaitingStopPin extends StatelessWidget {
   final int count;
 
-  const _WaitingStopPin({
-    required this.count,
-  });
+  const _WaitingStopPin({required this.count});
 
   @override
   Widget build(BuildContext context) {
@@ -955,11 +965,19 @@ class _WaitingStopPin extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2.5),
             boxShadow: [
-              BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, spreadRadius: 1),
+              BoxShadow(
+                color: color.withOpacity(0.4),
+                blurRadius: 6,
+                spreadRadius: 1,
+              ),
             ],
           ),
           alignment: Alignment.center,
-          child: const Icon(Icons.person_rounded, size: 18, color: Colors.white),
+          child: const Icon(
+            Icons.person_rounded,
+            size: 18,
+            color: Colors.white,
+          ),
         ),
         Positioned(
           right: -4,
@@ -975,7 +993,11 @@ class _WaitingStopPin extends StatelessWidget {
             child: Text(
               '$count',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: color),
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
           ),
         ),
@@ -1003,16 +1025,9 @@ class _TripCompletedDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          20,
-        ),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1034,32 +1049,20 @@ class _TripCompletedDialog extends StatelessWidget {
 
             const Text(
               'Trip Completed',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
             ),
 
             const SizedBox(height: 8),
 
-            _DetailRow(
-              label: 'Route',
-              value: route,
-            ),
+            _DetailRow(label: 'Route', value: route),
 
             const SizedBox(height: 4),
 
-            _DetailRow(
-              label: 'Vehicle',
-              value: plateNumber,
-            ),
+            _DetailRow(label: 'Vehicle', value: plateNumber),
 
             const SizedBox(height: 4),
 
-            _DetailRow(
-              label: 'Duration',
-              value: duration,
-            ),
+            _DetailRow(label: 'Duration', value: duration),
 
             const SizedBox(height: 10),
 
@@ -1086,10 +1089,7 @@ class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _DetailRow({
-    required this.label,
-    required this.value,
-  });
+  const _DetailRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {

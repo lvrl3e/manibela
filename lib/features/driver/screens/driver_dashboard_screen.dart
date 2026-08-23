@@ -10,6 +10,7 @@ import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/avatar_image.dart';
+import '../../../core/utils/location_settings.dart';
 import '../../../core/widgets/logout_confirmation_sheet.dart';
 import '../../../core/widgets/signing_out_screen.dart';
 import '../../auth/screens/driver_login_screen.dart';
@@ -87,6 +88,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   LatLng? _currentLocation;
   bool _locatingInProgress = true;
   String? _locationError;
+  bool _locationErrorIsServiceDisabled = false;
 
   // Separate, non-interactive controller for the small dashboard preview —
   // kept apart from _mapController (used by the expanded modal) so each
@@ -227,7 +229,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         throw const _LocationFailure(
-          'Location services are turned off. Enable them in your device settings.',
+          'Location services are off. Tap to turn them on.',
+          isServiceDisabled: true,
         );
       }
 
@@ -240,7 +243,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       }
       if (permission == LocationPermission.deniedForever) {
         throw const _LocationFailure(
-          'Location permission is permanently denied. Enable it from app settings.',
+          'Location permission denied. Tap to open app settings.',
+          isServiceDisabled: false,
         );
       }
 
@@ -263,6 +267,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         _currentLocation ??= _fallbackLocation;
         _locatingInProgress = false;
         _locationError = failure.message;
+        _locationErrorIsServiceDisabled = failure.isServiceDisabled;
       });
       if (showErrors) {
         ScaffoldMessenger.of(
@@ -275,6 +280,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         _currentLocation ??= _fallbackLocation;
         _locatingInProgress = false;
         _locationError = 'Could not get your current location.';
+        _locationErrorIsServiceDisabled = false;
       });
       if (showErrors) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1257,12 +1263,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
-                      _locationError ??
-                          'Your position and nearby waiting passengers',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: AppColors.textSecondary,
+                    GestureDetector(
+                      onTap: _locationError == null
+                          ? null
+                          : () => openRelevantLocationSettings(
+                              isServiceDisabled:
+                                  _locationErrorIsServiceDisabled,
+                            ),
+                      child: Text(
+                        _locationError ??
+                            'Your position and nearby waiting passengers',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: _locationError == null
+                              ? AppColors.textSecondary
+                              : AppColors.logoRed,
+                          decoration: _locationError == null
+                              ? TextDecoration.none
+                              : TextDecoration.underline,
+                        ),
                       ),
                     ),
                   ],
@@ -1292,7 +1311,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
 class _LocationFailure {
   final String message;
-  const _LocationFailure(this.message);
+
+  /// Whether tapping the resulting banner should open the device's
+  /// Location Services settings (true) or this app's own permission
+  /// page (false) — see [openRelevantLocationSettings].
+  final bool isServiceDisabled;
+
+  const _LocationFailure(this.message, {this.isServiceDisabled = false});
 }
 
 /// Dashboard note shown until this driver's license is verified — see

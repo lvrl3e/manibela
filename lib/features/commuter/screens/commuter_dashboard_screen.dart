@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_assets.dart';
+import '../../../core/utils/location_settings.dart';
 import 'jeepney_booking_flow_screen.dart';
 import 'commuter_menu_drawer.dart';
 import 'settings_screen.dart';
@@ -45,6 +46,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   LatLng? _currentLocation;
   bool _locatingInProgress = true;
   String? _locationError;
+  bool _locationErrorIsServiceDisabled = false;
 
   /// Re-fetches notifications on a timer so the bell badge picks up
   /// server-triggered events (e.g. a complaint resolution) that happen
@@ -112,7 +114,10 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => JeepneyBookingFlowScreen(commuterName: _commuterName, resumedTrip: resumed),
+        builder: (_) => JeepneyBookingFlowScreen(
+          commuterName: _commuterName,
+          resumedTrip: resumed,
+        ),
       ),
     ).then((_) => _fetchActiveTrip());
   }
@@ -128,7 +133,8 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         throw const _LocationFailure(
-          'Location services are turned off. Enable them in your device settings.',
+          'Location services are off. Tap to turn them on.',
+          isServiceDisabled: true,
         );
       }
 
@@ -137,14 +143,13 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          throw const _LocationFailure(
-            'Location permission was denied.',
-          );
+          throw const _LocationFailure('Location permission was denied.');
         }
       }
       if (permission == LocationPermission.deniedForever) {
         throw const _LocationFailure(
-          'Location permission is permanently denied. Enable it from app settings.',
+          'Location permission denied. Tap to open app settings.',
+          isServiceDisabled: false,
         );
       }
 
@@ -168,11 +173,12 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
         _currentLocation ??= _fallbackLocation;
         _locatingInProgress = false;
         _locationError = failure.message;
+        _locationErrorIsServiceDisabled = failure.isServiceDisabled;
       });
       if (showErrors) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(failure.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(failure.message)));
       }
     } catch (_) {
       if (!mounted) return;
@@ -180,6 +186,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
         _currentLocation ??= _fallbackLocation;
         _locatingInProgress = false;
         _locationError = 'Could not get your current location.';
+        _locationErrorIsServiceDisabled = false;
       });
       if (showErrors) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -234,7 +241,6 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
     });
   }
 
-
   void _handleBook(BuildContext context) {
     // No demand signal fired here anymore — the route isn't known yet at
     // this point, and GET /driver/demand-signals needs one to filter by
@@ -265,7 +271,10 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
     if (!mounted) return;
     setState(() {});
     if (!context.mounted) return;
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+    );
   }
 
   void _recenterMap() {
@@ -323,7 +332,9 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
                 child: _StatusPill(
                   icon: Icons.location_off_rounded,
                   label: _locationError!,
-                  onTap: () => _resolveCurrentLocation(showErrors: true),
+                  onTap: () => openRelevantLocationSettings(
+                    isServiceDisabled: _locationErrorIsServiceDisabled,
+                  ),
                 ),
               ),
             ),
@@ -373,54 +384,60 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
                   ],
                 ),
                 child: _activeTrip != null
-                    ? _ActiveTripBanner(trip: _activeTrip!, onTap: _resumeActiveTrip)
+                    ? _ActiveTripBanner(
+                        trip: _activeTrip!,
+                        onTap: _resumeActiveTrip,
+                      )
                     : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.map_outlined,
-                            color: Colors.black87, size: 20),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: Text(
-                            'Find Nearby Jeepneys',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black87,
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.map_outlined,
+                                color: Colors.black87,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Find Nearby Jeepneys',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton(
+                              onPressed: () => _handleBook(context),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: AppColors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(26),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                'Sakay na',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: _kBlueDark,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: () => _handleBook(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: AppColors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(26),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-  'Sakay na',
-  style: TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w800,
-    color: _kBlueDark,
-  ),
-),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),
@@ -439,7 +456,13 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
 
 class _LocationFailure {
   final String message;
-  const _LocationFailure(this.message);
+
+  /// Whether tapping the resulting banner should open the device's
+  /// Location Services settings (true) or this app's own permission
+  /// page (false) — see [openRelevantLocationSettings].
+  final bool isServiceDisabled;
+
+  const _LocationFailure(this.message, {this.isServiceDisabled = false});
 }
 
 /// Replaces the "Find Nearby Jeepneys" / "Sakay na" card when this
@@ -461,12 +484,20 @@ class _ActiveTripBanner extends StatelessWidget {
       children: [
         const Row(
           children: [
-            Icon(Icons.directions_bus_filled_rounded, color: AppColors.logoBlue, size: 20),
+            Icon(
+              Icons.directions_bus_filled_rounded,
+              color: AppColors.logoBlue,
+              size: 20,
+            ),
             SizedBox(width: 10),
             Expanded(
               child: Text(
                 "You're currently on a trip",
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black87),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87,
+                ),
               ),
             ),
           ],
@@ -474,7 +505,11 @@ class _ActiveTripBanner extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           '${trip.plateNumber} · ${trip.driverName} · ${trip.route}',
-          style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 11,
+            color: Colors.black45,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 16),
         SizedBox(
@@ -485,12 +520,18 @@ class _ActiveTripBanner extends StatelessWidget {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: AppColors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(26),
+              ),
               elevation: 0,
             ),
             child: const Text(
               'View Trip',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _kBlueDark),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: _kBlueDark,
+              ),
             ),
           ),
         ),
@@ -548,8 +589,11 @@ class _StatusPill extends StatelessWidget {
               ),
               if (onTap != null) ...[
                 const SizedBox(width: 6),
-                const Icon(Icons.refresh_rounded,
-                    size: 14, color: AppColors.logoBlue),
+                const Icon(
+                  Icons.refresh_rounded,
+                  size: 14,
+                  color: AppColors.logoBlue,
+                ),
               ],
             ],
           ),
@@ -564,7 +608,11 @@ class _RoundIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final int badgeCount;
 
-  const _RoundIconButton({required this.icon, required this.onTap, this.badgeCount = 0});
+  const _RoundIconButton({
+    required this.icon,
+    required this.onTap,
+    this.badgeCount = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -600,7 +648,11 @@ class _RoundIconButton extends StatelessWidget {
               child: Text(
                 badgeCount > 9 ? '9+' : '$badgeCount',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -663,24 +715,25 @@ class _LiveMap extends StatelessWidget {
                   height: 30,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: hasRealFix
-                          ? AppColors.logoBlue
-                          : Colors.black38,
+                      color: hasRealFix ? AppColors.logoBlue : Colors.black38,
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 3),
                       boxShadow: [
                         BoxShadow(
-                          color: (hasRealFix
-                                  ? AppColors.logoBlue
-                                  : Colors.black38)
-                              .withOpacity(0.4),
+                          color:
+                              (hasRealFix ? AppColors.logoBlue : Colors.black38)
+                                  .withOpacity(0.4),
                           blurRadius: 8,
                           spreadRadius: 2,
                         ),
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: const Icon(Icons.person_rounded, size: 16, color: Colors.white),
+                    child: const Icon(
+                      Icons.person_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ],
@@ -708,4 +761,3 @@ class _LiveMap extends StatelessWidget {
     );
   }
 }
-

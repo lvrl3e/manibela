@@ -12,6 +12,16 @@ import { startDriverLogReminderJobs } from './jobs/driverLogReminders';
 
 const app = express();
 
+// Render (and any real deployment) puts the app behind a reverse proxy —
+// without this, Express ignores X-Forwarded-For entirely, so req.ip
+// resolves to the proxy's own address for every request. That breaks
+// express-rate-limit two ways: it refuses to trust the header (the
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR error), and if it didn't, every
+// user behind the proxy would share one rate-limit bucket. `1` trusts
+// exactly one hop — Render's own proxy — not arbitrary chained values a
+// client could spoof further back.
+app.set('trust proxy', 1);
+
 // The Flutter app calls this API directly (no browser, no Origin header),
 // so CORS only ever applies to browser clients — the admin website.
 // CORS_ORIGINS lets a real deployment add its production admin domain

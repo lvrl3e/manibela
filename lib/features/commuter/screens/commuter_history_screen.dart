@@ -17,6 +17,11 @@ import 'notifications_screen.dart';
 // ===========================================================================
 
 class TripHistoryItem {
+  /// The real per-ride identity (backend TripBoarding.id) — [tripId] alone
+  /// can't tell two rides on the same driver's Trip apart (out and back on
+  /// the same shift), so this is what history is actually keyed by. See
+  /// [CommuterHistoryScreen._byBoardingId].
+  final String boardingId;
   final String tripId;
   final String driverName;
   final String plateNumber;
@@ -54,6 +59,7 @@ class TripHistoryItem {
   final int? myRating;
 
   const TripHistoryItem({
+    required this.boardingId,
     required this.tripId,
     required this.driverName,
     required this.plateNumber,
@@ -79,6 +85,7 @@ class TripHistoryItem {
   String get ridersLabel => fareBreakdown.ridersLabel;
 
   Map<String, dynamic> _toJson() => {
+    'boardingId': boardingId,
     'tripId': tripId,
     'driverName': driverName,
     'plateNumber': plateNumber,
@@ -97,6 +104,10 @@ class TripHistoryItem {
 
   static TripHistoryItem _fromJson(Map<String, dynamic> json) =>
       TripHistoryItem(
+        // Entries persisted before boardingId existed fall back to tripId
+        // — behaves exactly like the old (buggy) collapsing behavior for
+        // that specific stale entry only, rather than crashing on load.
+        boardingId: (json['boardingId'] as String?) ?? json['tripId'] as String,
         tripId: json['tripId'] as String,
         driverName: json['driverName'] as String,
         plateNumber: json['plateNumber'] as String,
@@ -179,19 +190,20 @@ class CommuterHistoryScreen extends StatefulWidget {
   static const _kRatedPrefsKey = 'commuter_rated_trip_ids_v1';
   static const _kReportedPrefsKey = 'commuter_reported_trip_ids_v1';
 
-  // Keyed by tripId so a locally-recorded booking (added the instant a
-  // ride ends) and the same trip coming back from [syncFromBackend] merge
-  // into one row instead of duplicating — the local flow uses the real
-  // backend Trip id now (see JeepneyBookingFlowScreen's _boardedTripId),
-  // so the two always agree on a key once connectivity allows /board to
-  // succeed at all. Persisted to disk — logging out must never erase a
-  // commuter's trip history.
-  static final Map<String, TripHistoryItem> _byTripId = {};
+  // Keyed by boardingId (the backend's real per-ride identity — see
+  // TripHistoryItem.boardingId) so a locally-recorded booking (added the
+  // instant a ride ends) and the same ride coming back from
+  // [syncFromBackend] merge into one row instead of duplicating, while two
+  // *different* rides on the same driver's Trip (out and back on the same
+  // shift) correctly stay as two separate rows instead of the second
+  // overwriting the first. Persisted to disk — logging out must never
+  // erase a commuter's trip history.
+  static final Map<String, TripHistoryItem> _byBoardingId = {};
   static bool _loaded = false;
 
   /// All trips, most recently boarded first — what the UI reads.
   static List<TripHistoryItem> get _history {
-    final list = _byTripId.values.toList();
+    final list = _byBoardingId.values.toList();
     list.sort((a, b) => b.boardedAt.compareTo(a.boardedAt));
     return list;
   }
@@ -204,12 +216,12 @@ class CommuterHistoryScreen extends StatefulWidget {
     try {
       final rawHistory = prefs.getStringList(_kHistoryPrefsKey);
       if (rawHistory != null) {
-        _byTripId.clear();
+        _byBoardingId.clear();
         for (final s in rawHistory) {
           final item = TripHistoryItem._fromJson(
             jsonDecode(s) as Map<String, dynamic>,
           );
-          _byTripId[item.tripId] = item;
+          _byBoardingId[item.boardingId] = item;
         }
       }
       _ratedTripIds
@@ -238,10 +250,10 @@ class CommuterHistoryScreen extends StatefulWidget {
     await prefs.setStringList(_kReportedPrefsKey, _reportedTripIds.toList());
   }
 
-  /// Records a just-completed booking (or overwrites the same tripId, e.g.
-  /// once [syncFromBackend] confirms it).
+  /// Records a just-completed booking (or overwrites the same boardingId,
+  /// e.g. once [syncFromBackend] confirms it).
   static Future<void> addTrip(TripHistoryItem trip) async {
-    _byTripId[trip.tripId] = trip;
+    _byBoardingId[trip.boardingId] = trip;
     await _persistHistory();
   }
 
@@ -278,12 +290,14 @@ class CommuterHistoryScreen extends StatefulWidget {
         final raw = response['trips'] as List<dynamic>? ?? const [];
         for (final j in raw) {
           final map = j as Map<String, dynamic>;
+          final boardingId = map['boardingId'] as String;
           final tripId = map['tripId'] as String;
           final boardedAt = DateTime.parse(map['boardedAt'] as String);
-          final existing = _byTripId[tripId];
-          seenIds.add(tripId);
+          final existing = _byBoardingId[boardingId];
+          seenIds.add(boardingId);
 
-          _byTripId[tripId] = TripHistoryItem(
+          _byBoardingId[boardingId] = TripHistoryItem(
+            boardingId: boardingId,
             tripId: tripId,
             driverName: map['driverName'] as String,
             plateNumber: map['plateNumber'] as String,
@@ -326,7 +340,7 @@ class CommuterHistoryScreen extends StatefulWidget {
       // from the response no longer exists on the backend. Entries older
       // than the window are left alone; their current state is unknown.
       final windowStart = DateTime.now().subtract(const Duration(days: days));
-      _byTripId.removeWhere(
+      _byBoardingId.removeWhere(
         (id, item) =>
             !seenIds.contains(id) && item.boardedAt.isAfter(windowStart),
       );

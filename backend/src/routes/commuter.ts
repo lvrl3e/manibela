@@ -1006,8 +1006,9 @@ router.post('/board', requireAuth('commuter'), async (req, res, next) => {
       where: { tripId: trip.id, commuterId: req.auth!.sub, alightedAt: null },
     });
 
+    let boarding;
     if (openBoarding) {
-      await prisma.tripBoarding.update({
+      boarding = await prisma.tripBoarding.update({
         where: { id: openBoarding.id },
         data: {
           regularRiders: body.regularRiders,
@@ -1017,7 +1018,7 @@ router.post('/board', requireAuth('commuter'), async (req, res, next) => {
         },
       });
     } else {
-      await prisma.tripBoarding.create({
+      boarding = await prisma.tripBoarding.create({
         data: {
           tripId: trip.id,
           commuterId: req.auth!.sub,
@@ -1039,7 +1040,13 @@ router.post('/board', requireAuth('commuter'), async (req, res, next) => {
       data: { fulfilledAt: new Date() },
     });
 
-    res.json({ boarded: true, tripId: trip.id });
+    // boardingId (TripBoarding.id) is the real per-ride identity — tripId
+    // alone is ambiguous once a commuter rides the same driver's Trip more
+    // than once in a day (out and back), see TripBoarding's doc comment
+    // in schema.prisma. The client's Trip History needs this to key its
+    // own local cache by so a second ride on the same Trip gets its own
+    // entry instead of overwriting the first.
+    res.json({ boarded: true, tripId: trip.id, boardingId: boarding.id });
   } catch (err) {
     next(err);
   }
@@ -1225,6 +1232,10 @@ router.get('/trips', requireAuth('commuter'), async (req, res, next) => {
         const driver = driversById.get(trip.driverId);
         const ratingInfo = ratingByDriver.get(trip.driverId);
         return {
+          // The real per-ride identity — see boardingId's doc comment on
+          // POST /board above. tripId alone can't tell two rides on the
+          // same driver's Trip apart.
+          boardingId: b.id,
           tripId: trip.id,
           driverId: trip.driverId,
           driverName: driver?.fullName ?? 'Unknown driver',

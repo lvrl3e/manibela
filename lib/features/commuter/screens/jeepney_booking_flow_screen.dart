@@ -258,6 +258,14 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   // trip, etc.), in which case this booking just won't sync anywhere.
   String? _boardedTripId;
 
+  // The real per-ride identity (TripBoarding.id) from /board's response —
+  // distinct from _boardedTripId, which is the driver's whole Trip and
+  // stays the same across multiple rides on one shift. This is what
+  // CommuterHistoryScreen actually keys a history entry by, so a second
+  // ride on the same driver's Trip gets its own entry instead of
+  // overwriting the first (see TripHistoryItem.boardingId).
+  String? _boardedBoardingId;
+
   bool _hasRated = false;
   bool _hasReported = false;
 
@@ -544,7 +552,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
     setState(() => _selectedJeepney = jeepney);
 
     try {
-      await ApiClient.post(
+      final boardResponse = await ApiClient.post(
         '/api/commuter/board',
         {
           'tripId': jeepney.tripId,
@@ -557,6 +565,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         token: UserSession.instance.authToken,
       );
       _boardedTripId = jeepney.tripId;
+      _boardedBoardingId = boardResponse['boardingId'] as String?;
       if (!mounted) return;
       _simulateQrScan();
     } on ApiException catch (e) {
@@ -635,6 +644,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         token: UserSession.instance.authToken,
       );
       _boardedTripId = boardResponse['tripId'] as String?;
+      _boardedBoardingId = boardResponse['boardingId'] as String?;
 
       if (!mounted) return;
       _simulateQrScan();
@@ -785,6 +795,11 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
 
     CommuterHistoryScreen.addTrip(
       TripHistoryItem(
+        // Falls back to a synthetic id in the rare case /board never
+        // returned one (offline, or a resumed-after-restart session — see
+        // _boardedBoardingId's doc comment) — self-heals on the next
+        // syncFromBackend, same as _boardedTripId's own fallback below.
+        boardingId: _boardedBoardingId ?? 'BOARDING-${now.millisecondsSinceEpoch}',
         tripId: _boardedTripId ?? 'TRIP-${now.millisecondsSinceEpoch}',
         driverName: jeepney.driverName,
         plateNumber: jeepney.plateNumber,

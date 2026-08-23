@@ -46,14 +46,25 @@ Future<LatLng?> _resolveCurrentLocation() async {
     return null;
   }
 
-  try {
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
-    return LatLng(position.latitude, position.longitude);
-  } catch (_) {
-    return null;
+  // A fresh install's very first fix is the most likely to time out (GPS
+  // radio hasn't warmed up yet) — one retry here is the difference between
+  // "first open lands on the fallback location" and just taking a couple
+  // seconds longer.
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+      return LatLng(position.latitude, position.longitude);
+    } catch (_) {
+      if (attempt == 1) return null;
+      await Future.delayed(const Duration(seconds: 1));
+    }
   }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -251,14 +251,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         );
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
+      // A fresh install's very first fix is the most likely to time out
+      // (GPS radio hasn't warmed up yet) — one retry here is the
+      // difference between "first open lands on the fallback location"
+      // and just taking a couple seconds longer.
+      Position? position;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 12),
+            ),
+          );
+          break;
+        } catch (_) {
+          if (attempt == 1) rethrow;
+          await Future.delayed(const Duration(seconds: 1));
+        }
+      }
 
       if (!mounted) return;
-      final resolved = LatLng(position.latitude, position.longitude);
+      final resolved = LatLng(position!.latitude, position.longitude);
       setState(() {
         _currentLocation = resolved;
         _locatingInProgress = false;

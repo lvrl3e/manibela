@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/app_avatar.dart';
 import 'emergency_hotlines_screen.dart';
 import 'commuter_history_screen.dart';
 
@@ -194,23 +194,17 @@ class CommuterMenuDrawer extends StatelessWidget {
             ),
             Column(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                  ),
-                  child: CircleAvatar(
-                    radius: 38,
-                    backgroundColor: const Color(0xFFD9D9D9),
-                    backgroundImage: avatarImageProvider(photoUrl: photoUrl),
-                    child: avatarImageProvider(photoUrl: photoUrl) == null
-                        ? const Icon(
-                            Icons.person,
-                            size: 44,
-                            color: AppColors.textSecondary,
-                          )
-                        : null,
+                AppAvatar(
+                  // Matches the original CircleAvatar(radius: 38) plus its
+                  // 3px white padding ring exactly: 76px avatar + 3px ring
+                  // on each side = 82px total footprint.
+                  size: 82,
+                  photoUrl: photoUrl,
+                  border: Border.all(color: Colors.white, width: 3),
+                  fallback: const Icon(
+                    Icons.person,
+                    size: 44,
+                    color: AppColors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 12),

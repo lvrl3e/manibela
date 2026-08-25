@@ -6,7 +6,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/legal_text.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
-import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/app_avatar.dart';
 import '../../../core/utils/date_only.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/platform_utils.dart';
@@ -586,37 +586,29 @@ class _ProfilePhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final image = avatarImageProvider(photoUrl: photoUrl, photoPath: photoPath);
-
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: const Color(0xFFD9D9D9),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 4),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.12),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-              image: image != null ? DecorationImage(image: image, fit: BoxFit.cover) : null,
+          AppAvatar(
+            size: size,
+            photoUrl: photoUrl,
+            photoPath: photoPath,
+            border: Border.all(color: Colors.white, width: 4),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            fallback: Icon(
+              Icons.person_rounded,
+              size: size * 0.54,
+              color: AppColors.textSecondary,
             ),
-            child: image == null
-                ? Icon(
-                    Icons.person_rounded,
-                    size: size * 0.54,
-                    color: AppColors.textSecondary,
-                  )
-                : null,
           ),
           Positioned(
             right: -6,

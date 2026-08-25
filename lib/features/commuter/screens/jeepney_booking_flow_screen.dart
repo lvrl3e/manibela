@@ -11,7 +11,7 @@ import '../../../core/constants/qr_constants.dart';
 import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
-import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/app_avatar.dart';
 import 'commuter_history_screen.dart';
 import 'notifications_screen.dart';
 import 'qr_scanner_screen.dart';
@@ -1879,12 +1879,11 @@ class _DriverAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final image = avatarImageProvider(photoUrl: photoUrl);
-    return CircleAvatar(
-      radius: radius,
+    return AppAvatar(
+      size: radius * 2,
+      photoUrl: photoUrl,
       backgroundColor: _kBlue,
-      backgroundImage: image,
-      child: image == null ? Icon(Icons.person, color: Colors.white, size: radius) : null,
+      fallback: Icon(Icons.person, color: Colors.white, size: radius),
     );
   }
 }

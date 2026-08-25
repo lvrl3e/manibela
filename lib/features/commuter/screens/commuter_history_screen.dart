@@ -8,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
 import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/app_avatar.dart';
 import '../../../core/utils/manila_date_range.dart';
 import 'notifications_screen.dart';
 
@@ -138,27 +139,18 @@ class _DriverAvatarCircle extends StatelessWidget {
       label: image != null
           ? 'Photo of $driverName'
           : 'No photo for $driverName',
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          shape: BoxShape.circle,
-          image: image != null
-              ? DecorationImage(image: image, fit: BoxFit.cover)
-              : null,
-        ),
-        alignment: Alignment.center,
+      child: AppAvatar(
+        size: size,
+        photoUrl: photoUrl,
+        backgroundColor: backgroundColor,
         // Jeepney icon, not a generic person — matches every other driver
         // marker in the app (nearby-jeepney pins, the driver's own
         // position marker, demand-signal clusters).
-        child: image == null
-            ? Icon(
-                Icons.directions_bus_filled_rounded,
-                size: size * 0.5,
-                color: Colors.white,
-              )
-            : null,
+        fallback: Icon(
+          Icons.directions_bus_filled_rounded,
+          size: size * 0.5,
+          color: Colors.white,
+        ),
       ),
     );
   }

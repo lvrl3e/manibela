@@ -9,7 +9,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
-import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/app_avatar.dart';
 import '../../../core/utils/location_settings.dart';
 import '../../../core/widgets/logout_confirmation_sheet.dart';
 import '../../../core/widgets/signing_out_screen.dart';
@@ -707,27 +707,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         padding: const EdgeInsets.all(16),
                         child: Row(
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(3),
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white,
-                              ),
-                              child: CircleAvatar(
-                                radius: 26,
-                                backgroundColor: const Color(0xFFD9D9D9),
-                                backgroundImage: avatarImageProvider(
-                                  photoUrl: _photoUrl,
-                                ),
-                                child:
-                                    avatarImageProvider(photoUrl: _photoUrl) ==
-                                        null
-                                    ? const Icon(
-                                        Icons.person,
-                                        size: 32,
-                                        color: AppColors.textSecondary,
-                                      )
-                                    : null,
+                            AppAvatar(
+                              // 52px avatar + 3px white ring each side,
+                              // matching the original CircleAvatar(radius:
+                              // 26) inside its 3px padding wrapper.
+                              size: 58,
+                              photoUrl: _photoUrl,
+                              border: Border.all(color: Colors.white, width: 3),
+                              fallback: const Icon(
+                                Icons.person,
+                                size: 32,
+                                color: AppColors.textSecondary,
                               ),
                             ),
                             const SizedBox(width: 12),

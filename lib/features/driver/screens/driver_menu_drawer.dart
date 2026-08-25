@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/utils/avatar_image.dart';
+import '../../../core/widgets/app_avatar.dart';
 
 class DriverMenuDrawer extends StatelessWidget {
   final String driverName;
@@ -240,34 +240,16 @@ class DriverMenuDrawer extends StatelessWidget {
 
             Column(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(3),
-
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                  ),
-
-                  child: CircleAvatar(
-                    radius: 38,
-
-                    backgroundColor:
-                        const Color(0xFFD9D9D9),
-
-                    backgroundImage:
-                        avatarImageProvider(photoUrl: photoUrl),
-
-                    child:
-                        avatarImageProvider(photoUrl: photoUrl) ==
-                                null
-                            ? const Icon(
-                                Icons.person,
-                                size: 44,
-                                color:
-                                    AppColors
-                                        .textSecondary,
-                              )
-                            : null,
+                AppAvatar(
+                  // 76px avatar + 3px white ring each side, matching the
+                  // original CircleAvatar(radius: 38) + its padding wrapper.
+                  size: 82,
+                  photoUrl: photoUrl,
+                  border: Border.all(color: Colors.white, width: 3),
+                  fallback: const Icon(
+                    Icons.person,
+                    size: 44,
+                    color: AppColors.textSecondary,
                   ),
                 ),
 

@@ -29,4 +29,26 @@ class PhoneUtils {
     }
     return '+63$digitsOnly';
   }
+
+  /// Converts a canonical `+63XXXXXXXXXX` (E.164) string back into the
+  /// local `09XXXXXXXXX` form every phone field in this app actually
+  /// displays/collects — the inverse of [toE164]. Used to suggest a
+  /// previously-used number (e.g. re-populating the login screen's phone
+  /// field with the last account on this device) without leaking the
+  /// international prefix into a field styled for the local form.
+  static String toLocal(String phone) {
+    final trimmed = phone.trim();
+    if (trimmed.startsWith('+63')) {
+      return '0${trimmed.substring(3)}';
+    }
+
+    final digitsOnly = trimmed.replaceAll(RegExp(r'\D'), '');
+    if (digitsOnly.startsWith('63') && digitsOnly.length > 10) {
+      return '0${digitsOnly.substring(2)}';
+    }
+    if (digitsOnly.startsWith('0')) {
+      return digitsOnly;
+    }
+    return '0$digitsOnly';
+  }
 }

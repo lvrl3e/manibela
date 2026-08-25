@@ -5,13 +5,13 @@ import 'api_client.dart';
 import 'driver_session.dart';
 import 'user_session.dart';
 
-/// Wires [ApiClient.onAccountDeactivated] to a forced logout — call
-/// [install] once at app startup (see main.dart). Lives outside
-/// DriverSession/UserSession/ApiClient themselves because the trigger can
-/// come from *any* authenticated call, including a background polling
-/// Timer with no BuildContext of its own, so the navigation has to go
-/// through [navigatorKey] rather than a widget's own Navigator — neither
-/// session class nor ApiClient has one.
+/// Wires [ApiClient.onAccountDeactivated] and [ApiClient.onSessionExpired]
+/// to a forced logout — call [install] once at app startup (see
+/// main.dart). Lives outside DriverSession/UserSession/ApiClient
+/// themselves because the trigger can come from *any* authenticated call,
+/// including a background polling Timer with no BuildContext of its own,
+/// so the navigation has to go through [navigatorKey] rather than a
+/// widget's own Navigator — neither session class nor ApiClient has one.
 class SessionGuard {
   SessionGuard._();
 
@@ -20,14 +20,15 @@ class SessionGuard {
   static bool _handling = false;
 
   static void install() {
-    ApiClient.onAccountDeactivated = _handle;
+    ApiClient.onAccountDeactivated = () => _handle('Your account has been deactivated.');
+    ApiClient.onSessionExpired = () => _handle('Your session has expired. Please log in again.');
   }
 
-  static Future<void> _handle() async {
+  static Future<void> _handle(String message) async {
     // Multiple in-flight requests (e.g. several polling timers) can all
-    // discover the deactivation within the same event-loop turn — this
-    // guard collapses them into a single sign-out + navigation instead of
-    // one per failed request.
+    // discover the deactivation/expiry within the same event-loop turn —
+    // this guard collapses them into a single sign-out + navigation
+    // instead of one per failed request.
     if (_handling) return;
     _handling = true;
     try {
@@ -47,7 +48,7 @@ class SessionGuard {
       final messengerContext = navigatorKey.currentContext;
       if (messengerContext != null) {
         ScaffoldMessenger.of(messengerContext).showSnackBar(
-          const SnackBar(content: Text('Your account has been deactivated.')),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {

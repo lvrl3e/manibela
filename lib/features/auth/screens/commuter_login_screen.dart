@@ -36,6 +36,26 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
   final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
 
   @override
+  void initState() {
+    super.initState();
+    _suggestLastAccount();
+  }
+
+  // The last account used on this device stays on disk even after an
+  // explicit logout (see UserSession.signOut's doc comment) — reload it
+  // here so the phone field starts pre-filled with a suggestion instead of
+  // making a returning commuter retype a number the device already knows,
+  // same idea as a browser's remembered-username autofill.
+  Future<void> _suggestLastAccount() async {
+    await UserSession.instance.loadFromPrefs();
+    final lastNumber = UserSession.instance.mobileNumber;
+    if (!mounted || lastNumber == null || phoneController.text.isNotEmpty) return;
+    setState(() {
+      phoneController.text = PhoneUtils.toLocal(lastNumber);
+    });
+  }
+
+  @override
   void dispose() {
     phoneController.dispose();
     passwordController.dispose();

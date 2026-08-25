@@ -48,6 +48,17 @@ class ApiClient {
   /// its own — happened to be the one that discovered it.
   static void Function()? onAccountDeactivated;
 
+  /// Set once at app startup alongside [onAccountDeactivated] (see
+  /// SessionGuard.install in main.dart) — called whenever an
+  /// *authenticated* request (one sent with a token) comes back 401 for
+  /// any reason other than ACCOUNT_DEACTIVATED (which has its own, more
+  /// specific callback above), most commonly an expired JWT (they default
+  /// to a 7-day lifetime with no refresh mechanism — see
+  /// backend/src/utils/jwt.ts). A plain wrong-password 401 on the
+  /// login/signup endpoints never triggers this, since those calls are
+  /// never sent with a token in the first place.
+  static void Function()? onSessionExpired;
+
   static Future<Map<String, dynamic>> post(
     String path,
     Map<String, dynamic> body, {
@@ -144,7 +155,7 @@ class ApiClient {
       );
     }
 
-    return _decode(response);
+    return _decode(response, authenticated: token != null);
   }
 
   static MediaType _contentTypeFor(String filePath) {
@@ -194,10 +205,10 @@ class ApiClient {
       );
     }
 
-    return _decode(response);
+    return _decode(response, authenticated: token != null);
   }
 
-  static Map<String, dynamic> _decode(http.Response response) {
+  static Map<String, dynamic> _decode(http.Response response, {required bool authenticated}) {
     Map<String, dynamic>? decoded;
     if (response.body.isNotEmpty) {
       try {
@@ -211,6 +222,8 @@ class ApiClient {
       final message = decoded?['error'] as String? ?? 'Something went wrong.';
       if (decoded?['code'] == 'ACCOUNT_DEACTIVATED') {
         onAccountDeactivated?.call();
+      } else if (authenticated && response.statusCode == 401) {
+        onSessionExpired?.call();
       }
       throw ApiException(message, statusCode: response.statusCode, body: decoded);
     }

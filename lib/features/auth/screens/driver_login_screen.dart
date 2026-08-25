@@ -76,6 +76,30 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   }
 
   // =========================================================================
+  // LIFECYCLE
+  // =========================================================================
+
+  @override
+  void initState() {
+    super.initState();
+    _suggestLastAccount();
+  }
+
+  // The last driver account used on this device stays on disk even after
+  // an explicit logout (see DriverSession.signOut's doc comment) — reload
+  // it here so the phone field starts pre-filled with a suggestion instead
+  // of making a returning driver retype a number the device already
+  // knows, same idea as a browser's remembered-username autofill.
+  Future<void> _suggestLastAccount() async {
+    await DriverSession.instance.loadFromPrefs();
+    final lastNumber = DriverSession.instance.mobileNumber;
+    if (!mounted || lastNumber == null || _phoneController.text.isNotEmpty) return;
+    setState(() {
+      _phoneController.text = PhoneUtils.toLocal(lastNumber);
+    });
+  }
+
+  // =========================================================================
   // DISPOSE
   // =========================================================================
 

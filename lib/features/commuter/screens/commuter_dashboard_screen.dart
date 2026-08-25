@@ -41,6 +41,10 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   // Manila. The real value is populated by _resolveCurrentLocation() below.
   static const LatLng _fallbackLocation = LatLng(14.6019, 121.0355);
 
+  // A fix worse than this (in meters) is treated as "still warming up"
+  // rather than accepted outright — see _resolveCurrentLocation.
+  static const double _acceptableAccuracyMeters = 100;
+
   final MapController _mapController = MapController();
 
   LatLng? _currentLocation;
@@ -155,18 +159,28 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       // most likely to time out (GPS radio hasn't warmed up yet) — one
       // retry here is the difference between "first open lands on the
       // fallback location" and just taking a couple seconds longer.
+      //
+      // The fused provider can also *succeed* immediately with a coarse
+      // network/cell-tower fix — easily off by kilometers — before GPS has
+      // had time to lock in, which is what actually makes the map look
+      // like it opened to someone else's location rather than a timeout
+      // or error. So a fix that comes back worse than
+      // [_acceptableAccuracyMeters] still gets accepted as a last resort,
+      // but only after retrying for a tighter one first.
       Position? position;
-      for (var attempt = 0; attempt < 2; attempt++) {
+      for (var attempt = 0; attempt < 3; attempt++) {
         try {
-          position = await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
+          final candidate = await Geolocator.getCurrentPosition(
+            locationSettings: LocationSettings(
               accuracy: LocationAccuracy.high,
-              timeLimit: Duration(seconds: 12),
+              timeLimit: Duration(seconds: 12 + attempt * 4),
             ),
           );
-          break;
+          position = candidate;
+          if (candidate.accuracy <= _acceptableAccuracyMeters || attempt == 2) break;
+          await Future.delayed(const Duration(seconds: 1));
         } catch (_) {
-          if (attempt == 1) rethrow;
+          if (attempt == 2) rethrow;
           await Future.delayed(const Duration(seconds: 1));
         }
       }

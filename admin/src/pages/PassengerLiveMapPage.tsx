@@ -137,7 +137,7 @@ export default function PassengerLiveMapPage() {
           Back
         </Link>
         <div className="h-5 w-px bg-white/15" />
-        <LogoMark size={34} />
+        <LogoMark size={26} />
         <div>
           <p className="font-display text-sm font-bold text-white">Live Passenger Map</p>
           <p className="text-xs text-white/60">

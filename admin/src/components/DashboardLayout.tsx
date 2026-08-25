@@ -395,7 +395,7 @@ export function DashboardLayout({ children, title }: { children: ReactNode; titl
         >
           <MenuIcon />
         </button>
-        <LogoMark size={36} />
+        <LogoMark size={28} />
         <span className="relative font-display text-sm font-bold text-white">ManibelApp Admin</span>
         <div className="relative ml-auto flex items-center gap-3">
           <AdminIdentity light />

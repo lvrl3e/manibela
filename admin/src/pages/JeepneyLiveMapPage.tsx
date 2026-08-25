@@ -106,7 +106,7 @@ export default function JeepneyLiveMapPage() {
           Back
         </Link>
         <div className="h-5 w-px bg-white/15" />
-        <LogoMark size={26} />
+        <LogoMark size={34} />
         <div>
           <p className="font-display text-sm font-bold text-white">Live Jeepney Map</p>
           <p className="text-xs text-white/60">

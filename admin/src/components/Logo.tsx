@@ -16,7 +16,11 @@ export function LogoMark({ size = 96 }: { size?: number }) {
       width={size}
       height={size}
       alt="ManibelApp"
-      className="rounded-full object-contain"
+      // drop-shadow (not box-shadow) since the PNG itself is a circle on a
+      // transparent background — box-shadow would draw a square shadow
+      // behind it. Reads fine at every size in use (login page down to the
+      // mobile top-bar icon) on both the dark sidebar and white panels.
+      className="rounded-full object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)]"
     />
   );
 }

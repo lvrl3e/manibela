@@ -37,11 +37,14 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release
 
+      - name: Rename APK to match download link
+        run: cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ManibelaApp.apk
+
       - name: Publish to download release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload latest build/app/outputs/flutter-apk/app-release.apk \
+          gh release upload latest build/app/outputs/flutter-apk/ManibelaApp.apk \
             --clobber 2>/dev/null || \
-          gh release create latest build/app/outputs/flutter-apk/app-release.apk \
+          gh release create latest build/app/outputs/flutter-apk/ManibelaApp.apk \
             --title "Latest build" --notes "Automated build from ${{ github.sha }}"

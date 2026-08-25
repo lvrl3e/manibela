@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -34,11 +37,11 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release
 
-      - name: Publish to public download release
+      - name: Publish to download release
         env:
-          GH_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload latest build/app/outputs/flutter-apk/app-release.apk \
-            --repo lvrl3e/manibela --clobber 2>/dev/null || \
+            --clobber 2>/dev/null || \
           gh release create latest build/app/outputs/flutter-apk/app-release.apk \
-            --repo lvrl3e/manibela --title "Latest build" --notes "Automated build from mcm876/ManibelApp@${{ github.sha }}"
+            --title "Latest build" --notes "Automated build from ${{ github.sha }}"

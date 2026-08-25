@@ -132,7 +132,7 @@ export function ComplaintDetailPanel({
               <button
                 onClick={() => handleSetStatus('INVESTIGATING')}
                 disabled={isSubmitting || complaint.status === 'INVESTIGATING'}
-                className="rounded-lg border border-brand-blue py-2 text-xs font-semibold text-brand-blue transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border border-brand-blue py-2 text-xs font-semibold text-brand-blue transition hover:bg-yellow-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Investigating
               </button>

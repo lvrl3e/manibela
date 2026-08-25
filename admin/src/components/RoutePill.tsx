@@ -1,8 +1,8 @@
-// Route pills reuse the app's already-validated categorical pair (the same
-// blue/orange the trend chart's Drivers/Commuters lines use) instead of
-// inventing a third ad-hoc color scheme — fixed order, just two directions.
+// Route pills reuse the app's categorical pair (the same yellow/orange the
+// trend chart's Drivers/Commuters lines use) instead of inventing a third
+// ad-hoc color scheme — fixed order, just two directions.
 const ROUTE_TONE: Record<string, { bg: string; color: string }> = {
-  'Pasig – Quiapo': { bg: 'bg-blue-50', color: 'var(--color-series-drivers)' },
+  'Pasig – Quiapo': { bg: 'bg-yellow-50', color: 'var(--color-series-drivers)' },
   'Quiapo – Pasig': { bg: 'bg-orange-50', color: 'var(--color-series-commuters)' },
 };
 

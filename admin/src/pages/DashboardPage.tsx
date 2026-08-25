@@ -131,9 +131,9 @@ function QuickActionLink({ to, icon, label, badge }: { to: string; icon: ReactNo
   return (
     <Link
       to={to}
-      className="group flex items-center gap-3 rounded-lg border border-border-subtle px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-brand-blue hover:bg-blue-50/40"
+      className="group flex items-center gap-3 rounded-lg border border-border-subtle px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-brand-blue hover:bg-yellow-50/40"
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-500 transition group-hover:bg-blue-100 group-hover:text-brand-blue">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-500 transition group-hover:bg-yellow-100 group-hover:text-brand-blue">
         {icon}
       </span>
       <span className="flex-1">{label}</span>
@@ -336,7 +336,7 @@ export default function DashboardPage() {
                 <li key={`${item.type}-${item.id}`} className="flex items-center gap-3 py-2.5">
                   <div
                     className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ${
-                      item.type === 'driver' ? 'bg-blue-50' : 'bg-orange-50'
+                      item.type === 'driver' ? 'bg-yellow-50' : 'bg-orange-50'
                     }`}
                     style={{ color: item.type === 'driver' ? 'var(--color-series-drivers)' : 'var(--color-series-commuters)' }}
                   >

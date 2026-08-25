@@ -20,7 +20,7 @@ function ArrowDownIcon() {
 // only color on an otherwise plain white card; the value itself stays
 // neutral black, matching every other number on the dashboard.
 const TONE_STYLES = {
-  blue: { top: 'bg-brand-blue', ring: 'border-blue-200 text-brand-blue', changeNeutral: 'bg-gray-100 text-gray-500' },
+  blue: { top: 'bg-brand-blue', ring: 'border-yellow-200 text-brand-blue', changeNeutral: 'bg-gray-100 text-gray-500' },
   warning: {
     top: 'bg-status-warning',
     ring: 'border-status-warning/40 text-status-warning',

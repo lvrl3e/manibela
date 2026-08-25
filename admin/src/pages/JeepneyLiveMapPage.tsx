@@ -145,7 +145,7 @@ export default function JeepneyLiveMapPage() {
                 key={m.id}
                 onClick={() => setSelectedId(m.id)}
                 className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${
-                  selectedId === m.id ? 'bg-blue-50' : ''
+                  selectedId === m.id ? 'bg-yellow-50' : ''
                 }`}
               >
                 <span className="flex w-full items-center justify-between">

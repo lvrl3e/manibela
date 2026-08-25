@@ -2,13 +2,16 @@
 
 @theme {
   /* Brand — mirrors lib/core/constants/app_colors.dart on the Flutter
-     side, so the admin site reads as the same product. Blue is the one
-     used everywhere as an interactive/action color; yellow is reserved
-     for the logo mark itself, not scattered across the UI as decoration
-     (that read as "overly colorful" in the first pass). */
+     side, so the admin site reads as the same product. Yellow is now the
+     interactive/action color everywhere (previously blue, deliberately
+     kept separate from the logo yellow — that separation was dropped on
+     request, so brand-blue below is literally a yellow value now; kept
+     as its own variable rather than renamed since dozens of components
+     reference the bg-brand-blue/text-brand-blue utility classes it
+     generates). */
   --color-brand-yellow: #eab308;
-  --color-brand-blue: #0b57d0;
-  --color-brand-blue-dark: #084298;
+  --color-brand-blue: #eab308;
+  --color-brand-blue-dark: #a16207;
   --color-brand-red: #dc2626;
   --color-ink: #0a0f2c;
 
@@ -23,10 +26,10 @@
   --color-status-critical: #d03b3b;
   --color-status-critical-bg: #fdecec;
 
-  /* Chart series — validated categorical pair (blue, orange), fixed
-     order, distinct from the status colors above so a chart series
-     never impersonates a review state. */
-  --color-series-drivers: #2a78d6;
+  /* Chart series — categorical pair (yellow, orange), fixed order,
+     distinct from the status colors above so a chart series never
+     impersonates a review state. */
+  --color-series-drivers: #eab308;
   --color-series-commuters: #eb6834;
 
   /* Neutral surfaces */

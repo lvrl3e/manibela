@@ -9,7 +9,7 @@ const TONE = {
     button: 'bg-status-warning text-white hover:brightness-110',
   },
   neutral: {
-    ring: 'border-blue-200 text-brand-blue',
+    ring: 'border-yellow-200 text-brand-blue',
     button: 'bg-brand-blue text-white hover:brightness-110',
   },
   danger: {

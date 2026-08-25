@@ -23,7 +23,7 @@ export function SectionHeader({ icon, title, action }: { icon: ReactNode; title:
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-blue-200 text-brand-blue">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-yellow-200 text-brand-blue">
           {icon}
         </span>
         <h2 className="font-display text-sm font-semibold text-gray-900">{title}</h2>

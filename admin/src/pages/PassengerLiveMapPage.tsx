@@ -170,7 +170,7 @@ export default function PassengerLiveMapPage() {
                 key={m.id}
                 onClick={() => setSelectedId(m.id)}
                 className={`flex w-full flex-col items-start gap-1 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${
-                  selectedId === m.id ? 'bg-blue-50' : ''
+                  selectedId === m.id ? 'bg-yellow-50' : ''
                 }`}
               >
                 <span className="flex w-full items-center justify-between">
@@ -202,7 +202,7 @@ export default function PassengerLiveMapPage() {
                 key={d.id}
                 onClick={() => setSelectedId(d.id)}
                 className={`flex w-full items-center justify-between border-b border-gray-100 px-4 py-2.5 text-left transition hover:bg-gray-50 ${
-                  selectedId === d.id ? 'bg-blue-50' : ''
+                  selectedId === d.id ? 'bg-yellow-50' : ''
                 }`}
               >
                 <span className="text-xs text-gray-600">

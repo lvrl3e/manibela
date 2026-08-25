@@ -10,10 +10,10 @@ import ExcelJS from 'exceljs';
 
 const COLOR_INK = 'FF0A0F2C';
 const COLOR_MUTED = 'FF6B7280';
-const COLOR_BRAND_BLUE = 'FF0B57D0';
-const COLOR_HEADER_FILL = 'FF0B57D0';
+const COLOR_BRAND_BLUE = 'FFEAB308';
+const COLOR_HEADER_FILL = 'FFEAB308';
 const COLOR_HEADER_TEXT = 'FFFFFFFF';
-const COLOR_SECTION_FILL = 'FFEAF1FD';
+const COLOR_SECTION_FILL = 'FFFEF3C7';
 const COLOR_TOTAL_FILL = 'FFF3F4F6';
 const COLOR_BORDER = 'FFD9DEE7';
 const COLOR_STRIPE = 'FFF8FAFC';
@@ -171,7 +171,7 @@ export function addSectionHeader(sheet: ExcelJS.Worksheet, label: string, row: n
   return row + 1;
 }
 
-/** Header row (bold white-on-blue) + one row per entry in `rows` (bordered,
+/** Header row (bold white-on-yellow) + one row per entry in `rows` (bordered,
  * per-column aligned/number-formatted) + an optional bold TOTAL row.
  * Returns the next empty row after the table (plus a blank spacer). Also
  * returns the header row's own number, for freezing panes above it. */

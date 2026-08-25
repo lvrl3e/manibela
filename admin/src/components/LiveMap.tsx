@@ -27,11 +27,11 @@ export interface JeepneyMarker {
 
 // Custom divIcons instead of Leaflet's default marker (whose image
 // assets need bundler-specific path config to resolve correctly) — also
-// lets these match the brand palette and the Figma's blue-jeepney /
+// lets these match the brand palette and the yellow-jeepney /
 // green-demand-cluster style directly.
 const jeepneyIcon = L.divIcon({
   className: '',
-  html: `<div style="width:30px;height:30px;border-radius:9999px;background:#0b57d0;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+  html: `<div style="width:30px;height:30px;border-radius:9999px;background:#eab308;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M3 12l1.5-5A2 2 0 0 1 6.4 5.5h11.2a2 2 0 0 1 1.9 1.5L21 12"/><rect x="2" y="12" width="20" height="6" rx="1.5"/><circle cx="7" cy="18.5" r="1.5"/><circle cx="17" cy="18.5" r="1.5"/></svg>
   </div>`,
   iconSize: [30, 30],
@@ -92,8 +92,8 @@ export function clusterDemandSignals(signals: RawDemandSignal[]): DemandMarker[]
 }
 
 // A person icon (not the jeepney glyph — this marks where passengers are,
-// not a vehicle) so it reads distinctly from the blue jeepney markers at a
-// glance; red once several pings stack in one cell (worth prioritizing),
+// not a vehicle) so it reads distinctly from the yellow jeepney markers at
+// a glance; red once several pings stack in one cell (worth prioritizing),
 // green for a lone ping — mirrors the driver app's own _WaitingStopPin
 // (driver_dashboard_screen.dart) so both surfaces read the same. The count
 // badge always shows how many, same as the driver app's version.

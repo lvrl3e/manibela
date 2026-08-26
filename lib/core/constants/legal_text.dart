@@ -5,13 +5,13 @@
 /// admin/public/privacy-policy.html; keep both in sync if either changes.
 library;
 
-const String kTermsAndConditionsUpdated = 'Effective date: August 18, 2026 · Last updated: August 18, 2026';
+const String kTermsAndConditionsUpdated = 'Effective date: August 18, 2026 · Last updated: August 26, 2026';
 
 const String kTermsAndConditionsText = '''
 These Terms & Conditions ("Terms") govern your use of the ManibelApp mobile application and admin platform (together, the "Service"), which facilitates jeepney commuting on the Pasig–Quiapo route in Metro Manila. By creating an account or using the Service, you agree to these Terms and to our Privacy Policy.
 
 1. Eligibility
-You must be at least 13 years old to create a commuter account. If you are a minor, you may only use the Service with the consent and supervision of a parent or guardian. Driver accounts are created by an admin after license verification, not through self-registration.
+You must be at least 18 years old to create a commuter account. Driver accounts are created by an admin after license verification, not through self-registration.
 
 2. What the Service Is
 ManibelApp helps commuters find, track, and board nearby jeepneys on the Pasig–Quiapo route, and helps drivers log trips and report daily operations. The Service is a facilitation tool — it does not itself operate any jeepney, employ any driver, or guarantee the availability, timing, or safety of any ride. Jeepney fares are paid in cash directly to the driver and are not calculated, collected, or processed through the app.

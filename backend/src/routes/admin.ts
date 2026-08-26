@@ -9,7 +9,15 @@ import { toTitleCase } from '../utils/text';
 import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
-import { dateOnly, formatDateOnly, formatManilaTime, manilaDayKey, manilaMidnight } from '../utils/date';
+import {
+  dateOnly,
+  formatDateOnly,
+  formatManilaTime,
+  manilaDayKey,
+  manilaMidnight,
+  calculateAge,
+  MIN_COMMUTER_SIGNUP_AGE,
+} from '../utils/date';
 import { requireAuth, requireMainAdmin } from '../middleware/auth';
 import { notifyDriver, notifyCommuter } from '../utils/notify';
 import { issueOtp, verifyOtp } from '../utils/otp';
@@ -1013,13 +1021,24 @@ router.patch('/commuters/:id/status', requireAuth('admin'), async (req, res, nex
   }
 });
 
+// Separate from setDateOfBirthSchema (shared with the driver endpoint
+// above, which has no stated minimum age) — a commuter must stay 18+
+// even when an admin is the one setting/correcting the date, or this
+// endpoint would be a straight bypass of the signup-time check in
+// POST /api/commuter/verify-signup-otp.
+const setCommuterDateOfBirthSchema = z.object({
+  dateOfBirth: dateOnly.nullable().refine((value) => value === null || calculateAge(value) >= MIN_COMMUTER_SIGNUP_AGE, {
+    message: `Commuters must be at least ${MIN_COMMUTER_SIGNUP_AGE} years old.`,
+  }),
+});
+
 // Date of birth is no longer editable by the commuter themselves (see
 // PATCH /commuter/me) — only an admin can set/correct it now, same
 // verified-by-a-human reasoning as a driver's plate/license number.
 router.patch('/commuters/:id/date-of-birth', requireAuth('admin'), async (req, res, next) => {
   try {
     const id: string = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const body = setDateOfBirthSchema.parse(req.body);
+    const body = setCommuterDateOfBirthSchema.parse(req.body);
 
     const commuter = await prisma.commuter.update({ where: { id }, data: { dateOfBirth: body.dateOfBirth } });
 

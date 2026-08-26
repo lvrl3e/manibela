@@ -51,3 +51,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Vercel CLI's local project link (admin/ deploys via `vercel --prod` from
+# the repo root — see .vercel/project.json) — machine-specific, not
+# something to share via version control.
+.vercel/

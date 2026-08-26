@@ -22,6 +22,26 @@ export const dateOnly = z
     return new Date(Date.UTC(year, month - 1, day));
   });
 
+/** Commuters must be at least this old to self-register — see the
+ * Terms & Conditions' eligibility clause (legal_text.dart /
+ * admin/public/terms-and-conditions.html) and the age-confirmation
+ * checkbox on the mobile app's ID-verification step. Enforced here (not
+ * just client-side in CommuterSignUpScreen's own `_minAge`) since a
+ * direct API call skips whatever the app validates before sending. */
+export const MIN_COMMUTER_SIGNUP_AGE = 18;
+
+/** Age in whole years as of `asOf` (defaults to now) — birthday-aware,
+ * not just a year subtraction, same logic as the mobile app's own
+ * `_calculateAge` in CommuterSignUpScreen. */
+export function calculateAge(dateOfBirth: Date, asOf: Date = new Date()): number {
+  let age = asOf.getUTCFullYear() - dateOfBirth.getUTCFullYear();
+  const hasHadBirthdayThisYear =
+    asOf.getUTCMonth() > dateOfBirth.getUTCMonth() ||
+    (asOf.getUTCMonth() === dateOfBirth.getUTCMonth() && asOf.getUTCDate() >= dateOfBirth.getUTCDate());
+  if (!hasHadBirthdayThisYear) age--;
+  return age;
+}
+
 /**
  * Formats a `Date` read back from a `@db.Date` column as "YYYY-MM-DD" —
  * never a full timestamp. Uses UTC getters since Prisma always

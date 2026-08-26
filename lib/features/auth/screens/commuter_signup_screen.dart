@@ -35,8 +35,12 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   bool _showTermsError = false;
   bool _isLoading = false;
 
-  // Mirrors SettingsScreen's own minimum-age policy.
-  static const int _minAge = 13;
+  // Matches the Terms & Conditions' eligibility clause (legal_text.dart)
+  // and the age-confirmation checkbox on the ID-verification step right
+  // after this screen — also enforced server-side in
+  // verifySignupOtpSchema (backend/src/routes/commuter.ts), since a
+  // client-side check alone doesn't stop a direct API call.
+  static const int _minAge = 18;
 
   late final TapGestureRecognizer _termsTapRecognizer = TapGestureRecognizer()
     ..onTap = () => showLegalDocumentDialog(

@@ -32,14 +32,6 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
   bool _isLoading = false;
   bool _rememberMe = true;
 
-  // Starts disabled so a field never shows red before the first Login tap
-  // — AutovalidateMode.onUserInteraction alone still validates as soon as
-  // the user types into *any* field, which reads as nagging on a form
-  // this short. Flips on after that first tap fails, so errors then clear
-  // live as the user fixes each field instead of staying frozen until the
-  // next tap.
-  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
-
   // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567)
   final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
 
@@ -98,10 +90,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
 
   void _handleLogin() async {
     final isFormValid = _formKey.currentState?.validate() ?? false;
-    if (!isFormValid) {
-      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
-      return;
-    }
+    if (!isFormValid) return;
 
     setState(() {
       _isLoading = true;
@@ -280,7 +269,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
                 ),
                 child: Form(
                   key: _formKey,
-                  autovalidateMode: _autovalidateMode,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

@@ -40,12 +40,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
 
-  // Starts disabled so a field never shows red before the first submit
-  // tap — see CommuterLoginScreen's matching field for why
-  // onUserInteraction alone isn't enough. Flips on after that first tap
-  // fails.
-  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
-
   final RegExp _hasUppercase = RegExp(r'[A-Z]');
   final RegExp _hasLowercase = RegExp(r'[a-z]');
   final RegExp _hasDigit = RegExp(r'\d');
@@ -98,10 +92,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   void _resetPassword() async {
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
-      return;
-    }
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {
       _isLoading = true;
@@ -196,7 +187,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           ),
           child: Form(
             key: _formKey,
-            autovalidateMode: _autovalidateMode,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             child: Column(
               children: [
                 Container(

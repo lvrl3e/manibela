@@ -35,11 +35,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   bool _isLoading = false;
   bool _rememberMe = true;
 
-  // Starts disabled so a field never shows red before the first Login tap
-  // — see CommuterLoginScreen's matching field for why onUserInteraction
-  // alone isn't enough. Flips on after that first tap fails.
-  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
-
   // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) —
   // matches CommuterLoginScreen's own _phoneRegExp exactly.
   final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
@@ -125,7 +120,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
   Future<void> _handleLogin() async {
     if (!(_formKey.currentState?.validate() ?? false)) {
-      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
       return;
     }
 
@@ -305,7 +299,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                 ),
                 child: Form(
                   key: _formKey,
-                  autovalidateMode: _autovalidateMode,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

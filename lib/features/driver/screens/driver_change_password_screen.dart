@@ -27,6 +27,9 @@ class _DriverChangePasswordScreenState
   bool _obscureConfirm = true;
   bool _isSubmitting = false;
 
+  // See CommuterLoginScreen's matching field for why.
+  bool _hasAttemptedSubmit = false;
+
   static const int _minLength = 8;
   static final RegExp _hasUppercase = RegExp(r'[A-Z]');
   static final RegExp _hasLowercase = RegExp(r'[a-z]');
@@ -48,8 +51,10 @@ class _DriverChangePasswordScreenState
     // only be an artifact of the on-screen keyboard, not an intentional
     // part of the password.
     final v = value?.trim() ?? '';
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (v.isEmpty) {
-      return 'Enter your current password';
+      return _hasAttemptedSubmit ? 'Enter your current password' : null;
     }
     if (DriverSession.instance.password != null &&
         v != DriverSession.instance.password) {
@@ -60,8 +65,10 @@ class _DriverChangePasswordScreenState
 
   String? _validateNewPassword(String? value) {
     final v = value ?? '';
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (v.isEmpty) {
-      return 'Enter a new password';
+      return _hasAttemptedSubmit ? 'Enter a new password' : null;
     }
     if (v.length < _minLength) {
       return 'Must be at least $_minLength characters';
@@ -93,8 +100,16 @@ class _DriverChangePasswordScreenState
 
   String? _validateConfirmPassword(String? value) {
     final v = value ?? '';
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (v.isEmpty) {
-      return 'Confirm your new password';
+      return _hasAttemptedSubmit ? 'Confirm your new password' : null;
+    }
+    // Distinct from a genuine mismatch below — "Passwords do not match"
+    // reads as wrong/confusing when there's nothing in New Password yet
+    // to compare against.
+    if (_newPasswordController.text.isEmpty) {
+      return 'Enter your new password above first';
     }
     if (v != _newPasswordController.text) {
       return 'Passwords do not match';
@@ -105,6 +120,7 @@ class _DriverChangePasswordScreenState
   Future<void> _handleSubmit() async {
     if (_isSubmitting) return;
 
+    _hasAttemptedSubmit = true;
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -150,7 +166,9 @@ class _DriverChangePasswordScreenState
         bottom: false,
         child: Form(
           key: _formKey,
-          autovalidateMode: AutovalidateMode.onUserInteraction,
+          // Deliberately not set here — see CommuterLoginScreen's
+          // matching Form for why. Each _PasswordField below sets its
+          // own instead.
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
@@ -306,6 +324,7 @@ class _PasswordField extends StatelessWidget {
             obscureText: obscureText,
             validator: validator,
             onChanged: onChanged,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             keyboardType: TextInputType.visiblePassword,
             autocorrect: false,
             enableSuggestions: false,

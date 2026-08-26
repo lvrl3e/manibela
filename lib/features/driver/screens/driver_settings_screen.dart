@@ -701,10 +701,14 @@ class _SettingsField extends StatelessWidget {
               hintText: hintText,
               hintStyle: TextStyle(color: Colors.grey.shade400),
               // Goes through prefixIcon, not prefixText — see
-              // CommuterLoginScreen's matching field for why.
+              // CommuterLoginScreen's matching field for why. The top
+              // offset mirrors this field's own contentPadding: that
+              // padding only shifts the editable text down (prefixIcon
+              // isn't part of the padded input area), so without it the
+              // "+63" sits vertically off from the digits.
               prefixIcon: prefixText != null
                   ? Padding(
-                      padding: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.only(top: 6, right: 4),
                       child: Text(
                         prefixText!,
                         style: TextStyle(fontSize: 14, color: Colors.grey.shade700),

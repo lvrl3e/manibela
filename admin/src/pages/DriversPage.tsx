@@ -95,6 +95,16 @@ const FILTERS: { label: string; value: 'all' | 'active' | 'inactive' }[] = [
 
 const PAGE_SIZE = 25;
 
+// The latest birth date that still makes someone 18 today — computed
+// once at module load (not per-render) since "today" only actually
+// changes once a day; a date input's own max attribute compares by
+// calendar day anyway, so that granularity is fine.
+const maxDateOfBirthForAge18 = (() => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 18);
+  return d.toISOString().slice(0, 10);
+})();
+
 function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated: (driver: Driver) => void }) {
   const [fullName, setFullName] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -201,7 +211,12 @@ function AddDriverModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </label>
             <input
               type="date"
-              max={new Date().toISOString().slice(0, 10)}
+              // A date more recent than this makes the driver under 18 —
+              // matches MIN_ADULT_AGE, enforced server-side too
+              // (createDriverSchema in admin.ts) since this max attribute
+              // alone doesn't stop a direct API call.
+              max={maxDateOfBirthForAge18}
+              title="Drivers must be at least 18 years old"
               value={dateOfBirth}
               onChange={(e) => setDateOfBirth(e.target.value)}
               className="mt-1.5 w-full rounded-lg border border-border-subtle px-3 py-2.5 text-sm focus:border-brand-blue focus:outline-none"

@@ -16,7 +16,7 @@ import {
   manilaDayKey,
   manilaMidnight,
   calculateAge,
-  MIN_COMMUTER_SIGNUP_AGE,
+  MIN_ADULT_AGE,
 } from '../utils/date';
 import { requireAuth, requireMainAdmin } from '../middleware/auth';
 import { notifyDriver, notifyCommuter } from '../utils/notify';
@@ -807,10 +807,20 @@ router.patch('/drivers/:id/plate-number', requireAuth('admin'), async (req, res,
   }
 });
 
+// Optional for a driver (unlike a commuter's, which is required at
+// signup) — an admin may not have this on hand yet. But when a date IS
+// given, it still has to clear MIN_ADULT_AGE, whether at creation
+// (createDriverSchema below) or a later correction here, same reasoning
+// as setCommuterDateOfBirthSchema further down.
+const driverDateOfBirth = dateOnly.nullable().refine(
+  (value) => value === null || calculateAge(value) >= MIN_ADULT_AGE,
+  { message: `Drivers must be at least ${MIN_ADULT_AGE} years old.` },
+);
+
 // Date of birth is no longer editable by the driver themselves (see
 // PATCH /driver/me) — only an admin can set/correct it now, same
 // verified-by-a-human reasoning as plate number and license number.
-const setDateOfBirthSchema = z.object({ dateOfBirth: dateOnly.nullable() });
+const setDateOfBirthSchema = z.object({ dateOfBirth: driverDateOfBirth });
 
 router.patch('/drivers/:id/date-of-birth', requireAuth('admin'), async (req, res, next) => {
   try {
@@ -868,7 +878,9 @@ const createDriverSchema = z.object({
   licenseNumber: z.string().trim().min(1),
   // Optional — an admin may not have this on hand at creation time; can
   // always be added/corrected later via PATCH /drivers/:id/date-of-birth.
-  dateOfBirth: dateOnly.nullable().optional(),
+  // Still enforces MIN_ADULT_AGE when a date is given — see
+  // driverDateOfBirth's own doc comment.
+  dateOfBirth: driverDateOfBirth.optional(),
 });
 
 router.post('/drivers', requireAuth('admin'), async (req, res, next) => {
@@ -1021,14 +1033,15 @@ router.patch('/commuters/:id/status', requireAuth('admin'), async (req, res, nex
   }
 });
 
-// Separate from setDateOfBirthSchema (shared with the driver endpoint
-// above, which has no stated minimum age) — a commuter must stay 18+
-// even when an admin is the one setting/correcting the date, or this
-// endpoint would be a straight bypass of the signup-time check in
+// Own schema rather than reusing driverDateOfBirth — a commuter's date
+// of birth is required (unlike a driver's, which stays optional even
+// here), and this message says "commuter" rather than "driver". Still
+// enforces the same MIN_ADULT_AGE, so an admin setting/correcting the
+// date can't bypass the signup-time check in
 // POST /api/commuter/verify-signup-otp.
 const setCommuterDateOfBirthSchema = z.object({
-  dateOfBirth: dateOnly.nullable().refine((value) => value === null || calculateAge(value) >= MIN_COMMUTER_SIGNUP_AGE, {
-    message: `Commuters must be at least ${MIN_COMMUTER_SIGNUP_AGE} years old.`,
+  dateOfBirth: dateOnly.nullable().refine((value) => value === null || calculateAge(value) >= MIN_ADULT_AGE, {
+    message: `Commuters must be at least ${MIN_ADULT_AGE} years old.`,
   }),
 });
 

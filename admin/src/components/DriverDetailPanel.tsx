@@ -67,6 +67,16 @@ function LicensePhotoView({ label, url }: { label: string; url: string | null })
   );
 }
 
+// The latest birth date that still makes someone 18 today — mirrors
+// DriversPage's own AddDriverModal constant. Matches MIN_ADULT_AGE,
+// enforced server-side too (PATCH /admin/drivers/:id/date-of-birth)
+// since this max attribute alone doesn't stop a direct API call.
+const maxDateOfBirthForAge18 = (() => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 18);
+  return d.toISOString().slice(0, 10);
+})();
+
 /** Date of birth is no longer editable by the driver themselves (see
  * PATCH /driver/me) — only an admin can set/correct it, same
  * verified-by-a-human reasoning as plate/license number. Uses a native
@@ -136,6 +146,8 @@ function DateOfBirthField({
           <input
             autoFocus
             type="date"
+            max={maxDateOfBirthForAge18}
+            title="Drivers must be at least 18 years old"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             className="rounded-lg border border-border-subtle px-2 py-1 text-sm font-medium focus:border-brand-blue focus:outline-none"

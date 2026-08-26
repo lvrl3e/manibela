@@ -22,13 +22,17 @@ export const dateOnly = z
     return new Date(Date.UTC(year, month - 1, day));
   });
 
-/** Commuters must be at least this old to self-register — see the
- * Terms & Conditions' eligibility clause (legal_text.dart /
+/** Nobody on this platform — commuter or driver — has their date of
+ * birth accepted below this age. For commuters this is the Terms &
+ * Conditions' eligibility clause (legal_text.dart /
  * admin/public/terms-and-conditions.html) and the age-confirmation
- * checkbox on the mobile app's ID-verification step. Enforced here (not
- * just client-side in CommuterSignUpScreen's own `_minAge`) since a
- * direct API call skips whatever the app validates before sending. */
-export const MIN_COMMUTER_SIGNUP_AGE = 18;
+ * checkbox on the mobile app's ID-verification step; for drivers it's
+ * enforced only when an admin actually provides a date of birth (see
+ * createDriverSchema/setDriverDateOfBirthSchema in admin.ts — DOB is
+ * optional there, unlike a commuter's). Enforced here (not just
+ * client-side) since a direct API call skips whatever a form validates
+ * before sending. */
+export const MIN_ADULT_AGE = 18;
 
 /** Age in whole years as of `asOf` (defaults to now) — birthday-aware,
  * not just a year subtraction, same logic as the mobile app's own

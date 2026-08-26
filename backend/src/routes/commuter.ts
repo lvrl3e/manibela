@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma';
 import { toE164 } from '../utils/phone';
 import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
-import { dateOnly, formatDateOnly, calculateAge, MIN_COMMUTER_SIGNUP_AGE } from '../utils/date';
+import { dateOnly, formatDateOnly, calculateAge, MIN_ADULT_AGE } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
 import {
   uploadPhoto,
@@ -131,8 +131,8 @@ const verifySignupOtpSchema = z.object({
   // .refine() here, not just CommuterSignUpScreen's own client-side
   // check, so a direct API call can't create an under-18 account by
   // skipping whatever the app validates before sending.
-  dateOfBirth: dateOnly.refine((value) => calculateAge(value) >= MIN_COMMUTER_SIGNUP_AGE, {
-    message: `You must be at least ${MIN_COMMUTER_SIGNUP_AGE} years old to create a commuter account.`,
+  dateOfBirth: dateOnly.refine((value) => calculateAge(value) >= MIN_ADULT_AGE, {
+    message: `You must be at least ${MIN_ADULT_AGE} years old to create a commuter account.`,
   }),
   code: z.string().length(6),
 });

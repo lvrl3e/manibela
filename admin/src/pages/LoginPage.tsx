@@ -48,13 +48,15 @@ function JeepneyIcon({ className }: { className?: string }) {
   );
 }
 
-// The last email that successfully logged in on this device — separate
-// from (and much lower-risk than) the browser's own saved-password
-// autofill that LoginPage's autoComplete="off"/"new-password" deliberately
-// suppress: this only ever remembers the *address*, never the password,
-// so it's fine to prefill even on a shared admin machine. Mirrors the
-// mobile app's own last-account suggestion on its login screens
-// (UserSession/DriverSession's mobileNumber, kept on disk past logout).
+// The last email that successfully logged in *with Remember Me checked* on
+// this device — separate from (and much lower-risk than) the browser's own
+// saved-password autofill that LoginPage's autoComplete="off"/"new-password"
+// deliberately suppress: this only ever remembers the *address*, never the
+// password. Gated on the same checkbox as session persistence (see
+// handleSubmit) rather than saved on every login — leaving it unchecked is
+// an explicit "don't remember me on this device," and that has to hold for
+// the whole login, not just the token, or logging out without it checked
+// would still show the email suggested right back on the next visit.
 const LAST_EMAIL_KEY = 'adminLastEmail';
 
 export default function LoginPage() {
@@ -77,7 +79,15 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await login(email, password, rememberMe);
-      localStorage.setItem(LAST_EMAIL_KEY, email);
+      // Tied to the same checkbox as session persistence — logging in
+      // without it is an explicit "don't remember me on this device" for
+      // the *whole* login, not just the token, so it wipes any
+      // previously-suggested email too rather than leaving it behind.
+      if (rememberMe) {
+        localStorage.setItem(LAST_EMAIL_KEY, email);
+      } else {
+        localStorage.removeItem(LAST_EMAIL_KEY);
+      }
       const redirectTo = (location.state as { from?: Location })?.from?.pathname ?? '/';
       navigate(redirectTo, { replace: true });
     } catch (err) {

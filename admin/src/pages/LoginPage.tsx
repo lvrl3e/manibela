@@ -167,7 +167,7 @@ export default function LoginPage() {
               <LogoMark size={64} />
             </div>
 
-            <h1 className="font-display text-center text-3xl font-extrabold text-gray-900">Welcome back</h1>
+            <h1 className="font-display text-center text-3xl font-extrabold text-gray-900">Welcome!</h1>
             <p className="mt-2 text-center text-sm text-gray-500">Sign in to the ManibelApp admin portal</p>
 
             <label className="mt-8 block text-sm font-semibold text-gray-800" htmlFor="email">

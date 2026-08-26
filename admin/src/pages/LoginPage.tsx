@@ -162,7 +162,7 @@ export default function LoginPage() {
         />
 
         <div className="relative flex flex-1 items-center justify-center py-16">
-          <form onSubmit={handleSubmit} className="w-full max-w-sm animate-form-rise">
+          <form onSubmit={handleSubmit} autoComplete="off" className="w-full max-w-sm animate-form-rise">
             <div className="mb-8 flex justify-center md:hidden">
               <LogoMark size={64} />
             </div>
@@ -181,7 +181,15 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 required
-                autoComplete="email"
+                // Deliberately not "email" — this is an internal admin
+                // portal on potentially shared machines, so the browser
+                // offering/refilling a previously-saved admin login after
+                // someone logs out is a real handoff risk, not just a
+                // convenience worth keeping. "off" plus the password
+                // field's "new-password" below is the standard (if
+                // imperfect — browsers don't guarantee honoring it)
+                // mitigation for that.
+                autoComplete="off"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email..."
@@ -200,7 +208,12 @@ export default function LoginPage() {
                 id="password"
                 type={showPassword ? 'text' : 'password'}
                 required
-                autoComplete="current-password"
+                // "new-password", not "current-password" — see the email
+                // field's comment above. Browsers largely respect this one
+                // specifically (it's the standard trick for suppressing
+                // both autofill-on-load and the "save this password?"
+                // prompt), more so than a bare autoComplete="off".
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password..."

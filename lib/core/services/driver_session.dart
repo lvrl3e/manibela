@@ -84,6 +84,15 @@ class DriverSession {
   /// out always clears both, regardless of this flag.
   bool rememberMe = false;
 
+  /// The mobile number DriverLoginScreen suggests/pre-fills — separate
+  /// from [mobileNumber] itself, which stays on disk after logout
+  /// regardless of Remember Me (other things need it, e.g. a quick
+  /// re-login not retyping profile fields). This one is only ever written
+  /// when Remember Me was checked at login (see [logIn]), so leaving it
+  /// unchecked reliably means the next visit to the login screen starts
+  /// blank instead of quietly suggesting the account back anyway.
+  String? lastSuggestedMobileNumber;
+
   static const _kFullName = 'driver_session_fullName';
   static const _kMobileNumber = 'driver_session_mobileNumber';
   static const _kPassword = 'driver_session_password';
@@ -96,6 +105,7 @@ class DriverSession {
   static const _kQrToken = 'driver_session_qrToken';
   static const _kLoggedInFlag = 'driverLoggedIn';
   static const _kRememberMe = 'driver_session_rememberMe';
+  static const _kLastSuggestedMobileNumber = 'driver_session_lastSuggestedMobileNumber';
 
   bool get isSignedIn => fullName != null;
 
@@ -113,6 +123,7 @@ class DriverSession {
     qrToken = prefs.getString(_kQrToken);
     dateOfBirth = DateOnly.tryParse(prefs.getString(_kDateOfBirth));
     rememberMe = prefs.getBool(_kRememberMe) ?? false;
+    lastSuggestedMobileNumber = prefs.getString(_kLastSuggestedMobileNumber);
 
     // One-time migration for a device that logged in before password/
     // authToken moved to secure storage — see UserSession.loadFromPrefs's
@@ -287,6 +298,17 @@ class DriverSession {
     // out a photo staged-but-unsaved from before. (photoUrl needs no such
     // rescue — the backend always returns the real current value above.)
     photoPath ??= prefs.getString(_kPhotoPath);
+
+    // See [lastSuggestedMobileNumber]'s own doc comment — gated on the
+    // same checkbox as the session itself, so logging in without it
+    // checked wipes any previously-suggested number too instead of
+    // leaving it behind.
+    if (rememberMe) {
+      await prefs.setString(_kLastSuggestedMobileNumber, mobileNumber);
+    } else {
+      await prefs.remove(_kLastSuggestedMobileNumber);
+    }
+    lastSuggestedMobileNumber = rememberMe ? mobileNumber : null;
 
     await _persist();
     await prefs.setBool(_kLoggedInFlag, true);

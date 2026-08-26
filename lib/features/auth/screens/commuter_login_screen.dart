@@ -49,14 +49,16 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
     _suggestLastAccount();
   }
 
-  // The last account used on this device stays on disk even after an
-  // explicit logout (see UserSession.signOut's doc comment) — reload it
-  // here so the phone field starts pre-filled with a suggestion instead of
-  // making a returning commuter retype a number the device already knows,
-  // same idea as a browser's remembered-username autofill.
+  // UserSession.lastSuggestedMobileNumber stays on disk even after an
+  // explicit logout, but only when Remember Me was checked at that login
+  // (see UserSession.logIn's doc comment) — reload it here so the phone
+  // field starts pre-filled with a suggestion instead of making a
+  // returning commuter retype a number the device already knows, same
+  // idea as a browser's remembered-username autofill, without also
+  // suggesting an account back after a login that deliberately opted out.
   Future<void> _suggestLastAccount() async {
     await UserSession.instance.loadFromPrefs();
-    final lastNumber = UserSession.instance.mobileNumber;
+    final lastNumber = UserSession.instance.lastSuggestedMobileNumber;
     if (!mounted || lastNumber == null || phoneController.text.isNotEmpty) return;
     setState(() {
       phoneController.text = PhoneUtils.toLocal(lastNumber);

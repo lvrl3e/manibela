@@ -67,6 +67,15 @@ class UserSession {
   /// out" reliably means "ask me to log in again next time."
   bool rememberMe = false;
 
+  /// The mobile number CommuterLoginScreen suggests/pre-fills — separate
+  /// from [mobileNumber] itself, which stays on disk after logout
+  /// regardless of Remember Me (other things need it, e.g. a quick
+  /// re-login not retyping profile fields). This one is only ever written
+  /// when Remember Me was checked at login (see [logIn]), so leaving it
+  /// unchecked reliably means the next visit to the login screen starts
+  /// blank instead of quietly suggesting the account back anyway.
+  String? lastSuggestedMobileNumber;
+
   static const _kFullName = 'session_fullName';
   static const _kMobileNumber = 'session_mobileNumber';
   static const _kPassword = 'session_password';
@@ -78,6 +87,7 @@ class UserSession {
   static const _kLoggedInFlag = 'commuterLoggedIn';
   static const _kPendingVerificationMobileNumber = 'session_pendingVerificationMobileNumber';
   static const _kRememberMe = 'session_rememberMe';
+  static const _kLastSuggestedMobileNumber = 'session_lastSuggestedMobileNumber';
 
   bool get isSignedIn => fullName != null;
 
@@ -115,6 +125,7 @@ class UserSession {
     if (legacyAuthToken != null) await prefs.remove(_kAuthToken);
     pendingVerificationMobileNumber = prefs.getString(_kPendingVerificationMobileNumber);
     rememberMe = prefs.getBool(_kRememberMe) ?? false;
+    lastSuggestedMobileNumber = prefs.getString(_kLastSuggestedMobileNumber);
   }
 
   /// True only when a cold-started app should skip straight to the
@@ -220,14 +231,24 @@ class UserSession {
     // from before is now stale.
     await clearPendingVerification();
 
+    final prefs = await SharedPreferences.getInstance();
+
     // signOut() clears photoPath from memory (though not from disk) — so
     // without this, _persist() below would see photoPath == null and wipe
     // out a photo staged-but-unsaved from before. (photoUrl needs no such
     // rescue — the backend always returns the real current value above.)
-    if (photoPath == null) {
-      final prefs = await SharedPreferences.getInstance();
-      photoPath = prefs.getString(_kPhotoPath);
+    photoPath ??= prefs.getString(_kPhotoPath);
+
+    // See [lastSuggestedMobileNumber]'s own doc comment — gated on the
+    // same checkbox as the session itself, so logging in without it
+    // checked wipes any previously-suggested number too instead of
+    // leaving it behind.
+    if (rememberMe) {
+      await prefs.setString(_kLastSuggestedMobileNumber, mobileNumber);
+    } else {
+      await prefs.remove(_kLastSuggestedMobileNumber);
     }
+    lastSuggestedMobileNumber = rememberMe ? mobileNumber : null;
 
     await _persist();
   }

@@ -44,6 +44,9 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   bool _showTermsError = false;
   bool _isLoading = false;
 
+  // See CommuterLoginScreen's matching field for why.
+  bool _hasAttemptedSubmit = false;
+
   // Matches the Terms & Conditions' eligibility clause (legal_text.dart)
   // and the age-confirmation checkbox on the ID-verification step right
   // after this screen — also enforced server-side in
@@ -69,9 +72,10 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   // Only letters, spaces, hyphens, apostrophes and periods (e.g. "Jr.")
   final RegExp _nameRegExp = RegExp(r"^[a-zA-Z\u00C0-\u017F' .-]+$");
 
-  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) \u2014
-  // matches CommuterLoginScreen's own _phoneRegExp exactly.
-  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
+  // The 10-digit national number typed after the field's own fixed "+63"
+  // prefix (e.g. 9171234567) \u2014 matches CommuterLoginScreen's own
+  // _phoneRegExp exactly.
+  final RegExp _phoneRegExp = RegExp(r'^9\d{9}$');
 
   final RegExp _hasUppercase = RegExp(r'[A-Z]');
   final RegExp _hasLowercase = RegExp(r'[a-z]');
@@ -93,8 +97,10 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   String? _validateFullName(String? value) {
     final name = value?.trim() ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (name.isEmpty) {
-      return 'Please enter your full name';
+      return _hasAttemptedSubmit ? 'Please enter your full name' : null;
     }
     if (name.length < 2) {
       return 'Full name must be at least 2 characters';
@@ -111,11 +117,13 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   String? _validatePhone(String? value) {
     final phone = value?.trim().replaceAll(' ', '') ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (phone.isEmpty) {
-      return 'Please enter your mobile number';
+      return _hasAttemptedSubmit ? 'Please enter your mobile number' : null;
     }
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid number, e.g. 09171234567';
+      return 'Enter a valid number, e.g. 9171234567';
     }
     return null;
   }
@@ -123,8 +131,10 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   String? _validatePassword(String? value) {
     final password = value ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (password.isEmpty) {
-      return 'Please enter a password';
+      return _hasAttemptedSubmit ? 'Please enter a password' : null;
     }
     if (password.length < 8) {
       return 'Password must be at least 8 characters';
@@ -150,8 +160,16 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   String? _validateConfirmPassword(String? value) {
     final confirm = value ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (confirm.isEmpty) {
-      return 'Please confirm your password';
+      return _hasAttemptedSubmit ? 'Please confirm your password' : null;
+    }
+    // Distinct from a genuine mismatch below — "Passwords do not match"
+    // reads as wrong/confusing when there's nothing in Password yet to
+    // compare against.
+    if (_passwordController.text.isEmpty) {
+      return 'Enter your password above first';
     }
     if (confirm != _passwordController.text) {
       return 'Passwords do not match';
@@ -161,8 +179,10 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
   String? _validateDateOfBirth(String? _) {
     final value = _dateOfBirth;
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (value == null) {
-      return 'Date of birth is required';
+      return _hasAttemptedSubmit ? 'Date of birth is required' : null;
     }
     final now = DateTime.now();
     if (value.isAfter(now)) {
@@ -204,6 +224,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   }
 
   void _handleSignUp() async {
+    _hasAttemptedSubmit = true;
     final isFormValid = _formKey.currentState?.validate() ?? false;
 
     setState(() {
@@ -259,6 +280,10 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   InputDecoration _fieldDecoration({
     String? hintText,
     Widget? suffixIcon,
+    // See CommuterLoginScreen's matching field for why this goes through
+    // prefixIcon rather than InputDecoration's own prefixText (which
+    // silently doesn't render on this app's TextFormFields).
+    String? prefixText,
   }) {
     return InputDecoration(
       hintText: hintText,
@@ -266,6 +291,17 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
         color: Colors.black26,
         fontWeight: FontWeight.w700,
       ),
+      prefixIcon: prefixText != null
+          ? Padding(
+              padding: const EdgeInsets.only(left: 20, right: 4),
+              child: Text(
+                prefixText,
+                style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w700),
+              ),
+            )
+          : null,
+      // See CommuterLoginScreen's matching field for why.
+      prefixIconConstraints: prefixText != null ? const BoxConstraints(minWidth: 0, minHeight: 0) : null,
       filled: true,
       fillColor: const Color(0xFFF2F2F2),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -376,7 +412,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
                       fontWeight: FontWeight.w700,
                       color: Colors.black87,
                     ),
-                    decoration: _fieldDecoration(hintText: '09XXXXXXXXX'),
+                    decoration: _fieldDecoration(hintText: '', prefixText: '+63 '),
                     validator: _validatePhone,
                   ),
                   const SizedBox(height: 16),

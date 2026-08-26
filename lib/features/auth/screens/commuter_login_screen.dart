@@ -30,10 +30,19 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
 
   bool obscurePassword = true;
   bool _isLoading = false;
-  bool _rememberMe = true;
+  bool _rememberMe = false;
 
-  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567)
-  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
+  // False until the first Login tap — an empty field never shows a red
+  // "required" message before that (see each _validate*'s own empty
+  // check), but the tap itself needs to actually surface what's missing,
+  // not just silently no-op. Set true synchronously before that same
+  // tap's validate() call, so it takes effect for the very press that
+  // set it, not just subsequent ones.
+  bool _hasAttemptedSubmit = false;
+
+  // The 10-digit national number typed after the field's own fixed "+63"
+  // prefix (e.g. 9171234567) — always starts with 9 for a PH mobile.
+  final RegExp _phoneRegExp = RegExp(r'^9\d{9}$');
 
   @override
   void initState() {
@@ -53,7 +62,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
     final lastNumber = UserSession.instance.lastSuggestedMobileNumber;
     if (!mounted || lastNumber == null || phoneController.text.isNotEmpty) return;
     setState(() {
-      phoneController.text = PhoneUtils.toLocal(lastNumber);
+      phoneController.text = PhoneUtils.national(lastNumber);
     });
   }
 
@@ -67,11 +76,14 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
   String? _validatePhone(String? value) {
     final phone = value?.trim().replaceAll(' ', '') ?? '';
 
+    // Empty never shows a red "required" message while just typing — an
+    // emptied field reads as "still editing," not "wrong" — but a Login
+    // tap with it still empty needs to actually say so.
     if (phone.isEmpty) {
-      return 'Please enter your phone number';
+      return _hasAttemptedSubmit ? 'Please enter your phone number' : null;
     }
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid number, e.g. 09171234567';
+      return 'Enter a valid number, e.g. 9171234567';
     }
     return null;
   }
@@ -79,8 +91,10 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
   String? _validatePassword(String? value) {
     final password = value ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // _validatePhone's matching check above.
     if (password.isEmpty) {
-      return 'Please enter your password';
+      return _hasAttemptedSubmit ? 'Please enter your password' : null;
     }
     if (password.length < 6) {
       return 'Password must be at least 6 characters';
@@ -89,6 +103,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
   }
 
   void _handleLogin() async {
+    setState(() => _hasAttemptedSubmit = true);
     final isFormValid = _formKey.currentState?.validate() ?? false;
     if (!isFormValid) return;
 
@@ -177,12 +192,34 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
 
   InputDecoration _fieldDecoration({
     required String hintText,
-    required IconData prefixIcon,
+    IconData? prefixIcon,
     Widget? suffixIcon,
+    // A country-code prefix (e.g. "+63 ") deliberately goes through the
+    // prefixIcon slot, not InputDecoration's own prefixText/prefixStyle —
+    // verified empirically that prefixText silently doesn't render on
+    // this app's TextFormFields (prefixIcon renders fine on the same
+    // decoration), so this is the reliable path, not a style choice.
+    String? prefixText,
   }) {
     return InputDecoration(
       hintText: hintText,
-      prefixIcon: Icon(prefixIcon),
+      prefixIcon: prefixText != null
+          ? Padding(
+              padding: const EdgeInsets.only(left: 16, right: 4),
+              child: Text(
+                prefixText,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+            )
+          : (prefixIcon != null ? Icon(prefixIcon) : null),
+      // Prevents Material's default 48px-minimum prefixIcon tap target
+      // from padding out a short "+63" into a taller/emptier-looking box
+      // than sibling fields that don't have anything in this slot.
+      prefixIconConstraints: prefixText != null ? const BoxConstraints(minWidth: 0, minHeight: 0) : null,
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.grey.shade100,
@@ -313,8 +350,9 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
                         controller: phoneController,
                         keyboardType: TextInputType.phone,
                         decoration: _fieldDecoration(
-                          hintText: "09XXXXXXXXX",
+                          hintText: "",
                           prefixIcon: Icons.phone_outlined,
+                          prefixText: "+63 ",
                         ),
                         validator: _validatePhone,
                       ),

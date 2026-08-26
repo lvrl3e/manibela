@@ -33,11 +33,15 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
   bool _isPasswordObscured = true;
   bool _isLoading = false;
-  bool _rememberMe = true;
+  bool _rememberMe = false;
 
-  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) —
-  // matches CommuterLoginScreen's own _phoneRegExp exactly.
-  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
+  // See CommuterLoginScreen's matching field for why.
+  bool _hasAttemptedSubmit = false;
+
+  // The 10-digit national number typed after the field's own fixed "+63"
+  // prefix (e.g. 9171234567) — matches CommuterLoginScreen's own
+  // _phoneRegExp exactly.
+  final RegExp _phoneRegExp = RegExp(r'^9\d{9}$');
 
   // Drivers never see a signup screen (accounts are admin-created) — this
   // is the closest equivalent to a commuter's signup-checkbox moment, so
@@ -64,14 +68,26 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   String? _validatePhone(String? value) {
     final phone = value?.trim().replaceAll(' ', '') ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (phone.isEmpty) {
-      return 'Please enter your mobile number';
+      return _hasAttemptedSubmit ? 'Please enter your mobile number' : null;
     }
 
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid number, e.g. 09171234567';
+      return 'Enter a valid number, e.g. 9171234567';
     }
 
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    final password = value ?? '';
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
+    if (password.isEmpty) {
+      return _hasAttemptedSubmit ? 'Please enter your password' : null;
+    }
     return null;
   }
 
@@ -97,7 +113,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
     final lastNumber = DriverSession.instance.lastSuggestedMobileNumber;
     if (!mounted || lastNumber == null || _phoneController.text.isNotEmpty) return;
     setState(() {
-      _phoneController.text = PhoneUtils.toLocal(lastNumber);
+      _phoneController.text = PhoneUtils.national(lastNumber);
     });
   }
 
@@ -119,6 +135,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   // =========================================================================
 
   Future<void> _handleLogin() async {
+    setState(() => _hasAttemptedSubmit = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
@@ -204,12 +221,29 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
   InputDecoration _fieldDecoration({
     required String hintText,
-    required IconData prefixIcon,
+    IconData? prefixIcon,
     Widget? suffixIcon,
+    // See CommuterLoginScreen's matching field for why this goes through
+    // prefixIcon rather than InputDecoration's own prefixText.
+    String? prefixText,
   }) {
     return InputDecoration(
       hintText: hintText,
-      prefixIcon: Icon(prefixIcon),
+      prefixIcon: prefixText != null
+          ? Padding(
+              padding: const EdgeInsets.only(left: 16, right: 4),
+              child: Text(
+                prefixText,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+            )
+          : (prefixIcon != null ? Icon(prefixIcon) : null),
+      // See CommuterLoginScreen's matching field for why.
+      prefixIconConstraints: prefixText != null ? const BoxConstraints(minWidth: 0, minHeight: 0) : null,
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.grey.shade100,
@@ -342,8 +376,9 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                         controller: _phoneController,
                         keyboardType: TextInputType.phone,
                         decoration: _fieldDecoration(
-                          hintText: "09XXXXXXXXX",
+                          hintText: "",
                           prefixIcon: Icons.phone_outlined,
+                          prefixText: "+63 ",
                         ),
                         validator: _validatePhone,
                       ),
@@ -380,12 +415,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                             },
                           ),
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
-                          }
-                          return null;
-                        },
+                        validator: _validatePassword,
                       ),
 
                       const SizedBox(height: 10),
@@ -512,30 +542,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                       const SizedBox(height: 20),
 
                       // Drivers don't self-register (see this screen's own
-                      // signup doc comment) — a demo account plus a way
-                      // back to role selection replace commuter's "Sign Up"
-                      // link here.
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: AppColors.qrTileBg,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'Demo driver account\n09171234567 · Julie@123',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.qrIconColor,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
+                      // signup doc comment) — a way back to role selection
+                      // replaces commuter's "Sign Up" link here.
                       Center(
                         child: GestureDetector(
                           onTap: () {

@@ -1,15 +1,17 @@
 /// Every phone entry field in this app (login, signup, forgot password,
-/// settings) collects the local `09XXXXXXXXX` form — the one PH mobile
-/// users actually type from muscle memory — and normalizes it here before
-/// it ever reaches the backend, which stores/compares everything as
-/// canonical `+63XXXXXXXXXX` (E.164). [toE164] also accepts an
-/// already-`+63` string unchanged, so it's safe to call on values that
-/// went through this conversion already (e.g. re-displaying a saved
-/// number in an editable field).
+/// settings) shows a fixed `+63` prefix and collects just the 10-digit
+/// national number after it (`9XXXXXXXXX`) — see [national] — and
+/// normalizes it here before it ever reaches the backend, which stores/
+/// compares everything as canonical `+63XXXXXXXXXX` (E.164). [toE164]
+/// also accepts an already-`+63` string unchanged, so it's safe to call
+/// on values that went through this conversion already (e.g.
+/// re-displaying a saved number in an editable field).
 class PhoneUtils {
   const PhoneUtils._();
 
-  /// Converts a PH mobile number in either local (`09XXXXXXXXX`) or
+  /// Converts a PH mobile number in local (`09XXXXXXXXX`), bare national
+  /// (`9XXXXXXXXX` — what every phone field's controller actually holds
+  /// now, typed after the field's own fixed `+63` prefix), or
   /// international (`+63XXXXXXXXXX`) form into a canonical
   /// `+63XXXXXXXXXX` (E.164) string. Non-digit characters (spaces,
   /// dashes) are stripped first.
@@ -30,25 +32,15 @@ class PhoneUtils {
     return '+63$digitsOnly';
   }
 
-  /// Converts a canonical `+63XXXXXXXXXX` (E.164) string back into the
-  /// local `09XXXXXXXXX` form every phone field in this app actually
-  /// displays/collects — the inverse of [toE164]. Used to suggest a
-  /// previously-used number (e.g. re-populating the login screen's phone
-  /// field with the last account on this device) without leaking the
-  /// international prefix into a field styled for the local form.
-  static String toLocal(String phone) {
-    final trimmed = phone.trim();
-    if (trimmed.startsWith('+63')) {
-      return '0${trimmed.substring(3)}';
-    }
-
-    final digitsOnly = trimmed.replaceAll(RegExp(r'\D'), '');
-    if (digitsOnly.startsWith('63') && digitsOnly.length > 10) {
-      return '0${digitsOnly.substring(2)}';
-    }
-    if (digitsOnly.startsWith('0')) {
-      return digitsOnly;
-    }
-    return '0$digitsOnly';
+  /// Converts a PH mobile number into just the 10-digit national number
+  /// (`9XXXXXXXXX`) that every phone field's controller now actually
+  /// holds — the value to show after the field's own fixed, non-editable
+  /// `+63` prefix. Accepts local, bare-national, or international input,
+  /// same tolerance as [toE164] (built on top of it, so it inherits that
+  /// exact parsing rather than duplicating it). Used to re-populate a
+  /// field with a previously-saved number (e.g. suggesting the last
+  /// account used on this device) without the `+63` appearing twice.
+  static String national(String phone) {
+    return toE164(phone).substring(3);
   }
 }

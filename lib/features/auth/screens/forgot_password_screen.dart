@@ -23,9 +23,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool _isLoading = false;
   bool _isSubmitted = false;
 
-  // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) —
-  // matches CommuterLoginScreen's own _phoneRegExp exactly.
-  final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
+  // See CommuterLoginScreen's matching field for why.
+  bool _hasAttemptedSubmit = false;
+
+  // The 10-digit national number typed after the field's own fixed "+63"
+  // prefix (e.g. 9171234567) — matches CommuterLoginScreen's own
+  // _phoneRegExp exactly.
+  final RegExp _phoneRegExp = RegExp(r'^9\d{9}$');
 
   @override
   void dispose() {
@@ -36,16 +40,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   String? _validatePhone(String? value) {
     final phone = value?.trim().replaceAll(' ', '') ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (phone.isEmpty) {
-      return 'Please enter your mobile number';
+      return _hasAttemptedSubmit ? 'Please enter your mobile number' : null;
     }
     if (!_phoneRegExp.hasMatch(phone)) {
-      return 'Enter a valid number, e.g. 09171234567';
+      return 'Enter a valid number, e.g. 9171234567';
     }
     return null;
   }
 
   void _handleSendResetLink() async {
+    _hasAttemptedSubmit = true;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {
@@ -84,13 +91,27 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
   }
 
-  InputDecoration _fieldDecoration({String? hintText}) {
+  // prefixText goes through prefixIcon, not InputDecoration's own
+  // prefixText/prefixStyle — see CommuterLoginScreen's matching field for
+  // why (prefixText silently doesn't render on this app's TextFormFields).
+  InputDecoration _fieldDecoration({String? hintText, String? prefixText}) {
     return InputDecoration(
       hintText: hintText,
       hintStyle: const TextStyle(
         color: Colors.black26,
         fontWeight: FontWeight.w700,
       ),
+      prefixIcon: prefixText != null
+          ? Padding(
+              padding: const EdgeInsets.only(left: 20, right: 4),
+              child: Text(
+                prefixText,
+                style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w700),
+              ),
+            )
+          : null,
+      // See CommuterLoginScreen's matching field for why.
+      prefixIconConstraints: prefixText != null ? const BoxConstraints(minWidth: 0, minHeight: 0) : null,
       filled: true,
       fillColor: const Color(0xFFF2F2F2),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -204,7 +225,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         fontWeight: FontWeight.w700,
                         color: Colors.black87,
                       ),
-                      decoration: _fieldDecoration(hintText: '09XXXXXXXXX'),
+                      decoration: _fieldDecoration(hintText: '', prefixText: '+63 '),
                       validator: _validatePhone,
                     ),
                     const SizedBox(height: 24),

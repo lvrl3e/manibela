@@ -40,6 +40,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
 
+  // See CommuterLoginScreen's matching field for why.
+  bool _hasAttemptedSubmit = false;
+
   final RegExp _hasUppercase = RegExp(r'[A-Z]');
   final RegExp _hasLowercase = RegExp(r'[a-z]');
   final RegExp _hasDigit = RegExp(r'\d');
@@ -55,8 +58,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   String? _validatePassword(String? value) {
     final password = value ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (password.isEmpty) {
-      return 'Enter your new password';
+      return _hasAttemptedSubmit ? 'Enter your new password' : null;
     }
     if (password.length < 8) {
       return 'Password must be at least 8 characters';
@@ -82,8 +87,16 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   String? _validateConfirmPassword(String? value) {
     final confirm = value ?? '';
 
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (confirm.isEmpty) {
-      return 'Confirm your password';
+      return _hasAttemptedSubmit ? 'Confirm your password' : null;
+    }
+    // Distinct from a genuine mismatch below — "Passwords do not match"
+    // reads as wrong/confusing when there's nothing in New Password yet
+    // to compare against.
+    if (_passwordController.text.isEmpty) {
+      return 'Enter your new password above first';
     }
     if (confirm != _passwordController.text) {
       return 'Passwords do not match';
@@ -92,6 +105,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   void _resetPassword() async {
+    _hasAttemptedSubmit = true;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {

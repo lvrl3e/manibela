@@ -60,6 +60,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   DateTime? _dateOfBirth;
   bool _isSaving = false;
 
+  // See CommuterLoginScreen's matching field for why.
+  bool _hasAttemptedSubmit = false;
+
   /// Local filesystem path to a photo just picked but not yet uploaded —
   /// null unless the user has picked something new this screen visit.
   String? _photoPath;
@@ -84,9 +87,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const double _avatarSize = 130;
   static const double _headerHeight = 170;
 
-  // Matches 09XXXXXXXXX (11 digits) or +63XXXXXXXXXX (10 digits after +63).
-  static final RegExp _phMobileRegex =
-      RegExp(r'^(?:\+63\d{10}|09\d{9})$');
+  // The 10-digit national number typed after the field's own fixed "+63"
+  // prefix (e.g. 9171234567) — always starts with 9 for a PH mobile.
+  static final RegExp _phMobileRegex = RegExp(r'^9\d{9}$');
 
   // Only letters, spaces, and a few common name characters.
   static final RegExp _fullNameRegex = RegExp(r"^[A-Za-zÀ-ÿ.'\- ]+$");
@@ -102,16 +105,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           UserSession.instance.fullName ??
           'Juan Dela Cruz',
     );
-    _mobileNumberController = TextEditingController(
-      text: widget.initialMobileNumber ??
-          UserSession.instance.mobileNumber ??
-          '',
-    );
+    final initialMobileE164 = widget.initialMobileNumber ?? UserSession.instance.mobileNumber ?? '';
+    _mobileNumberController = TextEditingController(text: PhoneUtils.national(initialMobileE164));
     _dateOfBirth = widget.initialDateOfBirth ?? UserSession.instance.dateOfBirth;
     _photoUrl = UserSession.instance.photoUrl;
 
     _initialFullName = _fullNameController.text;
-    _initialMobileNumber = _mobileNumberController.text;
+    // Kept as E.164, not the field's own national-digits text, so it
+    // compares correctly against updatedMobile (also E.164) in
+    // _handleSave — see _hasChanges, which re-converts the controller's
+    // text through PhoneUtils.toE164 for the same reason.
+    _initialMobileNumber = PhoneUtils.toE164(initialMobileE164);
     _initialPhotoUrl = _photoUrl;
 
     // Re-evaluate whether Save should be enabled as the user types.
@@ -136,15 +140,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool get _hasChanges {
     return _fullNameController.text != _initialFullName ||
-        _mobileNumberController.text != _initialMobileNumber ||
+        PhoneUtils.toE164(_mobileNumberController.text) != _initialMobileNumber ||
         _photoPath != null ||
         _photoUrl != _initialPhotoUrl;
   }
 
   String? _validateFullName(String? value) {
     final trimmed = (value ?? '').trim();
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (trimmed.isEmpty) {
-      return 'Full name is required';
+      return _hasAttemptedSubmit ? 'Full name is required' : null;
     }
     if (trimmed.length < 2) {
       return 'Full name is too short';
@@ -163,12 +169,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String? _validateMobileNumber(String? value) {
     final trimmed = (value ?? '').trim();
+    // Empty never shows a red "required" message while just typing — see
+    // CommuterLoginScreen's matching field for why.
     if (trimmed.isEmpty) {
-      return 'Mobile number is required';
+      return _hasAttemptedSubmit ? 'Mobile number is required' : null;
     }
     final normalized = trimmed.replaceAll(RegExp(r'[\s-]'), '');
     if (!_phMobileRegex.hasMatch(normalized)) {
-      return 'Enter a valid PH mobile number (e.g. 09XXXXXXXXX or +63XXXXXXXXXX)';
+      return 'Enter a valid PH mobile number, e.g. 9171234567';
     }
     return null;
   }
@@ -323,6 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _handleSave() async {
+    _hasAttemptedSubmit = true;
     final formValid = _formKey.currentState?.validate() ?? false;
 
     if (!formValid) {
@@ -478,7 +487,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _SettingsField(
                       label: 'Mobile Number',
                       controller: _mobileNumberController,
-                      hintText: '09XXXXXXXXX',
+                      hintText: '',
+                      prefixText: '+63 ',
                       keyboardType: TextInputType.phone,
                       validator: _validateMobileNumber,
                     ),
@@ -740,6 +750,7 @@ class _SettingsField extends StatelessWidget {
     this.keyboardType,
     this.validator,
     this.textCapitalization = TextCapitalization.none,
+    this.prefixText,
   });
 
   final String label;
@@ -748,6 +759,7 @@ class _SettingsField extends StatelessWidget {
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
   final TextCapitalization textCapitalization;
+  final String? prefixText;
 
   @override
   Widget build(BuildContext context) {
@@ -784,6 +796,18 @@ class _SettingsField extends StatelessWidget {
               focusedErrorBorder: InputBorder.none,
               hintText: hintText,
               hintStyle: TextStyle(color: Colors.grey.shade400),
+              // Goes through prefixIcon, not prefixText — see
+              // CommuterLoginScreen's matching field for why.
+              prefixIcon: prefixText != null
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        prefixText!,
+                        style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                      ),
+                    )
+                  : null,
+              prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
               errorStyle: const TextStyle(
                 fontSize: 11,
                 color: Color(0xFFD32F2F),

@@ -124,7 +124,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 28.0),
             child: Form(
               key: _formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
+              // Deliberately not set here — see CommuterLoginScreen's
+              // matching Form for why. Only one field on this screen, but
+              // consistent with every other auth screen regardless.
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -195,6 +197,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   if (!_isSubmitted) ...[
                     // Phone Number Input
                     TextFormField(
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
                       style: const TextStyle(

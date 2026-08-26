@@ -20,6 +20,15 @@ class CommuterSignUpScreen extends StatefulWidget {
 class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // Date of birth is set via the picker below, not typed — assigning
+  // _dobController.text directly doesn't trigger the field's own
+  // didChange/autovalidate the way typing does, so _pickDateOfBirth calls
+  // this field's own validate() afterward. A dedicated key instead of the
+  // whole form's _formKey keeps that scoped to just this field, not every
+  // field in the form (see the other TextFormFields' own autovalidateMode
+  // for why that matters).
+  final _dobFieldKey = GlobalKey<FormFieldState<String>>();
+
   final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -190,7 +199,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
         _dateOfBirth = picked;
         _dobController.text = DateOnly.displayDDMMYYYY(picked);
       });
-      _formKey.currentState?.validate();
+      _dobFieldKey.currentState?.validate();
     }
   }
 
@@ -291,7 +300,10 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 24.0),
             child: Form(
               key: _formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
+              // Deliberately not set here — see CommuterLoginScreen's
+              // matching Form for why (Form-wide autovalidation triggers
+              // every field, not just the one being typed in). Each
+              // TextFormField below sets its own instead.
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -342,6 +354,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
                   // Full Name Input
                   TextFormField(
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     controller: _fullNameController,
                     keyboardType: TextInputType.name,
                     textCapitalization: TextCapitalization.words,
@@ -356,6 +369,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
                   // Phone Number Input
                   TextFormField(
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
                     style: const TextStyle(
@@ -369,6 +383,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
                   // Password Input
                   TextFormField(
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     controller: _passwordController,
                     obscureText: _isPasswordObscured,
                     style: const TextStyle(
@@ -403,6 +418,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
                   // Confirm Password Input
                   TextFormField(
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     controller: _confirmPasswordController,
                     obscureText: _isConfirmPasswordObscured,
                     style: const TextStyle(
@@ -431,6 +447,8 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
                   // Date of Birth Input
                   TextFormField(
+                    key: _dobFieldKey,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     controller: _dobController,
                     readOnly: true,
                     onTap: _pickDateOfBirth,

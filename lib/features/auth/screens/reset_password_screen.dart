@@ -187,7 +187,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           ),
           child: Form(
             key: _formKey,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
+            // Deliberately not set here — see CommuterLoginScreen's
+            // matching Form for why. Each TextFormField below sets its
+            // own instead.
             child: Column(
               children: [
                 Container(
@@ -228,6 +230,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 const SizedBox(height: 32),
 
                 TextFormField(
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: _inputDecoration(
@@ -251,6 +254,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 const SizedBox(height: 18),
 
                 TextFormField(
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirmPassword,
                   decoration: _inputDecoration(

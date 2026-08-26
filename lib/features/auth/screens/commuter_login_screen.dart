@@ -269,7 +269,11 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
                 ),
                 child: Form(
                   key: _formKey,
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  // Deliberately not set here — Form's own autovalidateMode
+                  // validates every descendant field the moment ANY one of
+                  // them is touched, not just the field you're actually
+                  // typing in. Each TextFormField below sets its own
+                  // instead, which Flutter scopes per-field correctly.
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -305,6 +309,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
                       const SizedBox(height: 8),
 
                       TextFormField(
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                         controller: phoneController,
                         keyboardType: TextInputType.phone,
                         decoration: _fieldDecoration(
@@ -327,6 +332,7 @@ class _CommuterLoginScreenState extends State<CommuterLoginScreen> {
                       const SizedBox(height: 8),
 
                       TextFormField(
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                         controller: passwordController,
                         obscureText: obscurePassword,
                         decoration: _fieldDecoration(

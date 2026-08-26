@@ -299,7 +299,10 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                 ),
                 child: Form(
                   key: _formKey,
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  // Deliberately not set here — see CommuterLoginScreen's
+                  // matching Form for why (Form-wide autovalidation
+                  // triggers every field, not just the one being typed
+                  // in). Each TextFormField below sets its own instead.
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -335,6 +338,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                       const SizedBox(height: 8),
 
                       TextFormField(
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                         controller: _phoneController,
                         keyboardType: TextInputType.phone,
                         decoration: _fieldDecoration(
@@ -357,6 +361,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                       const SizedBox(height: 8),
 
                       TextFormField(
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                         controller: _passwordController,
                         obscureText: _isPasswordObscured,
                         decoration: _fieldDecoration(

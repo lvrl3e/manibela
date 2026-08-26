@@ -48,12 +48,21 @@ function JeepneyIcon({ className }: { className?: string }) {
   );
 }
 
+// The last email that successfully logged in on this device — separate
+// from (and much lower-risk than) the browser's own saved-password
+// autofill that LoginPage's autoComplete="off"/"new-password" deliberately
+// suppress: this only ever remembers the *address*, never the password,
+// so it's fine to prefill even on a shared admin machine. Mirrors the
+// mobile app's own last-account suggestion on its login screens
+// (UserSession/DriverSession's mobileNumber, kept on disk past logout).
+const LAST_EMAIL_KEY = 'adminLastEmail';
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => localStorage.getItem(LAST_EMAIL_KEY) ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -68,6 +77,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await login(email, password, rememberMe);
+      localStorage.setItem(LAST_EMAIL_KEY, email);
       const redirectTo = (location.state as { from?: Location })?.from?.pathname ?? '/';
       navigate(redirectTo, { replace: true });
     } catch (err) {

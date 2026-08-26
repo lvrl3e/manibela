@@ -23,6 +23,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool _isLoading = false;
   bool _isSubmitted = false;
 
+  // Starts disabled so the field never shows red before the first submit
+  // tap — see CommuterLoginScreen's matching field for why
+  // onUserInteraction alone isn't enough. Flips on after that first tap
+  // fails.
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
   // Local PH mobile format: 09 followed by 9 digits (e.g. 09171234567) —
   // matches CommuterLoginScreen's own _phoneRegExp exactly.
   final RegExp _phoneRegExp = RegExp(r'^09\d{9}$');
@@ -46,7 +52,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   void _handleSendResetLink() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -124,7 +133,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 28.0),
             child: Form(
               key: _formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
+              autovalidateMode: _autovalidateMode,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,

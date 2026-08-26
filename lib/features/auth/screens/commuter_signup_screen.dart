@@ -35,6 +35,12 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
   bool _showTermsError = false;
   bool _isLoading = false;
 
+  // Starts disabled so a field never shows red before the first Sign Up
+  // tap — see CommuterLoginScreen's matching field for why
+  // onUserInteraction alone isn't enough. Flips on after that first tap
+  // fails.
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
   // Mirrors SettingsScreen's own minimum-age policy.
   static const int _minAge = 13;
 
@@ -195,6 +201,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
 
     setState(() {
       _showTermsError = !_agreedToTerms;
+      if (!isFormValid) _autovalidateMode = AutovalidateMode.onUserInteraction;
     });
 
     if (!isFormValid || !_agreedToTerms) {
@@ -287,7 +294,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 24.0),
             child: Form(
               key: _formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
+              autovalidateMode: _autovalidateMode,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,

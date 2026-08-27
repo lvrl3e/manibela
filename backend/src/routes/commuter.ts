@@ -502,6 +502,15 @@ router.post('/reset-password', async (req, res, next) => {
       return;
     }
 
+    // A forgotten-password reset never has the old password to compare
+    // client-side (that's the whole point of going through OTP instead),
+    // so it has to be caught here.
+    const isSamePassword = await bcrypt.compare(body.newPassword, commuter.passwordHash);
+    if (isSamePassword) {
+      res.status(400).json({ error: 'New password must be different from your current password.' });
+      return;
+    }
+
     const passwordHash = await bcrypt.hash(body.newPassword, 10);
     await prisma.commuter.update({ where: { id: commuter.id }, data: { passwordHash } });
 

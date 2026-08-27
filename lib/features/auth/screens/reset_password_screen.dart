@@ -140,24 +140,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       setState(() {
         _isLoading = false;
       });
-
-      // This screen never collects a code itself — a rejection here can
-      // only mean the code already verified on OtpVerificationScreen
-      // stopped being valid (expired, or superseded by a resend) before
-      // Reset Password was submitted. Showing "invalid or expired code"
-      // in place, next to password fields with no code to fix, is
-      // confusing — OTP expiry should only ever surface on the OTP
-      // screen, so send the user back to request a fresh one instead.
-      // OtpVerificationScreen replaced itself in the stack to get here,
-      // so this pop lands directly back on ForgotPasswordScreen.
-      if (e.message == 'Invalid or expired code.') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Your verification code expired. Please request a new one.')),
-        );
-        Navigator.pop(context);
-        return;
-      }
-
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }

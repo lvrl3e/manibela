@@ -489,8 +489,10 @@ router.post('/reset-password', async (req, res, next) => {
     const mobileNumber = toE164(body.mobileNumber);
 
     // Re-checking the code here (rather than trusting a prior /verify-otp
-    // call) keeps this endpoint safe to call on its own.
-    const ok = await verifyOtp(mobileNumber, 'PASSWORD_RESET', body.code);
+    // call) keeps this endpoint safe to call on its own. Expiry isn't
+    // re-checked though — that's only meant to bound the OTP screen
+    // itself, not how long someone takes on the password fields after.
+    const ok = await verifyOtp(mobileNumber, 'PASSWORD_RESET', body.code, { checkExpiry: false });
     if (!ok) {
       res.status(400).json({ error: 'Invalid or expired code.' });
       return;

@@ -283,7 +283,10 @@ router.post('/reset-password', async (req, res, next) => {
     const body = resetPasswordSchema.parse(req.body);
     const mobileNumber = toE164(body.mobileNumber);
 
-    const ok = await verifyOtp(mobileNumber, 'PASSWORD_RESET', body.code);
+    // Expiry isn't re-checked here — that's only meant to bound the OTP
+    // screen itself, not how long someone takes on the password fields
+    // after (see verifyOtp's checkExpiry doc comment).
+    const ok = await verifyOtp(mobileNumber, 'PASSWORD_RESET', body.code, { checkExpiry: false });
     if (!ok) {
       res.status(400).json({ error: 'Invalid or expired code.' });
       return;

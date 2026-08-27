@@ -47,12 +47,23 @@ export async function issueOtp(
  * still needs to actually spend. Without that distinction, an earlier
  * peek would burn the code and the real, final check would always fail
  * with "invalid or expired" even though the user typed it correctly.
+ *
+ * `checkExpiry: false` drops the TTL check entirely (the match still has
+ * to be an unconsumed code for this number/purpose — just not a
+ * time-bounded one). Expiry is meant to bound how long a code sits
+ * unused on the OTP screen, not how long someone takes filling in a new
+ * password afterward — a call like reset-password, made *after* the
+ * code already passed the OTP screen's own (expiry-checked) verify,
+ * should pass this flag so a slow typist isn't punished with an
+ * "expired" error nowhere near an OTP field to fix it. The code is still
+ * single-use and gets invalidated the moment a new one is issued for the
+ * same number (see issueOtp), so this doesn't leave it valid forever.
  */
 export async function verifyOtp(
   mobileNumber: string,
   purpose: OtpPurpose,
   code: string,
-  { consume = true }: { consume?: boolean } = {},
+  { consume = true, checkExpiry = true }: { consume?: boolean; checkExpiry?: boolean } = {},
 ): Promise<boolean> {
   const match = await prisma.otpCode.findFirst({
     where: {
@@ -60,7 +71,7 @@ export async function verifyOtp(
       purpose,
       code,
       consumed: false,
-      expiresAt: { gt: new Date() },
+      ...(checkExpiry ? { expiresAt: { gt: new Date() } } : {}),
     },
     orderBy: { createdAt: 'desc' },
   });

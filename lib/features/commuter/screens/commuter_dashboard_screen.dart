@@ -51,6 +51,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   bool _locatingInProgress = true;
   String? _locationError;
   bool _locationErrorIsServiceDisabled = false;
+  bool _locationErrorCanRetryPrompt = false;
 
   /// Re-fetches notifications on a timer so the bell badge picks up
   /// server-triggered events (e.g. a complaint resolution) that happen
@@ -145,7 +146,13 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          throw const _LocationFailure('Location permission was denied.');
+          // Still just "denied", not "denied forever" — the OS will show
+          // the Allow/Deny dialog again on the next attempt, so this is
+          // worth a retry button rather than sending the user to Settings.
+          throw const _LocationFailure(
+            'Location permission was denied.',
+            canRetryPrompt: true,
+          );
         }
       }
       if (permission == LocationPermission.deniedForever) {
@@ -199,6 +206,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
         _locatingInProgress = false;
         _locationError = failure.message;
         _locationErrorIsServiceDisabled = failure.isServiceDisabled;
+        _locationErrorCanRetryPrompt = failure.canRetryPrompt;
       });
       if (showErrors) {
         ScaffoldMessenger.of(
@@ -212,6 +220,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
         _locatingInProgress = false;
         _locationError = 'Could not get your current location.';
         _locationErrorIsServiceDisabled = false;
+        _locationErrorCanRetryPrompt = false;
       });
       if (showErrors) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -313,6 +322,12 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final mapCenter = _currentLocation ?? _fallbackLocation;
+    // Once there's a real error (permission denied, service off, etc.),
+    // don't keep the map showing _fallbackLocation full-screen as if it
+    // were real — that's what actually reads as "the app shows a fake
+    // location". Block it with a real prompt instead, so the only thing
+    // on screen is a clear way to actually grant location access.
+    final blockedByLocationError = !_locatingInProgress && _locationError != null;
 
     return Scaffold(
       backgroundColor: const Color(0xFFE9ECEE),
@@ -325,15 +340,28 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
       ),
       body: Stack(
         children: [
-          // Full-screen live OpenStreetMap.
-          Positioned.fill(
-            child: _LiveMap(
-              mapController: _mapController,
-              currentLocation: mapCenter,
-              hasRealFix: _currentLocation != null && _locationError == null,
-              onRecenter: _recenterMap,
+          if (blockedByLocationError)
+            Positioned.fill(
+              child: _LocationAccessPrompt(
+                message: _locationError!,
+                canRetryPrompt: _locationErrorCanRetryPrompt,
+                isServiceDisabled: _locationErrorIsServiceDisabled,
+                onRetryPrompt: () => _resolveCurrentLocation(showErrors: true),
+                onOpenSettings: () => openRelevantLocationSettings(
+                  isServiceDisabled: _locationErrorIsServiceDisabled,
+                ),
+              ),
+            )
+          else
+            // Full-screen live OpenStreetMap.
+            Positioned.fill(
+              child: _LiveMap(
+                mapController: _mapController,
+                currentLocation: mapCenter,
+                hasRealFix: _currentLocation != null && _locationError == null,
+                onRecenter: _recenterMap,
+              ),
             ),
-          ),
 
           if (_locatingInProgress)
             const Positioned(
@@ -341,26 +369,7 @@ class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
               left: 0,
               right: 0,
               child: Center(
-                child: _StatusPill(
-                  icon: null,
-                  label: 'Getting your location…',
-                  showSpinner: true,
-                ),
-              ),
-            )
-          else if (_locationError != null)
-            Positioned(
-              top: 70,
-              left: 16,
-              right: 16,
-              child: Center(
-                child: _StatusPill(
-                  icon: Icons.location_off_rounded,
-                  label: _locationError!,
-                  onTap: () => openRelevantLocationSettings(
-                    isServiceDisabled: _locationErrorIsServiceDisabled,
-                  ),
-                ),
+                child: _StatusPill(label: 'Getting your location…'),
               ),
             ),
 
@@ -487,7 +496,18 @@ class _LocationFailure {
   /// page (false) — see [openRelevantLocationSettings].
   final bool isServiceDisabled;
 
-  const _LocationFailure(this.message, {this.isServiceDisabled = false});
+  /// Whether asking again would actually show the OS "Allow Location?"
+  /// dialog — true only for a plain first-time denial. Once the OS has
+  /// moved to "denied forever" (or location services are off entirely),
+  /// calling requestPermission() again is a silent no-op with no dialog;
+  /// the only real fix at that point is the Settings app, not a retry.
+  final bool canRetryPrompt;
+
+  const _LocationFailure(
+    this.message, {
+    this.isServiceDisabled = false,
+    this.canRetryPrompt = false,
+  });
 }
 
 /// Replaces the "Find Nearby Jeepneys" / "Sakay na" card when this
@@ -565,18 +585,107 @@ class _ActiveTripBanner extends StatelessWidget {
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  final IconData? icon;
-  final String label;
-  final bool showSpinner;
-  final VoidCallback? onTap;
+/// Blocks the map entirely when location access isn't actually available —
+/// replaces what used to be a full-screen map silently centered on
+/// [_fallbackLocation] with a small pill overlay easy to miss. A wrong
+/// location filling the whole screen reads as "the app is showing a fake
+/// location"; this makes the real fix (grant access) the only thing on
+/// screen instead.
+class _LocationAccessPrompt extends StatelessWidget {
+  final String message;
+  final bool canRetryPrompt;
+  final bool isServiceDisabled;
+  final VoidCallback onRetryPrompt;
+  final VoidCallback onOpenSettings;
 
-  const _StatusPill({
-    required this.icon,
-    required this.label,
-    this.showSpinner = false,
-    this.onTap,
+  const _LocationAccessPrompt({
+    required this.message,
+    required this.canRetryPrompt,
+    required this.isServiceDisabled,
+    required this.onRetryPrompt,
+    required this.onOpenSettings,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFFE9ECEE),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFDE8E8),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.location_off_rounded,
+              color: Color(0xFFE23F3F),
+              size: 34,
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Location access needed',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: canRetryPrompt ? onRetryPrompt : onOpenSettings,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.logoBlue,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: Text(
+                canRetryPrompt
+                    ? 'Allow Location'
+                    : (isServiceDisabled ? 'Turn On Location' : 'Open Settings'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Now only used for the brief "Getting your location…" spinner state —
+/// the error state this used to also cover (tap-to-fix, with a refresh
+/// icon) was replaced by the full-screen [_LocationAccessPrompt] above.
+class _StatusPill extends StatelessWidget {
+  final String label;
+
+  const _StatusPill({required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -585,43 +694,28 @@ class _StatusPill extends StatelessWidget {
       borderRadius: BorderRadius.circular(20),
       elevation: 3,
       shadowColor: Colors.black26,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showSpinner)
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else if (icon != null)
-                Icon(icon, size: 16, color: const Color(0xFFE23F3F)),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black87,
-                  ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
                 ),
               ),
-              if (onTap != null) ...[
-                const SizedBox(width: 6),
-                const Icon(
-                  Icons.refresh_rounded,
-                  size: 14,
-                  color: AppColors.logoBlue,
-                ),
-              ],
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

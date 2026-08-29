@@ -93,6 +93,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   bool _locatingInProgress = true;
   String? _locationError;
   bool _locationErrorIsServiceDisabled = false;
+  bool _locationErrorCanRetryPrompt = false;
 
   // Separate, non-interactive controller for the small dashboard preview —
   // kept apart from _mapController (used by the expanded modal) so each
@@ -245,7 +246,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          throw const _LocationFailure('Location permission was denied.');
+          // Still just "denied", not "denied forever" — the OS will show
+          // the Allow/Deny dialog again on the next attempt, so this is
+          // worth a retry button rather than sending the user to Settings.
+          throw const _LocationFailure(
+            'Location permission was denied.',
+            canRetryPrompt: true,
+          );
         }
       }
       if (permission == LocationPermission.deniedForever) {
@@ -299,6 +306,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         _locatingInProgress = false;
         _locationError = failure.message;
         _locationErrorIsServiceDisabled = failure.isServiceDisabled;
+        _locationErrorCanRetryPrompt = failure.canRetryPrompt;
       });
       if (showErrors) {
         ScaffoldMessenger.of(
@@ -312,6 +320,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         _locatingInProgress = false;
         _locationError = 'Could not get your current location.';
         _locationErrorIsServiceDisabled = false;
+        _locationErrorCanRetryPrompt = false;
       });
       if (showErrors) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -842,17 +851,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                   radius: 4,
                                   backgroundColor: _locatingInProgress
                                       ? Colors.orange
-                                      : Colors.green,
+                                      : (_locationError != null
+                                            ? AppColors.logoRed
+                                            : Colors.green),
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  _locatingInProgress ? 'Locating…' : 'Live',
+                                  _locatingInProgress
+                                      ? 'Locating…'
+                                      : (_locationError != null
+                                            ? 'Location error'
+                                            : 'Live'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     color: _locatingInProgress
                                         ? Colors.orange.shade800
-                                        : Colors.green,
+                                        : (_locationError != null
+                                              ? AppColors.logoRed
+                                              : Colors.green),
                                   ),
                                 ),
                               ],
@@ -1287,10 +1304,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     GestureDetector(
                       onTap: _locationError == null
                           ? null
-                          : () => openRelevantLocationSettings(
-                              isServiceDisabled:
-                                  _locationErrorIsServiceDisabled,
-                            ),
+                          : (_locationErrorCanRetryPrompt
+                                // Still just "denied", not "denied
+                                // forever" — asking again actually shows
+                                // the OS Allow/Deny dialog, so retry
+                                // before sending the driver to Settings.
+                                ? () => _resolveCurrentLocation(showErrors: true)
+                                : () => openRelevantLocationSettings(
+                                    isServiceDisabled:
+                                        _locationErrorIsServiceDisabled,
+                                  )),
                       child: Text(
                         _locationError ??
                             'Your position and nearby waiting passengers',
@@ -1338,7 +1361,18 @@ class _LocationFailure {
   /// page (false) — see [openRelevantLocationSettings].
   final bool isServiceDisabled;
 
-  const _LocationFailure(this.message, {this.isServiceDisabled = false});
+  /// Whether asking again would actually show the OS "Allow Location?"
+  /// dialog — true only for a plain first-time denial. Once the OS has
+  /// moved to "denied forever" (or location services are off entirely),
+  /// calling requestPermission() again is a silent no-op with no dialog;
+  /// the only real fix at that point is the Settings app, not a retry.
+  final bool canRetryPrompt;
+
+  const _LocationFailure(
+    this.message, {
+    this.isServiceDisabled = false,
+    this.canRetryPrompt = false,
+  });
 }
 
 /// Dashboard note shown until this driver's license is verified — see

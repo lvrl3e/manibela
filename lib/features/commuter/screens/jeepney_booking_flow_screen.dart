@@ -29,6 +29,11 @@ String _formatHistoryDateTime(DateTime dt) {
   return '${months[dt.month - 1]} ${dt.day}, ${dt.year} · $hour12:$minute $period';
 }
 
+// A fix worse than this (in meters) is treated as "still warming up"
+// rather than accepted outright — see _resolveCurrentLocation. Same
+// threshold as CommuterDashboardScreen's own copy of this constant.
+const double _acceptableAccuracyMeters = 100;
+
 /// Resolves the device's exact current GPS position, requesting permission
 /// if needed. Returns null (rather than throwing) if location services are
 /// off or permission is denied, so callers can fall back to a default
@@ -50,21 +55,34 @@ Future<LatLng?> _resolveCurrentLocation() async {
   // radio hasn't warmed up yet) — one retry here is the difference between
   // "first open lands on the fallback location" and just taking a couple
   // seconds longer.
-  for (var attempt = 0; attempt < 2; attempt++) {
+  //
+  // The fused provider can also *succeed* immediately with a coarse
+  // network/cell-tower fix — easily off by kilometers — before GPS has had
+  // time to lock in, which is what actually makes the map look like it
+  // opened to someone else's location rather than a timeout or error. So a
+  // fix that comes back worse than [_acceptableAccuracyMeters] still gets
+  // accepted as a last resort, but only after retrying for a tighter one
+  // first — same fix as CommuterDashboardScreen's own
+  // _resolveCurrentLocation.
+  Position? position;
+  for (var attempt = 0; attempt < 3; attempt++) {
     try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
+      final candidate = await Geolocator.getCurrentPosition(
+        locationSettings: LocationSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
+          timeLimit: Duration(seconds: 12 + attempt * 4),
         ),
       );
-      return LatLng(position.latitude, position.longitude);
+      position = candidate;
+      if (candidate.accuracy <= _acceptableAccuracyMeters || attempt == 2) break;
+      await Future.delayed(const Duration(seconds: 1));
     } catch (_) {
-      if (attempt == 1) return null;
+      if (attempt == 2) return null;
       await Future.delayed(const Duration(seconds: 1));
     }
   }
-  return null;
+  if (position == null) return null;
+  return LatLng(position.latitude, position.longitude);
 }
 
 // ---------------------------------------------------------------------------

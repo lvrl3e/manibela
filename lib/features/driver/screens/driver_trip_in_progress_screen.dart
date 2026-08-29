@@ -579,8 +579,7 @@ class _DriverTripInProgressScreenState
                   children: [
                     TileLayer(
                       urlTemplate:
-                          'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                      subdomains: const ['a', 'b', 'c', 'd'],
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       userAgentPackageName: 'com.manibel.app',
                       maxZoom: 19,
                     ),
@@ -588,7 +587,7 @@ class _DriverTripInProgressScreenState
                     RichAttributionWidget(
                       attributions: [
                         TextSourceAttribution(
-                          '© OpenStreetMap contributors © CARTO',
+                          '© OpenStreetMap contributors',
                           onTap: () {},
                         ),
                       ],

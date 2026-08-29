@@ -963,14 +963,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
               ),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                  subdomains: const ['a', 'b', 'c', 'd'],
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.manibel.app',
                   maxZoom: 19,
                 ),
                 RichAttributionWidget(
                   attributions: [
-                    TextSourceAttribution('© OpenStreetMap contributors © CARTO', onTap: () {}),
+                    TextSourceAttribution('© OpenStreetMap contributors', onTap: () {}),
                   ],
                 ),
                 // The corridor itself, faint, so it's clear which streets

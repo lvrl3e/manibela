@@ -99,9 +99,9 @@ router.post('/login', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // FORGOT PASSWORD — same OTP-code pattern as commuter/driver (see
 // utils/otp.ts), just keyed by email instead of a PH mobile number since
-// that's how admin accounts authenticate. No email provider is wired up
-// yet, so — same as SMS OTPs today — the code is logged to the server
-// console instead of actually being sent.
+// that's how admin accounts authenticate. Sent via Resend (see
+// lib/email.ts) once RESEND_API_KEY is configured; console-only until
+// then, same as SMS OTPs before SEMAPHORE_API_KEY was set.
 // ---------------------------------------------------------------------------
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().email() });
@@ -118,9 +118,7 @@ router.post('/forgot-password', async (req, res, next) => {
     }
 
     // Keyed by email, not a phone number — issueOtp's default 'sms'
-    // channel would try to text an email address. No email provider is
-    // wired up yet, so this stays console-only for now (see issueOtp's
-    // doc comment).
+    // channel would try to text an email address.
     await issueOtp(email, 'PASSWORD_RESET', { channel: 'email' });
     res.json({ message: 'A verification code has been sent.' });
   } catch (err) {

@@ -1,6 +1,7 @@
 import type { OtpPurpose } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { sendSms } from '../lib/sms';
+import { sendEmail } from '../lib/email';
 
 const OTP_TTL_MINUTES = 5;
 
@@ -15,10 +16,9 @@ function generateCode(): string {
  *
  * `channel` picks how the code actually reaches the user — this same
  * function is called with a real PH mobile number for every commuter/
- * driver purpose (channel: 'sms', the default) and with an email address
- * for admin's password reset (channel: 'email'), so it can't always mean
- * "text this". There's no email provider wired up yet, so 'email' stays
- * console-only for now; 'sms' actually sends via Semaphore.
+ * driver purpose (channel: 'sms', the default, via Semaphore) and with
+ * an email address for admin's password reset (channel: 'email', via
+ * Resend), so it can't always mean "text this".
  */
 export async function issueOtp(
   identifier: string,
@@ -44,6 +44,12 @@ export async function issueOtp(
 
   if (channel === 'sms') {
     await sendSms(identifier, `Your ManibelApp verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`);
+  } else {
+    await sendEmail(
+      identifier,
+      'Your ManibelApp verification code',
+      `<p>Your verification code is <strong>${code}</strong>. It expires in ${OTP_TTL_MINUTES} minutes.</p>`,
+    );
   }
 
   return code;

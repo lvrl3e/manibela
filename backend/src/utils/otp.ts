@@ -1,5 +1,6 @@
 import type { OtpPurpose } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { sendSms } from '../lib/sms';
 
 const OTP_TTL_MINUTES = 5;
 
@@ -8,34 +9,43 @@ function generateCode(): string {
 }
 
 /**
- * Issues a fresh OTP for [mobileNumber], invalidating any earlier
- * unconsumed codes for the same number+purpose so only the latest one
- * verifies.
+ * Issues a fresh OTP for [identifier], invalidating any earlier
+ * unconsumed codes for the same identifier+purpose so only the latest
+ * one verifies.
  *
- * There's no SMS provider wired up yet, so the code is logged to the
- * server console instead of actually being texted — swap this out for a
- * real SMS gateway (Semaphore, Twilio, etc.) once one is available.
+ * `channel` picks how the code actually reaches the user — this same
+ * function is called with a real PH mobile number for every commuter/
+ * driver purpose (channel: 'sms', the default) and with an email address
+ * for admin's password reset (channel: 'email'), so it can't always mean
+ * "text this". There's no email provider wired up yet, so 'email' stays
+ * console-only for now; 'sms' actually sends via Semaphore.
  */
 export async function issueOtp(
-  mobileNumber: string,
+  identifier: string,
   purpose: OtpPurpose,
+  { channel = 'sms' }: { channel?: 'sms' | 'email' } = {},
 ): Promise<string> {
   await prisma.otpCode.updateMany({
-    where: { mobileNumber, purpose, consumed: false },
+    where: { mobileNumber: identifier, purpose, consumed: false },
     data: { consumed: true },
   });
 
   const code = generateCode();
   await prisma.otpCode.create({
     data: {
-      mobileNumber,
+      mobileNumber: identifier,
       purpose,
       code,
       expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60_000),
     },
   });
 
-  console.log(`[OTP] ${purpose} code for ${mobileNumber}: ${code}`);
+  console.log(`[OTP] ${purpose} code for ${identifier}: ${code}`);
+
+  if (channel === 'sms') {
+    await sendSms(identifier, `Your ManibelApp verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`);
+  }
+
   return code;
 }
 

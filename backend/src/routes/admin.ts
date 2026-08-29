@@ -117,7 +117,11 @@ router.post('/forgot-password', async (req, res, next) => {
       return;
     }
 
-    await issueOtp(email, 'PASSWORD_RESET');
+    // Keyed by email, not a phone number — issueOtp's default 'sms'
+    // channel would try to text an email address. No email provider is
+    // wired up yet, so this stays console-only for now (see issueOtp's
+    // doc comment).
+    await issueOtp(email, 'PASSWORD_RESET', { channel: 'email' });
     res.json({ message: 'A verification code has been sent.' });
   } catch (err) {
     next(err);

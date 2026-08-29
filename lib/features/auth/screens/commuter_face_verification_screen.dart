@@ -280,39 +280,43 @@ class _FaceFrame extends StatelessWidget {
         Container(
           width: 240,
           height: 300,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
+          // A true ellipse via ShapeDecoration/OvalBorder — BorderRadius.circular
+          // can only round corners, so on a non-square box like this one (240×300)
+          // it produces a flat-sided "stadium" shape rather than a real oval, no
+          // matter how large the radius. ClipOval below matches the same math for
+          // the content inside, so the photo and its border are cut identically.
+          decoration: ShapeDecoration(
             color: isCaptured ? AppColors.qrTileBg : const Color(0xFFECEDEF),
-            borderRadius: BorderRadius.circular(140),
-            border: Border.all(
-              color: AppColors.primary,
-              width: 3,
+            shape: const OvalBorder(
+              side: BorderSide(color: AppColors.primary, width: 3),
             ),
           ),
-          child: isCaptured
-              ? Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.file(photo!, fit: BoxFit.cover),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
+          child: ClipOval(
+            child: isCaptured
+                ? Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.file(photo!, fit: BoxFit.cover),
+                      Positioned(
+                        right: 10,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.check_rounded, size: 18, color: AppColors.onPrimary),
                         ),
-                        child: const Icon(Icons.check_rounded, size: 18, color: AppColors.onPrimary),
                       ),
-                    ),
-                  ],
-                )
-              : const Icon(
-                  Icons.face_retouching_natural_rounded,
-                  size: 72,
-                  color: Colors.black26,
-                ),
+                    ],
+                  )
+                : const Icon(
+                    Icons.face_retouching_natural_rounded,
+                    size: 72,
+                    color: Colors.black26,
+                  ),
+          ),
         ),
         if (isProcessing)
           const CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.primary),

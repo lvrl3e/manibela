@@ -413,6 +413,11 @@ class _IdUploadTile extends StatelessWidget {
   final VoidCallback onUpload;
   final VoidCallback onRemove;
 
+  // Standard CR80 card ratio (85.6mm × 53.98mm — the physical size of a PH
+  // driver's license, UMID, PhilSys card, etc.) — so the preview reads as
+  // "an ID card", not just an arbitrary photo thumbnail.
+  static const double _idCardAspectRatio = 85.6 / 53.98;
+
   @override
   Widget build(BuildContext context) {
     final hasImage = file != null;
@@ -425,71 +430,89 @@ class _IdUploadTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black),
+          ),
+          const SizedBox(height: 8),
           Material(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
             child: InkWell(
               onTap: disabled ? null : onUpload,
               borderRadius: BorderRadius.circular(14),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: error != null
-                        ? const Color(0xFFE23F3F)
-                        : (hasImage ? AppColors.primary : const Color(0xFFEDEDED)),
+              child: AspectRatio(
+                aspectRatio: _idCardAspectRatio,
+                child: Container(
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: hasImage ? AppColors.qrTileBg : const Color(0xFFF5F6F8),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      width: hasImage ? 2 : 1,
+                      color: error != null
+                          ? const Color(0xFFE23F3F)
+                          : (hasImage ? AppColors.primary : const Color(0xFFEDEDED)),
+                    ),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6, offset: const Offset(0, 2)),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6, offset: const Offset(0, 2)),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: hasImage
-                          ? Image.file(file!, width: 56, height: 44, fit: BoxFit.cover)
-                          : Container(
-                              width: 56,
-                              height: 44,
-                              color: const Color(0xFFF5F6F8),
-                              child: const Icon(Icons.badge_outlined, color: Colors.black38, size: 22),
+                  child: hasImage
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(file!, fit: BoxFit.cover),
+                            Positioned(
+                              left: 8,
+                              bottom: 8,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: AppColors.primary,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.check_rounded, size: 16, color: AppColors.onPrimary),
+                              ),
                             ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            label,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            hasImage ? 'Photo selected' : 'Tap to take a photo or upload',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: hasImage ? AppColors.onPrimary : Colors.black45,
+                            Positioned(
+                              right: 4,
+                              top: 4,
+                              child: Material(
+                                color: Colors.black45,
+                                shape: const CircleBorder(),
+                                child: IconButton(
+                                  onPressed: disabled ? null : onRemove,
+                                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  padding: EdgeInsets.zero,
+                                ),
+                              ),
                             ),
+                          ],
+                        )
+                      : Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.badge_outlined,
+                                color: disabled ? Colors.black26 : Colors.black38,
+                                size: 30,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Tap to take a photo or upload',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: disabled ? Colors.black26 : Colors.black45,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    if (hasImage)
-                      IconButton(
-                        onPressed: disabled ? null : onRemove,
-                        icon: const Icon(Icons.close_rounded, color: Colors.black45, size: 20),
-                      )
-                    else
-                      Icon(
-                        Icons.upload_rounded,
-                        color: disabled ? Colors.black26 : AppColors.logoBlue,
-                        size: 20,
-                      ),
-                  ],
+                        ),
                 ),
               ),
             ),

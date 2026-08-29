@@ -1,10 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
-import '../../../core/widgets/selfie_capture_field.dart';
+import '../../../core/utils/platform_utils.dart';
 import 'commuter_verification_status_screen.dart';
 
 class CommuterFaceVerificationScreen extends StatefulWidget {
@@ -23,7 +24,7 @@ class CommuterFaceVerificationScreen extends StatefulWidget {
 }
 
 class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificationScreen> {
-  final GlobalKey<SelfieCaptureFieldState> _selfieKey = GlobalKey<SelfieCaptureFieldState>();
+  final ImagePicker _picker = ImagePicker();
 
   File? _capturedPhoto;
   bool get _isCaptured => _capturedPhoto != null;
@@ -40,19 +41,46 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
     });
 
     try {
-      await _selfieKey.currentState?.capture();
+      // Front camera, since this is a selfie for identity verification —
+      // not a photo library pick, so the user can't submit an old/unrelated
+      // photo here the way they can for the ID front/back uploads. Desktop
+      // is the one exception: image_picker has no webcam support there at
+      // all (see isDesktopPlatform), so ImageSource.camera would just
+      // throw — fall back to a file pick so the flow is at least usable
+      // for local testing.
+      final XFile? picked = await _picker.pickImage(
+        source: isDesktopPlatform ? ImageSource.gallery : ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        imageQuality: 85,
+      );
+
+      if (!mounted) return;
+
+      if (picked == null) {
+        // User backed out of the camera without taking a photo.
+        setState(() => _isProcessing = false);
+        return;
+      }
+
+      setState(() {
+        _capturedPhoto = File(picked.path);
+        _isProcessing = false;
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = 'Could not capture your photo. Please try again.');
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      setState(() {
+        _isProcessing = false;
+        _error = 'Could not capture your photo. Please try again.';
+      });
     }
   }
 
   void _handleRetake() {
     if (_isProcessing) return; // don't allow retake mid-request
-    _selfieKey.currentState?.retake();
-    setState(() => _error = null);
+    setState(() {
+      _capturedPhoto = null;
+      _error = null;
+    });
   }
 
   Future<void> _handleConfirm() async {
@@ -70,10 +98,11 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
     });
 
     try {
-      // Uploads and persists the selfie against the pending signup —
-      // POST /signup (below) is what actually runs Didit's automated
-      // face-match against the ID photos uploaded on the previous
-      // screen, once that account row is created.
+      // Uploads and persists the selfie against the pending signup — but
+      // doesn't itself verify anything. TODO: run an actual face-match
+      // against the ID photos uploaded on the previous screen once a
+      // provider for that is chosen; right now this step only proves a
+      // selfie was captured, not that it matches the ID.
       await ApiClient.uploadFiles(
         '/api/commuter/signup/${widget.signupTicket}/selfie',
         files: {'selfie': _capturedPhoto!.path},
@@ -82,8 +111,8 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
 
       // This is the actual account-creation call — nothing about the
       // commuter's account exists in the database until this succeeds.
-      // It deliberately doesn't return an auth token: even an
-      // auto-approved account still logs in normally afterward (see
+      // It deliberately doesn't return an auth token: a fresh account is
+      // never APPROVED yet, so there's nothing to log in to (see
       // POST /api/commuter/login, which enforces the same rule).
       final response = await ApiClient.post('/api/commuter/signup', {
         'ticket': widget.signupTicket,
@@ -146,9 +175,9 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
               const SizedBox(height: 28),
               Expanded(
                 child: Center(
-                  child: SelfieCaptureField(
-                    key: _selfieKey,
-                    onChanged: (file) => setState(() => _capturedPhoto = file),
+                  child: _FaceFrame(
+                    photo: _capturedPhoto,
+                    isProcessing: _isProcessing && !_isCaptured,
                   ),
                 ),
               ),
@@ -231,6 +260,67 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
           ),
         ),
       ),
+    );
+  }
+}
+
+class _FaceFrame extends StatelessWidget {
+  const _FaceFrame({required this.photo, required this.isProcessing});
+
+  final File? photo;
+  final bool isProcessing;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCaptured = photo != null;
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 240,
+          height: 300,
+          // A true ellipse via ShapeDecoration/OvalBorder — BorderRadius.circular
+          // can only round corners, so on a non-square box like this one (240×300)
+          // it produces a flat-sided "stadium" shape rather than a real oval, no
+          // matter how large the radius. ClipOval below matches the same math for
+          // the content inside, so the photo and its border are cut identically.
+          decoration: ShapeDecoration(
+            color: isCaptured ? AppColors.qrTileBg : const Color(0xFFECEDEF),
+            shape: const OvalBorder(
+              side: BorderSide(color: AppColors.primary, width: 3),
+            ),
+          ),
+          child: ClipOval(
+            child: isCaptured
+                ? Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.file(photo!, fit: BoxFit.cover),
+                      Positioned(
+                        right: 10,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.check_rounded, size: 18, color: AppColors.onPrimary),
+                        ),
+                      ),
+                    ],
+                  )
+                : const Icon(
+                    Icons.face_retouching_natural_rounded,
+                    size: 72,
+                    color: Colors.black26,
+                  ),
+          ),
+        ),
+        if (isProcessing)
+          const CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.primary),
+      ],
     );
   }
 }

@@ -7,19 +7,15 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/platform_utils.dart';
-import '../../../core/widgets/selfie_capture_field.dart';
 
 enum _PhotoAction { camera, gallery }
 
 /// Settings -> License Number. The driver submits front + back photos of
-/// their license, plus a selfie, here — the selfie exists so an
-/// automated check (Didit, see backend/src/lib/didit.ts) can confirm the
-/// driver submitting the license is the person pictured on it, not just
-/// that the license itself looks real. A clean pass on all three auto-
-/// approves immediately; otherwise an admin reviews them and types the
-/// license number in themselves from the Driver Detail Panel — still no
-/// OCR/auto-detect of the number itself either way. Once approved, the
-/// actual number is shown here too, not just a bare "Verified" status.
+/// their license here; an admin then reviews them and types the license
+/// number in themselves from the Driver Detail Panel — no OCR/auto-detect
+/// (see TODO.md for why that was considered and dropped in favor of this
+/// simpler manual-review flow). Once approved, the actual number the
+/// admin typed in is shown here too, not just a bare "Verified" status.
 class DriverLicenseNumberScreen extends StatefulWidget {
   const DriverLicenseNumberScreen({super.key});
 
@@ -28,13 +24,10 @@ class DriverLicenseNumberScreen extends StatefulWidget {
 }
 
 class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
-  final GlobalKey<SelfieCaptureFieldState> _selfieKey = GlobalKey<SelfieCaptureFieldState>();
-
   String? _status; // null | 'PENDING' | 'APPROVED' | 'REJECTED'
   String? _licenseNumber;
   File? _frontImage;
   File? _backImage;
-  File? _selfieImage;
   bool _isLoadingStatus = true;
   bool _isPickingImage = false;
   bool _isSubmitting = false;
@@ -47,13 +40,13 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
   String get _headerText {
     switch (_status) {
       case 'PENDING':
-        return 'Your license photos and selfie have been submitted and are waiting for review.';
+        return 'Your license photos have been submitted and are waiting for admin review.';
       case 'APPROVED':
         return 'Your driver\'s license has been verified.';
       case 'REJECTED':
-        return 'Your submission was rejected. Submit clearer photos of the front and back of your license, plus a new selfie.';
+        return 'Your submission was rejected. Submit clearer photos of the front and back of your license.';
       default:
-        return 'Submit clear photos of the front and back of your driver\'s license, plus a selfie of yourself. This confirms both that your license is genuine and that it\'s really you.';
+        return 'Submit clear photos of the front and back of your driver\'s license. An admin will review them and verify your license number.';
     }
   }
 
@@ -135,46 +128,36 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
   }
 
   Future<void> _handleSubmit() async {
-    if (_frontImage == null || _backImage == null || _selfieImage == null) return;
+    if (_frontImage == null || _backImage == null) return;
 
     setState(() => _isSubmitting = true);
 
     try {
-      final response = await ApiClient.uploadFiles(
+      await ApiClient.uploadFiles(
         '/api/driver/me/license-photo',
         files: {
           'licenseFront': _frontImage!.path,
           'licenseBack': _backImage!.path,
-          'selfie': _selfieImage!.path,
         },
         token: DriverSession.instance.authToken,
       );
 
       if (!mounted) return;
-      final driver = response['driver'] as Map<String, dynamic>;
-      final newStatus = driver['licenseVerificationStatus'] as String?;
       setState(() {
         _isSubmitting = false;
         _frontImage = null;
         _backImage = null;
-        _selfieImage = null;
-        _status = newStatus;
-        _licenseNumber = driver['licenseNumber'] as String?;
+        _status = 'PENDING';
+        _licenseNumber = null;
       });
 
-      // A clean pass on all three (ID authenticity, liveness, face-match)
-      // auto-approves on the spot — see POST /me/license-photo — so this
-      // dialog reflects whichever actually happened instead of always
-      // claiming "an admin will review them".
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(newStatus == 'APPROVED' ? 'Verified' : 'Submitted'),
-          content: Text(
-            newStatus == 'APPROVED'
-                ? "Your license and selfie were verified automatically. You're all set."
-                : "Your license photos and selfie have been submitted. An admin will review them and verify your license number.",
+          title: const Text('Submitted'),
+          content: const Text(
+            "Your license photos have been submitted. An admin will review them and verify your license number.",
           ),
           actions: [
             TextButton(
@@ -273,55 +256,12 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
                 disabled: _isPickingImage,
                 onTap: () => _pickImage(isFront: false),
               ),
-              const SizedBox(height: 20),
-              const Text(
-                'Selfie',
-                style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black, fontSize: 13),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Confirms it\'s really you holding this license.',
-                style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black38, fontSize: 11),
-              ),
-              const SizedBox(height: 10),
-              Center(
-                child: SelfieCaptureField(
-                  key: _selfieKey,
-                  width: 180,
-                  height: 220,
-                  onChanged: (file) => setState(() => _selfieImage = file),
-                ),
-              ),
-              if (_selfieImage == null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Center(
-                    child: TextButton.icon(
-                      onPressed: () => _selfieKey.currentState?.capture(),
-                      icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                      label: const Text('Take Selfie'),
-                      style: TextButton.styleFrom(foregroundColor: AppColors.logoBlue),
-                    ),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Center(
-                    child: TextButton.icon(
-                      onPressed: () => _selfieKey.currentState?.retake(),
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text('Retake Selfie'),
-                      style: TextButton.styleFrom(foregroundColor: AppColors.logoBlue),
-                    ),
-                  ),
-                ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: (_frontImage == null || _backImage == null || _selfieImage == null || _isSubmitting)
+                  onPressed: (_frontImage == null || _backImage == null || _isSubmitting)
                       ? null
                       : _handleSubmit,
                   style: ElevatedButton.styleFrom(

@@ -21,7 +21,6 @@ import { normalizePlateNumber } from '../utils/plate';
 import { toTitleCase } from '../utils/text';
 import { notifyDriver, notifyCommuter, notifyAdmin } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
-import { runAutoVerification, fetchImageBuffer, type AutoVerificationResult } from '../lib/didit';
 
 const router = Router();
 
@@ -301,27 +300,6 @@ router.post('/signup', async (req, res, next) => {
       return;
     }
 
-    // Didit gets a chance to auto-approve right here, before the row
-    // even exists — a clean pass on ID authenticity + liveness + face
-    // match (selfie vs ID photo) skips the admin queue entirely, same
-    // outcome as an admin clicking Approve. Anything inconclusive (or
-    // Didit not configured) behaves exactly as before this integration
-    // existed: PENDING, admin reviews it. See lib/didit.ts. Wrapped in
-    // its own try/catch — even a transient Cloudinary fetch failure here
-    // must never block account creation itself, only fall back to PENDING.
-    let autoVerification: AutoVerificationResult | null = null;
-    if (pending.idFrontUrl) {
-      try {
-        autoVerification = await runAutoVerification(
-          await fetchImageBuffer(pending.idFrontUrl),
-          await fetchImageBuffer(pending.idBackUrl!),
-          await fetchImageBuffer(pending.selfieUrl!),
-        );
-      } catch {
-        autoVerification = { approved: false, note: 'Could not run automated verification — awaiting manual review.' };
-      }
-    }
-
     const commuter = await prisma.commuter.create({
       data: {
         commuterId: await generateCommuterId(),
@@ -337,9 +315,7 @@ router.post('/signup', async (req, res, next) => {
         // Submitting docs is what puts an account in the admin review
         // queue — no docs yet (null) is a different state from "waiting
         // on a human," which is why this isn't just "always PENDING".
-        verificationStatus: !pending.idFrontUrl ? null : autoVerification?.approved ? 'APPROVED' : 'PENDING',
-        isActive: !!pending.idFrontUrl && !!autoVerification?.approved,
-        autoVerificationNote: autoVerification?.note,
+        verificationStatus: pending.idFrontUrl ? 'PENDING' : null,
       },
     });
 
@@ -354,13 +330,13 @@ router.post('/signup', async (req, res, next) => {
       });
     }
 
-    // No token here — even an auto-APPROVED commuter still logs in
-    // normally afterward, same as one an admin approved; this endpoint
-    // only ever creates the account, POST /login is the only place a
-    // session gets issued. The app sends them to the verification-status
-    // screen instead, the same place a blocked /login attempt does — for
-    // an auto-approved account that screen resolves to "Continue to
-    // Login" immediately rather than sitting in PENDING.
+    // No token here — a brand-new account is never APPROVED yet (that
+    // can only happen after an admin reviews it, which can't have
+    // happened in the moments since this row was just created), so
+    // handing out a session here would let a fresh sign-up skip the
+    // exact gate /login enforces. The app sends them to the
+    // verification-status screen instead, the same place a blocked
+    // /login attempt does.
     res.status(201).json({
       commuter: toPublicCommuter(commuter),
       verificationStatus: commuter.verificationStatus,

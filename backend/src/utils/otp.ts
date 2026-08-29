@@ -43,11 +43,11 @@ export async function issueOtp(
   console.log(`[OTP] ${purpose} code for ${identifier}: ${code}`);
 
   if (channel === 'sms') {
-    await sendSms(identifier, `Your ManibelApp verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`);
+    await sendSms(identifier, `Your ManibelaApp verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`);
   } else {
     await sendEmail(
       identifier,
-      'Your ManibelApp verification code',
+      'Your ManibelaApp verification code',
       `<p>Your verification code is <strong>${code}</strong>. It expires in ${OTP_TTL_MINUTES} minutes.</p>`,
     );
   }

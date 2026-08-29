@@ -1065,7 +1065,7 @@ router.post('/alight', requireAuth('commuter'), async (req, res, next) => {
       await notifyCommuter({
         recipientId: req.auth!.sub,
         title: 'Trip Completed',
-        message: 'Your trip has ended. Thanks for riding with ManibelApp!',
+        message: 'Your trip has ended. Thanks for riding with ManibelaApp!',
         type: 'TRIP_COMPLETED',
         referenceId: openBoardings[0]?.tripId,
       });

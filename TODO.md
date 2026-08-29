@@ -1,4 +1,4 @@
-# ManibelApp — Future Work
+# ManibelaApp — Future Work
 
 Ideas and planned features not yet built. Not a bug tracker — just a
 holding pen so they don't get lost between sessions.

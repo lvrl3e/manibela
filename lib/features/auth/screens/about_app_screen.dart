@@ -88,7 +88,7 @@ class _AboutAppScreenState extends State<AboutAppScreen> {
                 text: const TextSpan(
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
                   children: [
-                    TextSpan(text: 'Manibel', style: TextStyle(color: AppColors.logoBlue)),
+                    TextSpan(text: 'Manibela', style: TextStyle(color: AppColors.logoBlue)),
                     TextSpan(text: 'App', style: TextStyle(color: AppColors.logoRed)),
                   ],
                 ),

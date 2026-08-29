@@ -107,7 +107,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
               // Reduced spacing to bring text closer to the logo
               const SizedBox(height: 2),
 
-              // "ManibelApp" Dual Color Title
+              // "ManibelaApp" Dual Color Title
               RichText(
                 text: const TextSpan(
                   style: TextStyle(
@@ -117,7 +117,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
                   ),
                   children: [
                     TextSpan(
-                      text: 'Manibel',
+                      text: 'Manibela',
                       style: TextStyle(color: AppColors.logoBlue),
                     ),
                     TextSpan(

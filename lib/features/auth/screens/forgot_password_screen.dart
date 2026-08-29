@@ -162,7 +162,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       ),
                       children: [
                         TextSpan(
-                          text: 'Manibel',
+                          text: 'Manibela',
                           style: TextStyle(color: AppColors.logoBlue),
                         ),
                         TextSpan(

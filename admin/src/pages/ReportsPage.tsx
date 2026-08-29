@@ -384,7 +384,7 @@ export default function ReportsPage() {
 
       // --- Sheet 1: Summary --------------------------------------------
       const summarySheet = addReportSheet(workbook, 'Summary');
-      let row = addTitleBlock(summarySheet, 'MANIBELAPP OPERATIONS REPORT', [periodLine, generatedLine], 2);
+      let row = addTitleBlock(summarySheet, 'MANIBELAAPP OPERATIONS REPORT', [periodLine, generatedLine], 2);
       row = addSectionHeader(summarySheet, 'Summary', row, 2);
       const metricColumns: ColumnSpec[] = [
         { header: 'Metric', type: 'text', width: 26 },
@@ -469,7 +469,7 @@ export default function ReportsPage() {
         { header: 'Net Income', type: 'currency' },
         { header: 'Trips', type: 'number' },
       ];
-      let dailyRow = addTitleBlock(dailySheet, 'MANIBELAPP OPERATIONS REPORT', [periodLine, generatedLine, 'Daily Breakdown'], dailyColumns.length);
+      let dailyRow = addTitleBlock(dailySheet, 'MANIBELAAPP OPERATIONS REPORT', [periodLine, generatedLine, 'Daily Breakdown'], dailyColumns.length);
       const dailyRows: CellValue[][] = res.daily.map((d) => [
         parseDateOnlyForExcel(d.date),
         d.earnings,
@@ -506,7 +506,7 @@ export default function ReportsPage() {
       ];
       let byDriverRow = addTitleBlock(
         byDriverSheet,
-        'MANIBELAPP OPERATIONS REPORT',
+        'MANIBELAAPP OPERATIONS REPORT',
         [periodLine, generatedLine, 'By Driver'],
         byDriverColumns.length,
       );
@@ -586,7 +586,7 @@ export default function ReportsPage() {
           ];
           let row = addTitleBlock(
             sheet,
-            'MANIBELAPP DRIVER REPORT',
+            'MANIBELAAPP DRIVER REPORT',
             [...(exportRangeLabel ? [`Joined: ${exportRangeLabel}`] : []), generatedLine],
             columns.length,
           );
@@ -648,7 +648,7 @@ export default function ReportsPage() {
           ];
           let row = addTitleBlock(
             sheet,
-            'MANIBELAPP COMMUTER REPORT',
+            'MANIBELAAPP COMMUTER REPORT',
             [...(exportRangeLabel ? [`Joined: ${exportRangeLabel}`] : []), generatedLine],
             columns.length,
           );
@@ -708,7 +708,7 @@ export default function ReportsPage() {
             { header: 'Trip Status', type: 'text', width: 12 },
             { header: 'Flag', type: 'text', width: 22 },
           ];
-          let row = addTitleBlock(sheet, 'MANIBELAPP TRIP REPORT', [periodLine, generatedLine], columns.length);
+          let row = addTitleBlock(sheet, 'MANIBELAAPP TRIP REPORT', [periodLine, generatedLine], columns.length);
           row = addSectionHeader(sheet, 'Summary', row, columns.length);
           ({ nextRow: row } = addTable(
             sheet,
@@ -770,7 +770,7 @@ export default function ReportsPage() {
             { header: 'Resolution', type: 'text', width: 14 },
             { header: 'Date Resolved', type: 'date' },
           ];
-          let row = addTitleBlock(sheet, 'MANIBELAPP INCIDENT REPORT', [periodLine, generatedLine], columns.length);
+          let row = addTitleBlock(sheet, 'MANIBELAAPP INCIDENT REPORT', [periodLine, generatedLine], columns.length);
           row = addSectionHeader(sheet, 'Summary', row, columns.length);
           ({ nextRow: row } = addTable(
             sheet,

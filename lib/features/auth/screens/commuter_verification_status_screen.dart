@@ -114,7 +114,7 @@ class _CommuterVerificationStatusScreenState extends State<CommuterVerificationS
     final message = _isRejected
         ? "We couldn't verify the ID and selfie you submitted. Please contact support for help getting this resolved."
         : _isApproved
-            ? 'Your account has been approved. You can now log in and start using ManibelApp.'
+            ? 'Your account has been approved. You can now log in and start using ManibelaApp.'
             : "We're reviewing the ID and selfie you submitted. This usually only takes a short while — please check back later.";
 
     return Scaffold(

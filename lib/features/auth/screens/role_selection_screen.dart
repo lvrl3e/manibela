@@ -70,7 +70,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                       ),
                       children: [
                         TextSpan(
-                          text: 'Manibel',
+                          text: 'Manibela',
                           style: TextStyle(color: AppColors.logoBlue),
                         ),
                         TextSpan(

@@ -8,34 +8,34 @@ library;
 const String kTermsAndConditionsUpdated = 'Effective date: August 18, 2026 · Last updated: August 26, 2026';
 
 const String kTermsAndConditionsText = '''
-These Terms & Conditions ("Terms") govern your use of the ManibelApp mobile application and admin platform (together, the "Service"), which facilitates jeepney commuting on the Pasig–Quiapo route in Metro Manila. By creating an account or using the Service, you agree to these Terms and to our Privacy Policy.
+These Terms & Conditions ("Terms") govern your use of the ManibelaApp mobile application and admin platform (together, the "Service"), which facilitates jeepney commuting on the Pasig–Quiapo route in Metro Manila. By creating an account or using the Service, you agree to these Terms and to our Privacy Policy.
 
 1. Eligibility
 You must be at least 18 years old to create a commuter account. Driver accounts are created by an admin after license verification, not through self-registration.
 
 2. What the Service Is
-ManibelApp helps commuters find, track, and board nearby jeepneys on the Pasig–Quiapo route, and helps drivers log trips and report daily operations. The Service is a facilitation tool — it does not itself operate any jeepney, employ any driver, or guarantee the availability, timing, or safety of any ride. Jeepney fares are paid in cash directly to the driver and are not calculated, collected, or processed through the app.
+ManibelaApp helps commuters find, track, and board nearby jeepneys on the Pasig–Quiapo route, and helps drivers log trips and report daily operations. The Service is a facilitation tool — it does not itself operate any jeepney, employ any driver, or guarantee the availability, timing, or safety of any ride. Jeepney fares are paid in cash directly to the driver and are not calculated, collected, or processed through the app.
 
 3. Account Responsibilities
-You are responsible for keeping your password confidential and for all activity under your account. Information you provide (name, mobile number, date of birth, identity documents) must be accurate and belong to you. Commuter accounts require identity verification (government ID + selfie) before activation; driver accounts require license verification by an admin. ManibelApp may reject a submission or deactivate an account that fails verification or is later found to be fraudulent.
+You are responsible for keeping your password confidential and for all activity under your account. Information you provide (name, mobile number, date of birth, identity documents) must be accurate and belong to you. Commuter accounts require identity verification (government ID + selfie) before activation; driver accounts require license verification by an admin. ManibelaApp may reject a submission or deactivate an account that fails verification or is later found to be fraudulent.
 
 4. User Conduct
 You agree not to: provide false identity documents or impersonate another person; use the Service to harass, threaten, or endanger a driver or commuter; submit false or malicious complaints or ratings; or interfere with or attempt to circumvent the Service's verification, boarding, or trip-tracking systems.
 
 5. Driver Conduct & Trip Review
-Drivers are expected to operate safely and honestly report trip and daily operations data. Unusually short trips are automatically flagged for admin review; a driver may submit an explanation for a flagged trip. ManibelApp's admin team reviews flagged trips and commuter complaints and may take action on a driver's account, including deactivation, based on that review.
+Drivers are expected to operate safely and honestly report trip and daily operations data. Unusually short trips are automatically flagged for admin review; a driver may submit an explanation for a flagged trip. ManibelaApp's admin team reviews flagged trips and commuter complaints and may take action on a driver's account, including deactivation, based on that review.
 
 6. Ratings & Complaints
 Commuters may rate a driver after a completed ride and file complaints against a driver by plate number. Complaints are reviewed by admin staff; filing a knowingly false complaint is a violation of these Terms.
 
 7. Disclaimer of Warranties
-The Service is provided "as is." ManibelApp does not guarantee uninterrupted or error-free operation, the accuracy of live jeepney location data, or that a jeepney will be available when requested. Identity and license verification reduce but do not eliminate risk — use the Service at your own discretion, the same as any in-person transaction with a public transport driver.
+The Service is provided "as is." ManibelaApp does not guarantee uninterrupted or error-free operation, the accuracy of live jeepney location data, or that a jeepney will be available when requested. Identity and license verification reduce but do not eliminate risk — use the Service at your own discretion, the same as any in-person transaction with a public transport driver.
 
 8. Limitation of Liability
-To the extent permitted by Philippine law, ManibelApp is not liable for any injury, loss, or damage arising from an actual jeepney ride, which is a transaction between commuter and driver — the Service only facilitates finding and tracking that ride.
+To the extent permitted by Philippine law, ManibelaApp is not liable for any injury, loss, or damage arising from an actual jeepney ride, which is a transaction between commuter and driver — the Service only facilitates finding and tracking that ride.
 
 9. Account Suspension & Termination
-ManibelApp may suspend or deactivate an account that violates these Terms, fails identity/license verification, or is inactive, with or without prior notice where reasonably warranted (e.g. suspected fraud or safety risk). You may stop using the Service at any time.
+ManibelaApp may suspend or deactivate an account that violates these Terms, fails identity/license verification, or is inactive, with or without prior notice where reasonably warranted (e.g. suspected fraud or safety risk). You may stop using the Service at any time.
 
 10. Changes to These Terms
 We may update these Terms from time to time. Material changes will be reflected by updating the "Last updated" date above, and where required, we will seek your renewed consent.
@@ -50,7 +50,7 @@ Email: manibelaapp@gmail.com
 const String kPrivacyPolicyUpdated = 'Effective date: August 18, 2026 · Last updated: August 18, 2026';
 
 const String kPrivacyPolicyText = '''
-This Privacy Policy explains how ManibelApp ("we", "us") collects, uses, stores, and protects personal information through the ManibelApp mobile application and admin platform (together, the "Service"), in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173) and its Implementing Rules and Regulations.
+This Privacy Policy explains how ManibelaApp ("we", "us") collects, uses, stores, and protects personal information through the ManibelaApp mobile application and admin platform (together, the "Service"), in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173) and its Implementing Rules and Regulations.
 
 By creating an account or using the Service, you consent to the collection and use of your information as described in this Policy.
 
@@ -87,6 +87,6 @@ The Service is not directed at children. If you are a minor, you may only use th
 We may update this Privacy Policy from time to time. Material changes will be reflected by updating the "Last updated" date above, and where required, we will seek your renewed consent.
 
 10. Contact Us
-Data Protection Officer: ManibelApp Project Team
+Data Protection Officer: ManibelaApp Project Team
 Email: manibelaapp@gmail.com
 ''';

@@ -356,7 +356,7 @@ class _CommuterSignUpScreenState extends State<CommuterSignUpScreen> {
                       ),
                       children: [
                         TextSpan(
-                          text: 'Manibel',
+                          text: 'Manibela',
                           style: TextStyle(color: AppColors.logoBlue),
                         ),
                         TextSpan(

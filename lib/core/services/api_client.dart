@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
-/// Base URL for the ManibelApp backend (see /backend in the repo).
+/// Base URL for the ManibelaApp backend (see /backend in the repo).
 ///
 /// Defaults to `localhost`, which works for the Windows desktop build and
 /// iOS simulator, and for a USB-connected Android device once you've run

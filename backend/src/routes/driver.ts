@@ -678,7 +678,7 @@ router.post('/trips/:id/end', requireAuth('driver'), async (req, res, next) => {
           notifyCommuter({
             recipientId: b.commuterId,
             title: 'Trip Completed',
-            message: 'Your trip has ended. Thanks for riding with ManibelApp!',
+            message: 'Your trip has ended. Thanks for riding with ManibelaApp!',
             type: 'TRIP_COMPLETED',
             referenceId: updated.id,
           }),

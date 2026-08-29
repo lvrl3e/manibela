@@ -188,7 +188,7 @@ export default function LoginPage() {
             </div>
 
             <h1 className="font-display text-center text-3xl font-extrabold text-gray-900">Welcome!</h1>
-            <p className="mt-2 text-center text-sm text-gray-500">Sign in to the ManibelApp admin portal</p>
+            <p className="mt-2 text-center text-sm text-gray-500">Sign in to the ManibelaApp admin portal</p>
 
             <label className="mt-8 block text-sm font-semibold text-gray-800" htmlFor="email">
               Email Address
@@ -278,7 +278,7 @@ export default function LoginPage() {
         </div>
 
         <p className="relative pb-6 text-center text-xs text-gray-400">
-          &copy; 2026 ManibelApp <span className="text-gray-300">&middot;</span> v1.0 &middot; Internal Use Only
+          &copy; 2026 ManibelaApp <span className="text-gray-300">&middot;</span> v1.0 &middot; Internal Use Only
         </p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-# ManibelApp Database Schema
+# ManibelaApp Database Schema
 
 PostgreSQL, managed with Prisma. Source of truth is
 [`prisma/schema.prisma`](prisma/schema.prisma) — this file is a readable

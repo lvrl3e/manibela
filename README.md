@@ -1,6 +1,6 @@
-# ManibelApp — Frontend
+# ManibelaApp — Frontend
 
-Flutter app for ManibelApp, a Pasig-Quiapo jeepney commuter and driver app.
+Flutter app for ManibelaApp, a Pasig-Quiapo jeepney commuter and driver app.
 Commuters can find and board jeepneys, and drivers manage their trips.
 
 This repo contains only the Flutter frontend (`lib/`). The backend API and

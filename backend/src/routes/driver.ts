@@ -15,6 +15,7 @@ import { requireAuth } from '../middleware/auth';
 import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto, uploadBufferToCloudinary } from '../middleware/upload';
 import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
+import { runAutoVerification } from '../lib/didit';
 
 const router = Router();
 
@@ -456,13 +457,19 @@ router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
   });
 });
 
-// Driver-submitted license photo — Settings -> License Number -> upload
-// or take photo -> submit (see TODO.md). Reuses the same
+// Driver-submitted license photos + selfie — Settings -> License Number
+// -> upload or take photos -> submit (see TODO.md). Reuses the same
 // uploadLicensePhotos middleware the (now-removed) admin-side upload used
-// — both sides are required here, unlike that old endpoint where either
-// side alone was accepted. Sets the review status to PENDING — an admin
-// then reviews the photos and types in the license number themselves (no
-// OCR/auto-detect).
+// — all three are required here, unlike that old endpoint where either
+// license side alone was accepted. The selfie exists so Didit can
+// face-match the driver against their own license photo (see
+// lib/didit.ts), not just check the license is a real document.
+//
+// A clean pass on all three Didit checks auto-approves on the spot; an
+// admin only needs to type in the license number when Didit approved it
+// (or when Didit isn't configured / came back inconclusive, exactly as
+// before this integration existed) — either way licenseVerificationStatus
+// always reflects the true state, and autoVerificationNote explains why.
 router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
   uploadLicensePhotos(req, res, async (err) => {
     if (err) {
@@ -472,12 +479,17 @@ router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
 
     try {
       const files = req.files as
-        | { licenseFront?: Express.Multer.File[]; licenseBack?: Express.Multer.File[] }
+        | {
+            licenseFront?: Express.Multer.File[];
+            licenseBack?: Express.Multer.File[];
+            selfie?: Express.Multer.File[];
+          }
         | undefined;
       const front = files?.licenseFront?.[0];
       const back = files?.licenseBack?.[0];
-      if (!front || !back) {
-        res.status(400).json({ error: 'Please provide both the front and back of your license.' });
+      const selfie = files?.selfie?.[0];
+      if (!front || !back || !selfie) {
+        res.status(400).json({ error: 'Please provide the front and back of your license, plus a selfie.' });
         return;
       }
 
@@ -487,24 +499,37 @@ router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
         return;
       }
 
-      const [licenseFrontUrl, licenseBackUrl] = await Promise.all([
+      const [licenseFrontUrl, licenseBackUrl, selfieUrl] = await Promise.all([
         uploadBufferToCloudinary(front.buffer, 'license-photos'),
         uploadBufferToCloudinary(back.buffer, 'license-photos'),
+        uploadBufferToCloudinary(selfie.buffer, 'driver-selfies'),
       ]);
+
+      const autoVerification = await runAutoVerification(front.buffer, back.buffer, selfie.buffer);
+
       const driver = await prisma.driver.update({
         where: { id: existing.id },
-        data: { licenseFrontUrl, licenseBackUrl, licenseVerificationStatus: 'PENDING' },
+        data: {
+          licenseFrontUrl,
+          licenseBackUrl,
+          selfieUrl,
+          licenseVerificationStatus: autoVerification.approved ? 'APPROVED' : 'PENDING',
+          autoVerificationNote: autoVerification.note,
+        },
       });
 
       deleteUploadedPhoto(existing.licenseFrontUrl);
       deleteUploadedPhoto(existing.licenseBackUrl);
+      deleteUploadedPhoto(existing.selfieUrl);
 
-      await notifyAdmin({
-        title: 'Driver license submitted',
-        message: `${driver.fullName} (${driver.driverId}) submitted license photos for review.`,
-        type: 'LICENSE_SUBMITTED',
-        referenceId: driver.id,
-      });
+      if (!autoVerification.approved) {
+        await notifyAdmin({
+          title: 'Driver license submitted',
+          message: `${driver.fullName} (${driver.driverId}) submitted license photos for review.`,
+          type: 'LICENSE_SUBMITTED',
+          referenceId: driver.id,
+        });
+      }
 
       res.json({ driver: toPublicDriver(driver) });
     } catch (err2) {

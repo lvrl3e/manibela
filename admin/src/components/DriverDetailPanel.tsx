@@ -17,8 +17,10 @@ interface DriverDetail {
   photoUrl: string | null;
   licenseFrontUrl: string | null;
   licenseBackUrl: string | null;
+  selfieUrl: string | null;
   licenseNumber: string | null;
   licenseVerificationStatus: VerificationStatus;
+  autoVerificationNote: string | null;
   qrToken: string | null;
   isActive: boolean;
   reportCount: number;
@@ -539,10 +541,17 @@ export function DriverDetailPanel({
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">License Photos</h3>
                 <VerificationBadge status={driver.licenseVerificationStatus} notSubmitted={!driver.licenseFrontUrl} />
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-3">
+              <div className="mt-2 grid grid-cols-3 gap-3">
                 <LicensePhotoView label="License Front" url={driver.licenseFrontUrl} />
                 <LicensePhotoView label="License Back" url={driver.licenseBackUrl} />
+                <LicensePhotoView label="Driver Selfie" url={driver.selfieUrl} />
               </div>
+              {driver.autoVerificationNote && (
+                <p className="mt-2 text-xs text-gray-500">
+                  <span className="font-semibold text-gray-600">Automated check: </span>
+                  {driver.autoVerificationNote}
+                </p>
+              )}
 
               {driver.licenseFrontUrl && (
                 <div className="mt-3">

@@ -60,19 +60,28 @@ model Commuter {
 
   /// Carried over from PendingCommuterSignup at signup redemption — the
   /// government ID type/photos and selfie captured during onboarding.
-  /// Stored for the account's lifetime as the KYC record; nothing
-  /// currently runs an actual face-match against [selfieUrl] (see the
-  /// TODO on the face-verification screen) — these are just persisted.
+  /// Stored for the account's lifetime as the KYC record. verificationStatus
+  /// can now be set automatically at signup by Didit (ID authenticity +
+  /// liveness + face-match against [selfieUrl]) — see [autoVerificationNote]
+  /// and POST /signup.
   idType          String?
   idFrontUrl      String?
   idBackUrl       String?
   selfieUrl       String?
 
+  /// Didit's own explanation for why verificationStatus ended up where it
+  /// did at signup (e.g. "ID valid; liveness passed; face match confirmed"
+  /// or "Face match inconclusive") — for the admin's benefit in the review
+  /// queue, not shown to the commuter. Null if Didit wasn't configured
+  /// (DIDIT_API_KEY unset) when this account signed up, same as any
+  /// pre-Didit account.
+  autoVerificationNote String?
+
   /// Null until ID/selfie is submitted (nothing to review yet); set to
   /// PENDING the moment /signup redeems a ticket that has them, then
-  /// moved to APPROVED/REJECTED by an admin via POST
-  /// /api/admin/commuters/:id/verify. No automated face-match sets this
-  /// — it's purely a manual review outcome.
+  /// either immediately APPROVED by Didit's automated check or left for
+  /// an admin to decide via POST /api/admin/commuters/:id/verify — see
+  /// [autoVerificationNote] for which happened and why.
   verificationStatus IdVerificationStatus?
 
   /// Whether this account can log in — same enforcement point as
@@ -98,13 +107,17 @@ model Driver {
   dateOfBirth   DateTime? @db.Date
   photoUrl      String?
 
-  /// Front + back of this driver's license, submitted together by the
-  /// driver themselves (Settings -> License Number -> upload/take photo
-  /// -> submit; see POST /api/driver/me/license-photo, which requires
-  /// both). Both null until submitted. There's no admin-side photo
-  /// upload anymore — uploading is the driver's own job now.
+  /// Front + back of this driver's license, plus a selfie — all three
+  /// submitted together by the driver themselves (Settings -> License
+  /// Number -> upload/take photos -> submit; see POST
+  /// /api/driver/me/license-photo, which requires all three). Null until
+  /// submitted. There's no admin-side photo upload anymore — uploading is
+  /// the driver's own job now. [selfieUrl] exists specifically so Didit
+  /// can face-match the driver against their own license photo, not just
+  /// check the license is a real document — see [autoVerificationNote].
   licenseFrontUrl String?
   licenseBackUrl  String?
+  selfieUrl       String?
 
   /// The license number on file. Set one of two ways, both admin-only,
   /// via PATCH /api/admin/drivers/:id/license-number: recorded directly
@@ -113,13 +126,22 @@ model Driver {
   /// rejecting it. Never auto-detected/OCR'd either way.
   licenseNumber String?
 
-  /// PENDING once the driver submits license photos; APPROVED/REJECTED
-  /// only ever set by an admin reviewing them (PATCH /api/admin/drivers/
-  /// :id/license-number with a status), alongside [licenseNumber]. Null
-  /// means nothing has been submitted yet — a distinct state from
-  /// "waiting on a human", same reasoning as Commuter.verificationStatus.
-  /// Gates POST /driver/trips/start — a driver can't start a trip until
-  /// this is APPROVED.
+  /// Didit's own explanation for why licenseVerificationStatus ended up
+  /// where it did (e.g. "License valid; liveness passed; face match
+  /// confirmed" or "Face match inconclusive") — for the admin's benefit,
+  /// not shown to the driver. Null if Didit wasn't configured
+  /// (DIDIT_API_KEY unset) at submission time.
+  autoVerificationNote String?
+
+  /// PENDING once the driver submits license photos + selfie; either
+  /// immediately APPROVED by Didit's automated check (ID authenticity +
+  /// liveness + face-match against [selfieUrl]) or left for an admin to
+  /// decide via PATCH /api/admin/drivers/:id/license-number — see
+  /// [autoVerificationNote] for which happened and why. Null means
+  /// nothing has been submitted yet — a distinct state from "waiting on
+  /// a human", same reasoning as Commuter.verificationStatus. Gates POST
+  /// /driver/trips/start — a driver can't start a trip until this is
+  /// APPROVED.
   licenseVerificationStatus IdVerificationStatus?
 
   /// Opaque random token encoded into this driver's QR code. Assigned

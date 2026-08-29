@@ -18,6 +18,7 @@ interface CommuterDetail {
   idBackUrl: string | null;
   selfieUrl: string | null;
   verificationStatus: VerificationStatus;
+  autoVerificationNote: string | null;
   isActive: boolean;
   totalSignals: number;
   createdAt: string;
@@ -294,6 +295,12 @@ export function CommuterDetailPanel({
                 )}
               </div>
               {actionError && <p className="mt-2 text-xs font-medium text-brand-red">{actionError}</p>}
+              {commuter.autoVerificationNote && (
+                <p className="mt-2 text-xs text-gray-500">
+                  <span className="font-semibold text-gray-600">Automated check: </span>
+                  {commuter.autoVerificationNote}
+                </p>
+              )}
               <div className="mt-2 grid grid-cols-2 gap-3">
                 <PhotoTile label="ID Front" url={commuter.idFrontUrl} />
                 <PhotoTile label="ID Back" url={commuter.idBackUrl} />

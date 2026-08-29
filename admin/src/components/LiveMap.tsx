@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvent } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -112,6 +112,91 @@ function demandIcon(count: number) {
   });
 }
 
+// Jeepney Monitoring polls GET /trips/active every 5s (see usePolling in
+// JeepneyLiveMapPage) — a marker snapping straight to each new fix reads
+// as teleporting rather than "the jeepney is actually moving." This glides
+// it there instead, over slightly less than the poll interval so it
+// settles before the next fix arrives. Mirrors the same glide added to the
+// mobile app's own booking-flow map (jeepney_booking_flow_screen.dart).
+const GLIDE_MS = 4800;
+
+function useGlidingPosition(lat: number, lng: number): [number, number] {
+  const [pos, setPos] = useState<[number, number]>([lat, lng]);
+  const posRef = useRef<[number, number]>([lat, lng]);
+  const fromRef = useRef<[number, number]>([lat, lng]);
+  const toRef = useRef<[number, number]>([lat, lng]);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const target: [number, number] = [lat, lng];
+    if (target[0] === toRef.current[0] && target[1] === toRef.current[1]) return;
+
+    fromRef.current = posRef.current;
+    toRef.current = target;
+    const startedAt = performance.now();
+
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / GLIDE_MS);
+      const from = fromRef.current;
+      const to = toRef.current;
+      const next: [number, number] = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+      posRef.current = next;
+      setPos(next);
+      rafRef.current = t < 1 ? requestAnimationFrame(tick) : null;
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [lat, lng]);
+
+  return pos;
+}
+
+function GlidingJeepneyMarker({ jeepney }: { jeepney: JeepneyMarker }) {
+  const position = useGlidingPosition(jeepney.lat, jeepney.lng);
+  return (
+    <Marker position={position} icon={jeepneyIcon}>
+      <Popup>
+        <div style={{ fontSize: 13 }}>
+          <strong>{jeepney.plateNumber}</strong>
+          <br />
+          Driver: {jeepney.driverName}
+          <br />
+          Route: {jeepney.route ?? '—'}
+          {jeepney.passengers && (
+            <>
+              <br />
+              Onboard: {jeepney.passengers.length > 0 ? jeepney.passengers.join(', ') : 'none'}
+            </>
+          )}
+          {jeepney.isOnline !== undefined && (
+            <>
+              <br />
+              Status: {jeepney.isOnline ? 'Online' : 'Offline'}
+            </>
+          )}
+          {jeepney.currentTripStartIso !== undefined && (
+            <>
+              <br />
+              Current Trip Start: {jeepney.currentTripStartIso ? formatManilaDateTime(jeepney.currentTripStartIso) : '—'}
+            </>
+          )}
+          {jeepney.lastLocationUpdatedAtIso !== undefined && (
+            <>
+              <br />
+              Last Updated: {jeepney.lastLocationUpdatedAtIso ? formatManilaDateTime(jeepney.lastLocationUpdatedAtIso) : '—'}
+            </>
+          )}
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
 const PASIG_CITY_CENTER: [number, number] = [14.5764, 121.0851];
 
 /** Imperatively pans/zooms the map when `target` changes — lets a sidebar
@@ -199,8 +284,9 @@ export function LiveMap({
   return (
     <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
       <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+        subdomains="abcd"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
       />
       <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
       {/* Only listens while a selection is actually active — otherwise an
@@ -208,41 +294,7 @@ export function LiveMap({
           yanked back to the fleet overview on every idle click. */}
       {onDeselect && focusPosition && <ClickToDeselect positions={markerPositions} onDeselect={onDeselect} />}
       {jeepneys.map((j) => (
-        <Marker key={j.id} position={[j.lat, j.lng]} icon={jeepneyIcon}>
-          <Popup>
-            <div style={{ fontSize: 13 }}>
-              <strong>{j.plateNumber}</strong>
-              <br />
-              Driver: {j.driverName}
-              <br />
-              Route: {j.route ?? '—'}
-              {j.passengers && (
-                <>
-                  <br />
-                  Onboard: {j.passengers.length > 0 ? j.passengers.join(', ') : 'none'}
-                </>
-              )}
-              {j.isOnline !== undefined && (
-                <>
-                  <br />
-                  Status: {j.isOnline ? 'Online' : 'Offline'}
-                </>
-              )}
-              {j.currentTripStartIso !== undefined && (
-                <>
-                  <br />
-                  Current Trip Start: {j.currentTripStartIso ? formatManilaDateTime(j.currentTripStartIso) : '—'}
-                </>
-              )}
-              {j.lastLocationUpdatedAtIso !== undefined && (
-                <>
-                  <br />
-                  Last Updated: {j.lastLocationUpdatedAtIso ? formatManilaDateTime(j.lastLocationUpdatedAtIso) : '—'}
-                </>
-              )}
-            </div>
-          </Popup>
-        </Marker>
+        <GlidingJeepneyMarker key={j.id} jeepney={j} />
       ))}
       {demandSignals.map((d) => (
         <Marker key={d.id} position={[d.lat, d.lng]} icon={demandIcon(d.count)}>

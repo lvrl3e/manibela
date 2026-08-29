@@ -191,7 +191,8 @@ class JeepneyBookingFlowScreen extends StatefulWidget {
       _JeepneyBookingFlowScreenState();
 }
 
-class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
+class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
+    with SingleTickerProviderStateMixin {
   // Fallback used only until the real GPS fix comes in (or if location is
   // unavailable/denied) — not the source of truth once _center is set.
   static const _fallbackCenter = LatLng(14.6019, 121.0355);
@@ -201,6 +202,69 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
   final MapController _mapController = MapController();
 
   _BookingStep _step = _BookingStep.routeAndCompanions;
+
+  // Glides jeepney markers between polls instead of letting them jump
+  // straight to each new position — keyed by plate number (or
+  // _boardedGlideKey for the single boarded marker), so every jeepney
+  // animates independently even though they all share one ticker. Duration
+  // is kept just under both polling intervals (5s) so a glide always
+  // finishes before the next position arrives, rather than being cut off
+  // mid-flight and visibly snapping.
+  static const _boardedGlideKey = '__boarded__';
+  static const _glideDuration = Duration(milliseconds: 4800);
+  final Map<String, LatLng> _glideFrom = {};
+  final Map<String, LatLng> _glideTo = {};
+  late final AnimationController _glideController = AnimationController(
+    vsync: this,
+    duration: _glideDuration,
+  )..addListener(() {
+      if (!mounted) return;
+      setState(() {});
+      // Keeps the camera tracking the boarded jeepney's glide frame-by-frame
+      // instead of snapping to each new fix the moment it arrives — without
+      // this the camera would jump ahead of the marker still animating
+      // toward it.
+      if (_step == _BookingStep.boardingStatus && _boardedJeepneyPosition != null) {
+        try {
+          _mapController.move(
+            _glidePosition(_boardedGlideKey, _boardedJeepneyPosition!),
+            _mapController.camera.zoom,
+          );
+        } catch (_) {
+          // Map not laid out yet — safe to skip.
+        }
+      }
+    });
+
+  /// Records a fresh target for [key], capturing wherever it's currently
+  /// animated to (not the previous poll's raw target) as the new starting
+  /// point — so a position that arrives mid-glide continues smoothly from
+  /// there instead of jumping backward. Must be followed by [_restartGlide]
+  /// once every key in the same batch has been set — reading
+  /// _glideController.value here (rather than resetting it per-key) is what
+  /// keeps every marker's "from" consistent within one batch.
+  void _setGlideTarget(String key, LatLng target) {
+    _glideFrom[key] = _glidePosition(key, target);
+    _glideTo[key] = target;
+  }
+
+  void _restartGlide() {
+    _glideController
+      ..stop()
+      ..value = 0
+      ..forward();
+  }
+
+  LatLng _glidePosition(String key, LatLng fallback) {
+    final from = _glideFrom[key];
+    final to = _glideTo[key];
+    if (from == null || to == null) return fallback;
+    final t = Curves.linear.transform(_glideController.value);
+    return LatLng(
+      from.latitude + (to.latitude - from.latitude) * t,
+      from.longitude + (to.longitude - from.longitude) * t,
+    );
+  }
 
   @override
   void initState() {
@@ -338,6 +402,12 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
         }).toList();
         _isLoadingNearby = false;
       });
+      for (final jeepney in _nearbyJeepneys) {
+        if (jeepney.position != null) {
+          _setGlideTarget(jeepney.plateNumber, jeepney.position!);
+        }
+      }
+      _restartGlide();
       // Restarts the 5s watch on every successful fetch (including the
       // timer's own tick) — keeps checks spaced out from when the last one
       // actually finished, rather than firing on a fixed clock regardless
@@ -763,14 +833,14 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
       final lng = activeTrip['lng'] as num?;
       if (lat != null && lng != null) {
         final position = LatLng(lat.toDouble(), lng.toDouble());
-        setState(() => _boardedJeepneyPosition = position);
+        _setGlideTarget(_boardedGlideKey, position);
+        _restartGlide();
         // Keeps the jeepney in view as it actually moves, rather than
-        // requiring the commuter to manually pan/zoom to follow it.
-        try {
-          _mapController.move(position, _mapController.camera.zoom);
-        } catch (_) {
-          // Map not laid out yet on the very first tick — safe to skip.
-        }
+        // requiring the commuter to manually pan/zoom to follow it — the
+        // camera itself is moved frame-by-frame in the glide controller's
+        // listener above, tracking the same animated position as the
+        // marker instead of snapping straight to this raw fix.
+        setState(() => _boardedJeepneyPosition = position);
       }
     } catch (_) {
       // Best-effort — just try again on the next tick.
@@ -893,13 +963,14 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
               ),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                  subdomains: const ['a', 'b', 'c', 'd'],
                   userAgentPackageName: 'com.manibel.app',
                   maxZoom: 19,
                 ),
                 RichAttributionWidget(
                   attributions: [
-                    TextSourceAttribution('© OpenStreetMap contributors', onTap: () {}),
+                    TextSourceAttribution('© OpenStreetMap contributors © CARTO', onTap: () {}),
                   ],
                 ),
                 // The corridor itself, faint, so it's clear which streets
@@ -954,7 +1025,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
                       for (final jeepney in _nearbyJeepneys)
                         if (jeepney.position != null)
                           Marker(
-                            point: jeepney.position!,
+                            point: _glidePosition(jeepney.plateNumber, jeepney.position!),
                             width: 30,
                             height: 30,
                             child: GestureDetector(
@@ -967,11 +1038,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
                     // The boarded jeepney's live position while riding —
                     // see _pollActiveTrip, which refreshes this every 5s
                     // from the same currentLat/currentLng the driver's own
-                    // location pings keep fresh — so it actually moves on
-                    // the map instead of sitting frozen at boarding time.
+                    // location pings keep fresh — glided smoothly between
+                    // fixes (see _glidePosition) instead of jumping, so it
+                    // actually looks like it's moving on the map rather
+                    // than teleporting once every 5 seconds.
                     if (_step == _BookingStep.boardingStatus && _boardedJeepneyPosition != null)
                       Marker(
-                        point: _boardedJeepneyPosition!,
+                        point: _glidePosition(_boardedGlideKey, _boardedJeepneyPosition!),
                         width: 30,
                         height: 30,
                         child: const _JeepneyMapPin(selected: true),
@@ -1121,6 +1194,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen> {
     _stopBoardingStatusPoll();
     _mapController.dispose();
     _routeSearchController.dispose();
+    _glideController.dispose();
     super.dispose();
   }
 }

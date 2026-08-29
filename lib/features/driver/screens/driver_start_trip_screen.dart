@@ -188,7 +188,8 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                            subdomains: const ['a', 'b', 'c', 'd'],
                             userAgentPackageName: 'com.manibel.app',
                             maxZoom: 19,
                           ),

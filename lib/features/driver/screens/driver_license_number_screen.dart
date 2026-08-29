@@ -1,14 +1,12 @@
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
-import '../../../core/utils/platform_utils.dart';
-
-enum _PhotoAction { camera, gallery }
+import '../../../core/widgets/in_app_camera_capture.dart';
 
 /// Settings -> License Number. The driver submits front + back photos of
 /// their license here; an admin then reviews them and types the license
@@ -78,48 +76,27 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
   Future<void> _pickImage({required bool isFront}) async {
     if (_isPickingImage) return;
 
-    final action = await showModalBottomSheet<_PhotoAction>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Wrap(
-          children: [
-            if (!isDesktopPlatform)
-              ListTile(
-                leading: const Icon(Icons.photo_camera_rounded),
-                title: const Text('Take Photo'),
-                onTap: () => Navigator.pop(sheetContext, _PhotoAction.camera),
-              ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_rounded),
-              title: const Text('Choose from Gallery'),
-              onTap: () => Navigator.pop(sheetContext, _PhotoAction.gallery),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (!mounted || action == null) return;
-
     setState(() => _isPickingImage = true);
     try {
-      final source = action == _PhotoAction.camera ? ImageSource.camera : ImageSource.gallery;
-      final picker = ImagePicker();
-      final XFile? picked = await picker.pickImage(
-        source: source,
-        maxWidth: 1600,
-        imageQuality: 85,
+      // The app's own live camera view (rectangular guide matching an ID
+      // card's proportions), not a gallery pick — see InAppCameraCapture's
+      // own doc comment.
+      final File? picked = await InAppCameraCapture.capture(
+        context,
+        lensDirection: CameraLensDirection.back,
+        guideShape: CaptureGuideShape.rectangle,
+        guideAspectRatio: _LicensePhotoTile.licenseCardAspectRatio,
+        instruction: isFront
+            ? 'Line up the front of your license within the frame'
+            : 'Line up the back of your license within the frame',
       );
       if (picked == null || !mounted) return;
 
       setState(() {
         if (isFront) {
-          _frontImage = File(picked.path);
+          _frontImage = picked;
         } else {
-          _backImage = File(picked.path);
+          _backImage = picked;
         }
       });
     } finally {
@@ -302,40 +279,47 @@ class _LicensePhotoTile extends StatelessWidget {
   final bool disabled;
   final VoidCallback onTap;
 
+  // Standard CR80 card ratio (85.6mm × 53.98mm — the physical size of a PH
+  // driver's license) — matches CommuterVerificationScreen's own ID
+  // preview so both read as "a card", not an arbitrary photo thumbnail.
+  static const double licenseCardAspectRatio = 85.6 / 53.98;
+
   @override
   Widget build(BuildContext context) {
     final hasImage = file != null;
 
     return GestureDetector(
       onTap: disabled ? null : onTap,
-      child: Container(
-        width: double.infinity,
-        height: 160,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F2F3),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: hasImage ? AppColors.primary : const Color(0xFFE6E6E7)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: hasImage
-            ? Image.file(file!, fit: BoxFit.cover)
-            : Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.add_a_photo_outlined, size: 30, color: AppColors.secondary),
-                    const SizedBox(height: 8),
-                    Text(
-                      label,
-                      style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.black54, fontSize: 13),
-                    ),
-                    const Text(
-                      'Tap to upload or take a photo',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black38, fontSize: 11),
-                    ),
-                  ],
+      child: AspectRatio(
+        aspectRatio: licenseCardAspectRatio,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF2F2F3),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: hasImage ? AppColors.primary : const Color(0xFFE6E6E7)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: hasImage
+              ? Image.file(file!, fit: BoxFit.cover)
+              : Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.add_a_photo_outlined, size: 30, color: AppColors.secondary),
+                      const SizedBox(height: 8),
+                      Text(
+                        label,
+                        style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.black54, fontSize: 13),
+                      ),
+                      const Text(
+                        'Tap to take a photo',
+                        style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black38, fontSize: 11),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+        ),
       ),
     );
   }

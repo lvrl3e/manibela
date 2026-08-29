@@ -1,10 +1,10 @@
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
-import '../../../core/utils/platform_utils.dart';
+import '../../../core/widgets/in_app_camera_capture.dart';
 import 'commuter_face_verification_screen.dart';
 
 const List<String> _idTypeOptions = [
@@ -37,14 +37,12 @@ class CommuterVerificationScreen extends StatefulWidget {
 }
 
 class _CommuterVerificationScreenState extends State<CommuterVerificationScreen> {
-  final ImagePicker _picker = ImagePicker();
-
   String? _selectedId;
   File? _frontImage;
   File? _backImage;
   bool _ageConfirmed = false;
   bool _isVerifying = false;
-  bool _isPickingImage = false; // guards against double taps while a picker sheet/IO op is in flight
+  bool _isPickingImage = false; // guards against double taps while the camera screen/IO op is in flight
 
   String? _idError;
   String? _frontError;
@@ -72,50 +70,23 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
     // case this ever gets called some other way before an ID type exists.
     if (_isPickingImage || !_canUploadId) return;
 
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Upload ID Photo',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black),
-                ),
-              ),
-            ),
-            if (!isDesktopPlatform)
-              ListTile(
-                leading: const Icon(Icons.photo_camera_rounded, color: AppColors.logoBlue),
-                title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
-              ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_rounded, color: AppColors.logoBlue),
-              title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-
-    if (source == null || !mounted) return;
-
     setState(() => _isPickingImage = true);
 
     try {
-      final picked = await _picker.pickImage(source: source, imageQuality: 85);
-      if (picked == null || !mounted) return; // user cancelled
+      // The app's own live camera view (rectangular guide matching an ID
+      // card's proportions), not a gallery pick — see InAppCameraCapture's
+      // own doc comment for why gallery isn't offered here at all.
+      final file = await InAppCameraCapture.capture(
+        context,
+        lensDirection: CameraLensDirection.back,
+        guideShape: CaptureGuideShape.rectangle,
+        guideAspectRatio: _IdUploadTile._idCardAspectRatio,
+        instruction: isFront
+            ? 'Line up the front of your ID within the frame'
+            : 'Line up the back of your ID within the frame',
+      );
+      if (file == null || !mounted) return; // user backed out
 
-      final file = File(picked.path);
       final sizeBytes = await file.length();
 
       if (sizeBytes > _maxUploadBytes) {
@@ -502,7 +473,7 @@ class _IdUploadTile extends StatelessWidget {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'Tap to take a photo or upload',
+                                'Tap to take a photo',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 11,

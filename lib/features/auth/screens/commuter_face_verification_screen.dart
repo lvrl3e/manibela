@@ -1,11 +1,11 @@
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
-import '../../../core/utils/platform_utils.dart';
+import '../../../core/widgets/in_app_camera_capture.dart';
 import 'commuter_verification_status_screen.dart';
 
 class CommuterFaceVerificationScreen extends StatefulWidget {
@@ -24,8 +24,6 @@ class CommuterFaceVerificationScreen extends StatefulWidget {
 }
 
 class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificationScreen> {
-  final ImagePicker _picker = ImagePicker();
-
   File? _capturedPhoto;
   bool get _isCaptured => _capturedPhoto != null;
 
@@ -41,17 +39,16 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
     });
 
     try {
-      // Front camera, since this is a selfie for identity verification —
-      // not a photo library pick, so the user can't submit an old/unrelated
-      // photo here the way they can for the ID front/back uploads. Desktop
-      // is the one exception: image_picker has no webcam support there at
-      // all (see isDesktopPlatform), so ImageSource.camera would just
-      // throw — fall back to a file pick so the flow is at least usable
-      // for local testing.
-      final XFile? picked = await _picker.pickImage(
-        source: isDesktopPlatform ? ImageSource.gallery : ImageSource.camera,
-        preferredCameraDevice: CameraDevice.front,
-        imageQuality: 85,
+      // The app's own live camera view with an oval guide, front camera —
+      // not a photo library pick, so the user can't submit an old/
+      // unrelated photo here the way they used to be able to for the ID
+      // front/back uploads either. See InAppCameraCapture's own doc
+      // comment for the desktop fallback.
+      final File? picked = await InAppCameraCapture.capture(
+        context,
+        lensDirection: CameraLensDirection.front,
+        guideShape: CaptureGuideShape.oval,
+        instruction: 'Position your face within the frame',
       );
 
       if (!mounted) return;
@@ -63,7 +60,7 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
       }
 
       setState(() {
-        _capturedPhoto = File(picked.path);
+        _capturedPhoto = picked;
         _isProcessing = false;
       });
     } catch (_) {

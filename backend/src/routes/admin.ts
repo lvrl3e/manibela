@@ -573,6 +573,7 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
         licenseNumber: driver.licenseNumber,
         licenseVerificationStatus: driver.licenseVerificationStatus,
         autoVerificationNote: driver.autoVerificationNote,
+        diditSessionId: driver.diditSessionId,
         qrToken: driver.qrToken,
         isActive: driver.isActive,
         reportCount,
@@ -633,7 +634,11 @@ router.patch('/drivers/:id/license-number', requireAuth('admin'), async (req, re
       return;
     }
 
-    if (!driver.licenseFrontUrl) {
+    // licenseFrontUrl only exists for a driver verified through the old
+    // standalone-capture flow; a Didit-hosted verification instead
+    // leaves diditSessionId set with no local photos at all — either one
+    // means there's actually something to review.
+    if (!driver.licenseFrontUrl && !driver.diditSessionId) {
       res.status(400).json({ error: 'This driver has not submitted a license photo yet.' });
       return;
     }
@@ -1103,6 +1108,7 @@ router.get('/commuters/:id', requireAuth('admin'), async (req, res, next) => {
         selfieUrl: commuter.selfieUrl,
         verificationStatus: commuter.verificationStatus,
         autoVerificationNote: commuter.autoVerificationNote,
+        diditSessionId: commuter.diditSessionId,
         isActive: commuter.isActive,
         totalSignals,
         createdAt: commuter.createdAt,
@@ -1184,7 +1190,11 @@ router.post('/commuters/:id/verify', requireAuth('admin'), async (req, res, next
       res.status(404).json({ error: 'Commuter not found.' });
       return;
     }
-    if (!existing.idFrontUrl) {
+    // idFrontUrl only exists for accounts verified through the old
+    // standalone-capture flow; a Didit-hosted verification instead
+    // leaves diditSessionId set with no local photos at all — either one
+    // means there's actually something to review.
+    if (!existing.idFrontUrl && !existing.diditSessionId) {
       res.status(400).json({ error: 'This commuter has not submitted ID documents yet.' });
       return;
     }
@@ -2360,12 +2370,7 @@ router.get('/export/drivers', requireAuth('admin'), async (req, res, next) => {
         // the closest real thing to a "current route" a roster export can
         // show. Null for a driver who's never started a trip.
         route: latestRouteByDriver.get(d.id) ?? null,
-        // Drivers have no ID-verification flow like a commuter's KYC
-        // (see Driver's doc comment in schema.prisma) — the closest real
-        // equivalent is whether an admin has uploaded their license
-        // photos yet (see the Driver Detail Panel's License Photos
-        // section), so that's what this reflects.
-        licenseVerified: Boolean(d.licenseFrontUrl && d.licenseBackUrl),
+        licenseVerified: d.licenseVerificationStatus === 'APPROVED',
         dateOfBirth: d.dateOfBirth ? formatDateOnly(d.dateOfBirth) : null,
         isActive: d.isActive,
         createdAt: d.createdAt,

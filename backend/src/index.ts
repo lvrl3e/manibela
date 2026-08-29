@@ -6,6 +6,7 @@ import healthRouter from './routes/health';
 import commuterRouter from './routes/commuter';
 import driverRouter from './routes/driver';
 import adminRouter from './routes/admin';
+import webhooksRouter from './routes/webhooks';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimit';
 import { startDriverLogReminderJobs } from './jobs/driverLogReminders';
@@ -51,6 +52,15 @@ app.use(
     },
   }),
 );
+// Mounted ahead of the global express.json() below, and only for this
+// one path — Didit's webhook signature is computed over the exact raw
+// bytes of the request body, so this route needs the untouched Buffer,
+// not the already-parsed-and-reserialized object express.json() would
+// otherwise hand it (see routes/webhooks.ts). Consuming the request
+// stream here also means express.json() effectively no-ops for this
+// specific path when it runs next.
+app.use('/api/webhooks', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 app.use('/api', apiLimiter);
 
@@ -62,6 +72,7 @@ app.use('/api/health', healthRouter);
 app.use('/api/commuter', commuterRouter);
 app.use('/api/driver', driverRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/webhooks', webhooksRouter);
 
 app.use(errorHandler);
 

@@ -11,8 +11,6 @@ import { dateOnly, formatDateOnly, calculateAge, MIN_ADULT_AGE } from '../utils/
 import { requireAuth } from '../middleware/auth';
 import {
   uploadPhoto,
-  uploadIdPhotos,
-  uploadSelfie,
   uploadComplaintAttachment,
   deleteUploadedPhoto,
   uploadBufferToCloudinary,
@@ -21,7 +19,7 @@ import { normalizePlateNumber } from '../utils/plate';
 import { toTitleCase } from '../utils/text';
 import { notifyDriver, notifyCommuter, notifyAdmin } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
-import { runAutoVerification, fetchImageBuffer, type AutoVerificationResult } from '../lib/didit';
+import { createVerificationSession } from '../lib/didit';
 
 const router = Router();
 
@@ -176,103 +174,56 @@ router.post('/verify-signup-otp', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // ID + FACE VERIFICATION (unauthenticated — no account exists yet at this
 // point in the flow, so the unguessable ticket itself is what gates these,
-// same as /signup below). Both just persist the uploaded photos onto the
-// pending signup row; neither runs any actual verification against them —
-// see the TODO on the face-verification screen for the still-mocked
-// face-match step.
+// same as /signup below). Verification itself happens on Didit's own
+// hosted page (see lib/didit.ts) — this just starts that session and lets
+// the app poll for the result POST /api/webhooks/didit eventually reports.
 // ---------------------------------------------------------------------------
 
-router.post('/signup/:ticket/id-photos', (req, res, next) => {
-  uploadIdPhotos(req, res, async (err) => {
-    if (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+router.post('/signup/:ticket/verification-session', async (req, res, next) => {
+  try {
+    const pending = await prisma.pendingCommuterSignup.findUnique({
+      where: { ticket: req.params.ticket },
+    });
+    if (!pending || pending.expiresAt < new Date()) {
+      res.status(400).json({
+        error: 'Your verification has expired. Please start sign-up again from the beginning.',
+      });
       return;
     }
 
-    try {
-      const pending = await prisma.pendingCommuterSignup.findUnique({
-        where: { ticket: req.params.ticket },
-      });
-      if (!pending || pending.expiresAt < new Date()) {
-        res.status(400).json({
-          error: 'Your verification has expired. Please start sign-up again from the beginning.',
-        });
-        return;
-      }
-
-      const files = req.files as { front?: Express.Multer.File[]; back?: Express.Multer.File[] } | undefined;
-      const front = files?.front?.[0];
-      const back = files?.back?.[0];
-      if (!front || !back) {
-        res.status(400).json({ error: 'Both the front and back of your ID are required.' });
-        return;
-      }
-
-      const idType = typeof req.body.idType === 'string' ? req.body.idType.trim() : '';
-      if (!idType) {
-        res.status(400).json({ error: 'ID type is required.' });
-        return;
-      }
-
-      const [idFrontUrl, idBackUrl] = await Promise.all([
-        uploadBufferToCloudinary(front.buffer, 'id-photos'),
-        uploadBufferToCloudinary(back.buffer, 'id-photos'),
-      ]);
-
-      await prisma.pendingCommuterSignup.update({
-        where: { id: pending.id },
-        data: { idType, idFrontUrl, idBackUrl },
-      });
-
-      // Only after the DB update succeeds, and only the previous pair —
-      // never leave the record pointing at files that got deleted out
-      // from under it. Covers a retry re-uploading over an earlier pick.
-      deleteUploadedPhoto(pending.idFrontUrl);
-      deleteUploadedPhoto(pending.idBackUrl);
-
-      res.json({ message: 'ID photos uploaded.' });
-    } catch (err2) {
-      next(err2);
+    const session = await createVerificationSession(pending.ticket);
+    if (!session) {
+      res.status(503).json({ error: 'Verification is not available right now. Please try again later.' });
+      return;
     }
-  });
+
+    await prisma.pendingCommuterSignup.update({
+      where: { id: pending.id },
+      data: { diditSessionId: session.sessionId, diditDecision: null },
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.post('/signup/:ticket/selfie', (req, res, next) => {
-  uploadSelfie(req, res, async (err) => {
-    if (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+router.get('/signup/:ticket/verification-status', async (req, res, next) => {
+  try {
+    const pending = await prisma.pendingCommuterSignup.findUnique({
+      where: { ticket: req.params.ticket },
+    });
+    if (!pending || pending.expiresAt < new Date()) {
+      res.status(400).json({
+        error: 'Your verification has expired. Please start sign-up again from the beginning.',
+      });
       return;
     }
-    if (!req.file) {
-      res.status(400).json({ error: 'No selfie was uploaded.' });
-      return;
-    }
 
-    try {
-      const pending = await prisma.pendingCommuterSignup.findUnique({
-        where: { ticket: req.params.ticket },
-      });
-      if (!pending || pending.expiresAt < new Date()) {
-        res.status(400).json({
-          error: 'Your verification has expired. Please start sign-up again from the beginning.',
-        });
-        return;
-      }
-
-      const selfieUrl = await uploadBufferToCloudinary(req.file.buffer, 'selfies');
-
-      await prisma.pendingCommuterSignup.update({
-        where: { id: pending.id },
-        data: { selfieUrl },
-      });
-
-      deleteUploadedPhoto(pending.selfieUrl);
-
-      res.json({ message: 'Selfie uploaded.' });
-    } catch (err2) {
-      next(err2);
-    }
-  });
+    res.json({ decision: pending.diditDecision });
+  } catch (err) {
+    next(err);
+  }
 });
 
 const signupSchema = z.object({ ticket: z.string().min(1) });
@@ -301,26 +252,20 @@ router.post('/signup', async (req, res, next) => {
       return;
     }
 
-    // Didit gets a chance to auto-approve right here, before the row
-    // even exists — a clean pass on ID authenticity + liveness + face
-    // match (selfie vs ID photo) skips the admin queue entirely, same
-    // outcome as an admin clicking Approve. Anything inconclusive (or
-    // Didit not configured) behaves exactly as before this integration
-    // existed: PENDING, admin reviews it. See lib/didit.ts. Wrapped in
-    // its own try/catch — even a transient Cloudinary fetch failure here
-    // must never block account creation itself, only fall back to PENDING.
-    let autoVerification: AutoVerificationResult | null = null;
-    if (pending.idFrontUrl) {
-      try {
-        autoVerification = await runAutoVerification(
-          await fetchImageBuffer(pending.idFrontUrl),
-          await fetchImageBuffer(pending.idBackUrl!),
-          await fetchImageBuffer(pending.selfieUrl!),
-        );
-      } catch {
-        autoVerification = { approved: false, note: 'Could not run automated verification — awaiting manual review.' };
-      }
-    }
+    // Didit's webhook (POST /api/webhooks/didit) already reported a
+    // decision onto this ticket by the time this call is made — the app
+    // polls GET /signup/:ticket/verification-status until diditDecision
+    // resolves before ever calling this endpoint. A session that was
+    // started but hasn't resolved yet (a race, or this being called
+    // directly) safely falls to PENDING rather than blocking signup.
+    const verificationStatus = !pending.diditSessionId
+      ? null
+      : pending.diditDecision === 'approved'
+        ? 'APPROVED'
+        : 'PENDING';
+    const autoVerificationNote = pending.diditSessionId
+      ? (pending.diditDecision === 'approved' ? 'Didit workflow: approved.' : 'Didit workflow: awaiting manual review.')
+      : null;
 
     const commuter = await prisma.commuter.create({
       data: {
@@ -330,16 +275,14 @@ router.post('/signup', async (req, res, next) => {
         passwordHash: pending.passwordHash,
         dateOfBirth: pending.dateOfBirth,
         phoneVerifiedAt: new Date(),
-        idType: pending.idType,
-        idFrontUrl: pending.idFrontUrl,
-        idBackUrl: pending.idBackUrl,
-        selfieUrl: pending.selfieUrl,
-        // Submitting docs is what puts an account in the admin review
-        // queue — no docs yet (null) is a different state from "waiting
-        // on a human," which is why this isn't just "always PENDING".
-        verificationStatus: !pending.idFrontUrl ? null : autoVerification?.approved ? 'APPROVED' : 'PENDING',
-        isActive: !!pending.idFrontUrl && !!autoVerification?.approved,
-        autoVerificationNote: autoVerification?.note,
+        diditSessionId: pending.diditSessionId,
+        // Starting a verification session is what puts an account in the
+        // admin review queue — no session yet (null) is a different
+        // state from "waiting on a human," which is why this isn't just
+        // "always PENDING".
+        verificationStatus,
+        isActive: verificationStatus === 'APPROVED',
+        autoVerificationNote,
       },
     });
 

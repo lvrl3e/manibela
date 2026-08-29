@@ -1,25 +1,20 @@
-import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
-import '../../../core/utils/platform_utils.dart';
-import '../../../core/widgets/selfie_capture_field.dart';
 
-enum _PhotoAction { camera, gallery }
-
-/// Settings -> License Number. The driver submits front + back photos of
-/// their license, plus a selfie, here — the selfie exists so an
-/// automated check (Didit, see backend/src/lib/didit.ts) can confirm the
-/// driver submitting the license is the person pictured on it, not just
-/// that the license itself looks real. A clean pass on all three auto-
-/// approves immediately; otherwise an admin reviews them and types the
-/// license number in themselves from the Driver Detail Panel — still no
-/// OCR/auto-detect of the number itself either way. Once approved, the
-/// actual number is shown here too, not just a bare "Verified" status.
+/// Settings -> License Number. Verification happens entirely on Didit's
+/// own hosted page (license authenticity + liveness + face-match, all
+/// captured there — see backend/src/lib/didit.ts), not through an
+/// upload here — this screen starts that session, opens it in an
+/// in-app browser tab, and briefly polls GET /driver/me afterward in
+/// case a clean pass auto-approves right away. An admin only needs to
+/// type in the license number when Didit didn't confidently resolve it
+/// — see the Driver Detail Panel.
 class DriverLicenseNumberScreen extends StatefulWidget {
   const DriverLicenseNumberScreen({super.key});
 
@@ -28,32 +23,32 @@ class DriverLicenseNumberScreen extends StatefulWidget {
 }
 
 class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
-  final GlobalKey<SelfieCaptureFieldState> _selfieKey = GlobalKey<SelfieCaptureFieldState>();
-
   String? _status; // null | 'PENDING' | 'APPROVED' | 'REJECTED'
   String? _licenseNumber;
-  File? _frontImage;
-  File? _backImage;
-  File? _selfieImage;
   bool _isLoadingStatus = true;
-  bool _isPickingImage = false;
-  bool _isSubmitting = false;
+  bool _isStartingSession = false;
+  bool _isPolling = false;
+  String? _error;
 
-  // Nothing to upload while still loading, and nothing left to upload
-  // once there's a submission an admin hasn't rejected — a rejection is
-  // the one status that reopens this for a resubmit.
-  bool get _canSubmit => !_isLoadingStatus && _status != 'PENDING' && _status != 'APPROVED';
+  Timer? _pollTimer;
+  int _pollAttempts = 0;
+  static const int _maxPollAttempts = 40; // ~2 minutes at 3s apart
+
+  // Nothing to start while still loading, and nothing left to start once
+  // there's a submission an admin hasn't rejected — a rejection reopens
+  // this for another attempt.
+  bool get _canStart => !_isLoadingStatus && _status != 'PENDING' && _status != 'APPROVED';
 
   String get _headerText {
     switch (_status) {
       case 'PENDING':
-        return 'Your license photos and selfie have been submitted and are waiting for review.';
+        return 'Your verification is in progress. If it needs manual review, an admin will check it soon.';
       case 'APPROVED':
         return 'Your driver\'s license has been verified.';
       case 'REJECTED':
-        return 'Your submission was rejected. Submit clearer photos of the front and back of your license, plus a new selfie.';
+        return 'Your submission was rejected. Start verification again with a clearer license and selfie.';
       default:
-        return 'Submit clear photos of the front and back of your driver\'s license, plus a selfie of yourself. This confirms both that your license is genuine and that it\'s really you.';
+        return 'Verify your driver\'s license on a secure page — you\'ll show your license and take a quick selfie. This confirms both that your license is genuine and that it\'s really you.';
     }
   }
 
@@ -61,6 +56,12 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
   void initState() {
     super.initState();
     _loadStatus();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadStatus() async {
@@ -82,112 +83,82 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
     }
   }
 
-  Future<void> _pickImage({required bool isFront}) async {
-    if (_isPickingImage) return;
+  Future<void> _startVerification() async {
+    if (_isStartingSession || _isPolling) return;
 
-    final action = await showModalBottomSheet<_PhotoAction>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Wrap(
-          children: [
-            if (!isDesktopPlatform)
-              ListTile(
-                leading: const Icon(Icons.photo_camera_rounded),
-                title: const Text('Take Photo'),
-                onTap: () => Navigator.pop(sheetContext, _PhotoAction.camera),
-              ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_rounded),
-              title: const Text('Choose from Gallery'),
-              onTap: () => Navigator.pop(sheetContext, _PhotoAction.gallery),
-            ),
-          ],
-        ),
-      ),
-    );
+    setState(() {
+      _isStartingSession = true;
+      _error = null;
+    });
 
-    if (!mounted || action == null) return;
-
-    setState(() => _isPickingImage = true);
     try {
-      final source = action == _PhotoAction.camera ? ImageSource.camera : ImageSource.gallery;
-      final picker = ImagePicker();
-      final XFile? picked = await picker.pickImage(
-        source: source,
-        maxWidth: 1600,
-        imageQuality: 85,
+      final response = await ApiClient.post(
+        '/api/driver/me/verification-session',
+        {},
+        token: DriverSession.instance.authToken,
       );
-      if (picked == null || !mounted) return;
+      final url = response['url'] as String;
+      if (!mounted) return;
+
+      final launched = await launchUrl(Uri.parse(url), mode: LaunchMode.inAppBrowserView);
+      if (!mounted) return;
+
+      if (!launched) {
+        setState(() {
+          _isStartingSession = false;
+          _error = 'Could not open the verification page. Please try again.';
+        });
+        return;
+      }
 
       setState(() {
-        if (isFront) {
-          _frontImage = File(picked.path);
-        } else {
-          _backImage = File(picked.path);
-        }
+        _isStartingSession = false;
+        _isPolling = true;
+        _status = 'PENDING';
       });
-    } finally {
-      if (mounted) setState(() => _isPickingImage = false);
+      _pollAttempts = 0;
+      _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _pollStatus());
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isStartingSession = false;
+        _error = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isStartingSession = false;
+        _error = 'Something went wrong starting verification. Please try again.';
+      });
     }
   }
 
-  Future<void> _handleSubmit() async {
-    if (_frontImage == null || _backImage == null || _selfieImage == null) return;
-
-    setState(() => _isSubmitting = true);
+  Future<void> _pollStatus() async {
+    _pollAttempts++;
+    if (_pollAttempts > _maxPollAttempts) {
+      _pollTimer?.cancel();
+      if (mounted) setState(() => _isPolling = false);
+      return;
+    }
 
     try {
-      final response = await ApiClient.uploadFiles(
-        '/api/driver/me/license-photo',
-        files: {
-          'licenseFront': _frontImage!.path,
-          'licenseBack': _backImage!.path,
-          'selfie': _selfieImage!.path,
-        },
+      final response = await ApiClient.get(
+        '/api/driver/me',
         token: DriverSession.instance.authToken,
       );
-
-      if (!mounted) return;
       final driver = response['driver'] as Map<String, dynamic>;
       final newStatus = driver['licenseVerificationStatus'] as String?;
+      if (newStatus == 'PENDING') return; // Still waiting on Didit's webhook.
+
+      _pollTimer?.cancel();
+      if (!mounted) return;
       setState(() {
-        _isSubmitting = false;
-        _frontImage = null;
-        _backImage = null;
-        _selfieImage = null;
+        _isPolling = false;
         _status = newStatus;
         _licenseNumber = driver['licenseNumber'] as String?;
       });
-
-      // A clean pass on all three (ID authenticity, liveness, face-match)
-      // auto-approves on the spot — see POST /me/license-photo — so this
-      // dialog reflects whichever actually happened instead of always
-      // claiming "an admin will review them".
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(newStatus == 'APPROVED' ? 'Verified' : 'Submitted'),
-          content: Text(
-            newStatus == 'APPROVED'
-                ? "Your license and selfie were verified automatically. You're all set."
-                : "Your license photos and selfie have been submitted. An admin will review them and verify your license number.",
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.w800)),
-            ),
-          ],
-        ),
-      );
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      // A single failed poll isn't fatal — the next tick just tries again.
     }
   }
 
@@ -201,7 +172,7 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
       case 'PENDING':
         bg = const Color(0xFFFFF4CC);
         fg = const Color(0xFF92600A);
-        label = 'Waiting for admin review';
+        label = _isPolling ? 'Verifying…' : 'Waiting for admin review';
         break;
       case 'APPROVED':
         bg = const Color(0xFFDDF7E3);
@@ -211,12 +182,12 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
       case 'REJECTED':
         bg = const Color(0xFFFDE2E2);
         fg = const Color(0xFFB91C1C);
-        label = 'Rejected — please submit clearer photos';
+        label = 'Rejected — please try again';
         break;
       default:
         bg = const Color(0xFFF2F2F3);
         fg = Colors.black54;
-        label = 'Not submitted yet';
+        label = 'Not verified yet';
     }
 
     return Container(
@@ -232,6 +203,8 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isBusy = _isStartingSession || _isPolling;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -253,90 +226,39 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
             ),
             const SizedBox(height: 16),
             _statusBadge(),
-            const SizedBox(height: 20),
-            // Once a submission is pending review or already verified,
-            // there's nothing left to upload — hide the picker/submit
-            // entirely rather than letting a driver keep re-submitting on
-            // top of one an admin hasn't looked at yet. A rejection
-            // reopens it so they can try again.
-            if (_canSubmit) ...[
-              _LicensePhotoTile(
-                label: 'Front of License',
-                file: _frontImage,
-                disabled: _isPickingImage,
-                onTap: () => _pickImage(isFront: true),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE23F3F)),
+                ),
               ),
-              const SizedBox(height: 12),
-              _LicensePhotoTile(
-                label: 'Back of License',
-                file: _backImage,
-                disabled: _isPickingImage,
-                onTap: () => _pickImage(isFront: false),
-              ),
+            // Once verification is pending review or already approved,
+            // there's nothing left to start — hide the button entirely
+            // rather than letting a driver keep re-starting on top of one
+            // an admin hasn't looked at yet. A rejection reopens it so
+            // they can try again.
+            if (_canStart) ...[
               const SizedBox(height: 20),
-              const Text(
-                'Selfie',
-                style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black, fontSize: 13),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Confirms it\'s really you holding this license.',
-                style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black38, fontSize: 11),
-              ),
-              const SizedBox(height: 10),
-              Center(
-                child: SelfieCaptureField(
-                  key: _selfieKey,
-                  width: 180,
-                  height: 220,
-                  onChanged: (file) => setState(() => _selfieImage = file),
-                ),
-              ),
-              if (_selfieImage == null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Center(
-                    child: TextButton.icon(
-                      onPressed: () => _selfieKey.currentState?.capture(),
-                      icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                      label: const Text('Take Selfie'),
-                      style: TextButton.styleFrom(foregroundColor: AppColors.logoBlue),
-                    ),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Center(
-                    child: TextButton.icon(
-                      onPressed: () => _selfieKey.currentState?.retake(),
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text('Retake Selfie'),
-                      style: TextButton.styleFrom(foregroundColor: AppColors.logoBlue),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: (_frontImage == null || _backImage == null || _selfieImage == null || _isSubmitting)
-                      ? null
-                      : _handleSubmit,
+                  onPressed: isBusy ? null : _startVerification,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
-                  child: _isSubmitting
+                  child: isBusy
                       ? const SizedBox(
                           width: 22,
                           height: 22,
                           child: CircularProgressIndicator(color: AppColors.onPrimary, strokeWidth: 2.5),
                         )
                       : const Text(
-                          'Submit',
+                          'Verify License',
                           style: TextStyle(color: AppColors.onPrimary, fontWeight: FontWeight.w800, fontSize: 16),
                         ),
                 ),
@@ -344,58 +266,6 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _LicensePhotoTile extends StatelessWidget {
-  const _LicensePhotoTile({
-    required this.label,
-    required this.file,
-    required this.onTap,
-    this.disabled = false,
-  });
-
-  final String label;
-  final File? file;
-  final bool disabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasImage = file != null;
-
-    return GestureDetector(
-      onTap: disabled ? null : onTap,
-      child: Container(
-        width: double.infinity,
-        height: 160,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F2F3),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: hasImage ? AppColors.primary : const Color(0xFFE6E6E7)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: hasImage
-            ? Image.file(file!, fit: BoxFit.cover)
-            : Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.add_a_photo_outlined, size: 30, color: AppColors.secondary),
-                    const SizedBox(height: 8),
-                    Text(
-                      label,
-                      style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.black54, fontSize: 13),
-                    ),
-                    const Text(
-                      'Tap to upload or take a photo',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black38, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
       ),
     );
   }

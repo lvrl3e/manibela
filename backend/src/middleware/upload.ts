@@ -50,12 +50,47 @@ export const uploadPhoto = multer({
   fileFilter: imageFileFilter,
 }).single('photo');
 
+/** Front + back of a government ID, uploaded together during sign-up. */
+export const uploadIdPhotos = multer({
+  storage,
+  limits: IMAGE_LIMITS,
+  fileFilter: imageFileFilter,
+}).fields([
+  { name: 'front', maxCount: 1 },
+  { name: 'back', maxCount: 1 },
+]);
+
+/** The identity-verification selfie captured at the end of sign-up. */
+export const uploadSelfie = multer({
+  storage,
+  limits: IMAGE_LIMITS,
+  fileFilter: imageFileFilter,
+}).single('selfie');
+
 /** Optional photo evidence attached to a complaint. */
 export const uploadComplaintAttachment = multer({
   storage,
   limits: IMAGE_LIMITS,
   fileFilter: imageFileFilter,
 }).single('attachment');
+
+/** Front/back of a driver's license, plus a selfie — submitted together
+ * by the driver themselves (see POST /api/driver/me/license-photo,
+ * which requires all three). The selfie exists so Didit can face-match
+ * the driver against their own license photo, not just check the
+ * license is a real document — see lib/didit.ts. Each field is
+ * independently optional at the multer level (a holdover from when an
+ * admin could patch a single side); the route handler is what actually
+ * requires all three together. */
+export const uploadLicensePhotos = multer({
+  storage,
+  limits: IMAGE_LIMITS,
+  fileFilter: imageFileFilter,
+}).fields([
+  { name: 'licenseFront', maxCount: 1 },
+  { name: 'licenseBack', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 },
+]);
 
 /** Deletes a previously-uploaded photo from Cloudinary, keyed by its
  * stored secure_url — silently no-ops if it's missing or wasn't a

@@ -12,10 +12,10 @@ import { signAuthToken } from '../utils/jwt';
 import { issueOtp, verifyOtp } from '../utils/otp';
 import { formatDateOnly } from '../utils/date';
 import { requireAuth } from '../middleware/auth';
-import { uploadPhoto, deleteUploadedPhoto, uploadBufferToCloudinary } from '../middleware/upload';
+import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto, uploadBufferToCloudinary } from '../middleware/upload';
 import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
-import { createVerificationSession } from '../lib/didit';
+import { runAutoVerification } from '../lib/didit';
 
 const router = Router();
 
@@ -457,41 +457,85 @@ router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
   });
 });
 
-// Driver-initiated license verification — Settings -> License Number ->
-// Verify License (see TODO.md). Verification happens on Didit's own
-// hosted page (ID authenticity + liveness + face-match, all captured
-// there — see lib/didit.ts), not through an upload here; this just
-// starts that session. The actual outcome is applied by the webhook
-// (POST /api/webhooks/didit) once Didit finishes, which is why this
-// endpoint only sets licenseVerificationStatus to PENDING rather than
-// deciding APPROVED/REJECTED itself.
-router.post('/me/verification-session', requireAuth('driver'), async (req, res, next) => {
-  try {
-    const driver = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
-    if (!driver) {
-      res.status(404).json({ error: 'Account not found.' });
+// Driver-submitted license photos + selfie — Settings -> License Number
+// -> upload or take photos -> submit (see TODO.md). Reuses the same
+// uploadLicensePhotos middleware the (now-removed) admin-side upload used
+// — all three are required here, unlike that old endpoint where either
+// license side alone was accepted. The selfie exists so Didit can
+// face-match the driver against their own license photo (see
+// lib/didit.ts), not just check the license is a real document.
+//
+// A clean pass on all three Didit checks auto-approves on the spot; an
+// admin only needs to type in the license number when Didit approved it
+// (or when Didit isn't configured / came back inconclusive, exactly as
+// before this integration existed) — either way licenseVerificationStatus
+// always reflects the true state, and autoVerificationNote explains why.
+router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
+  uploadLicensePhotos(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
       return;
     }
 
-    const session = await createVerificationSession(driver.id);
-    if (!session) {
-      res.status(503).json({ error: 'Verification is not available right now. Please try again later.' });
-      return;
+    try {
+      const files = req.files as
+        | {
+            licenseFront?: Express.Multer.File[];
+            licenseBack?: Express.Multer.File[];
+            selfie?: Express.Multer.File[];
+          }
+        | undefined;
+      const front = files?.licenseFront?.[0];
+      const back = files?.licenseBack?.[0];
+      const selfie = files?.selfie?.[0];
+      if (!front || !back || !selfie) {
+        res.status(400).json({ error: 'Please provide the front and back of your license, plus a selfie.' });
+        return;
+      }
+
+      const existing = await prisma.driver.findUnique({ where: { id: req.auth!.sub } });
+      if (!existing) {
+        res.status(404).json({ error: 'Account not found.' });
+        return;
+      }
+
+      const [licenseFrontUrl, licenseBackUrl, selfieUrl] = await Promise.all([
+        uploadBufferToCloudinary(front.buffer, 'license-photos'),
+        uploadBufferToCloudinary(back.buffer, 'license-photos'),
+        uploadBufferToCloudinary(selfie.buffer, 'driver-selfies'),
+      ]);
+
+      const autoVerification = await runAutoVerification(front.buffer, back.buffer, selfie.buffer);
+
+      const driver = await prisma.driver.update({
+        where: { id: existing.id },
+        data: {
+          licenseFrontUrl,
+          licenseBackUrl,
+          selfieUrl,
+          licenseVerificationStatus: autoVerification.approved ? 'APPROVED' : 'PENDING',
+          autoVerificationNote: autoVerification.note,
+        },
+      });
+
+      deleteUploadedPhoto(existing.licenseFrontUrl);
+      deleteUploadedPhoto(existing.licenseBackUrl);
+      deleteUploadedPhoto(existing.selfieUrl);
+
+      if (!autoVerification.approved) {
+        await notifyAdmin({
+          title: 'Driver license submitted',
+          message: `${driver.fullName} (${driver.driverId}) submitted license photos for review.`,
+          type: 'LICENSE_SUBMITTED',
+          referenceId: driver.id,
+        });
+      }
+
+      res.json({ driver: toPublicDriver(driver) });
+    } catch (err2) {
+      next(err2);
     }
-
-    await prisma.driver.update({
-      where: { id: driver.id },
-      data: {
-        diditSessionId: session.sessionId,
-        licenseVerificationStatus: 'PENDING',
-        autoVerificationNote: null,
-      },
-    });
-
-    res.json({ url: session.url });
-  } catch (err) {
-    next(err);
-  }
+  });
 });
 
 const changePasswordSchema = z.object({

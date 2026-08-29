@@ -21,7 +21,6 @@ interface DriverDetail {
   licenseNumber: string | null;
   licenseVerificationStatus: VerificationStatus;
   autoVerificationNote: string | null;
-  diditSessionId: string | null;
   qrToken: string | null;
   isActive: boolean;
   reportCount: number;
@@ -539,11 +538,13 @@ export function DriverDetailPanel({
 
             <div>
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">License Verification</h3>
-                <VerificationBadge
-                  status={driver.licenseVerificationStatus}
-                  notSubmitted={!driver.licenseFrontUrl && !driver.diditSessionId}
-                />
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">License Photos</h3>
+                <VerificationBadge status={driver.licenseVerificationStatus} notSubmitted={!driver.licenseFrontUrl} />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-3">
+                <LicensePhotoView label="License Front" url={driver.licenseFrontUrl} />
+                <LicensePhotoView label="License Back" url={driver.licenseBackUrl} />
+                <LicensePhotoView label="Driver Selfie" url={driver.selfieUrl} />
               </div>
               {driver.autoVerificationNote && (
                 <p className="mt-2 text-xs text-gray-500">
@@ -551,32 +552,8 @@ export function DriverDetailPanel({
                   {driver.autoVerificationNote}
                 </p>
               )}
-              {driver.diditSessionId ? (
-                // Verified through Didit's hosted page — we never receive
-                // or store the license/selfie photos ourselves, so
-                // there's nothing to show here beyond the note above.
-                <p className="mt-2 text-xs text-gray-500">
-                  Session <span className="font-mono">{driver.diditSessionId}</span> —{' '}
-                  <a
-                    href="https://business.didit.me/verifications"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-semibold text-brand-blue hover:underline"
-                  >
-                    review in Didit →
-                  </a>
-                </p>
-              ) : (
-                (driver.licenseFrontUrl || driver.licenseBackUrl || driver.selfieUrl) && (
-                  <div className="mt-2 grid grid-cols-3 gap-3">
-                    <LicensePhotoView label="License Front" url={driver.licenseFrontUrl} />
-                    <LicensePhotoView label="License Back" url={driver.licenseBackUrl} />
-                    <LicensePhotoView label="Driver Selfie" url={driver.selfieUrl} />
-                  </div>
-                )
-              )}
 
-              {(driver.licenseFrontUrl || driver.diditSessionId) && (
+              {driver.licenseFrontUrl && (
                 <div className="mt-3">
                   <p className="mb-1.5 text-xs font-semibold text-gray-600">License Number</p>
                   <div className="flex gap-1.5">

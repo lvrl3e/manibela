@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/utils/date_only.dart';
-import 'commuter_identity_verification_screen.dart';
+import 'commuter_verification_screen.dart';
 
 /// Verifies the mobile number entered during commuter sign up. No account
 /// exists yet at this point — [fullName]/[mobileNumber]/[password] are
@@ -115,7 +115,7 @@ class _CommuterOtpVerificationScreenState extends State<CommuterOtpVerificationS
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => CommuterIdentityVerificationScreen(
+          builder: (_) => CommuterVerificationScreen(
             signupTicket: ticket,
           ),
         ),

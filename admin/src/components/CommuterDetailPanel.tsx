@@ -19,7 +19,6 @@ interface CommuterDetail {
   selfieUrl: string | null;
   verificationStatus: VerificationStatus;
   autoVerificationNote: string | null;
-  diditSessionId: string | null;
   isActive: boolean;
   totalSignals: number;
   createdAt: string;
@@ -275,8 +274,8 @@ export function CommuterDetailPanel({
 
             <div>
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">ID Verification</h3>
-                {(commuter.idFrontUrl || commuter.diditSessionId) && (
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">KYC Documents</h3>
+                {commuter.idFrontUrl && (
                   <div className="flex gap-1.5">
                     <button
                       onClick={() => handleVerify('REJECTED')}
@@ -302,31 +301,11 @@ export function CommuterDetailPanel({
                   {commuter.autoVerificationNote}
                 </p>
               )}
-              {commuter.diditSessionId ? (
-                // Verified through Didit's hosted page — we never receive
-                // or store the photos ourselves, so there's nothing to
-                // show here beyond the note above. The actual ID/selfie
-                // images live in Didit's own dashboard.
-                <p className="mt-2 text-xs text-gray-500">
-                  Session <span className="font-mono">{commuter.diditSessionId}</span> —{' '}
-                  <a
-                    href="https://business.didit.me/verifications"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-semibold text-brand-blue hover:underline"
-                  >
-                    review in Didit →
-                  </a>
-                </p>
-              ) : (
-                (commuter.idFrontUrl || commuter.idBackUrl || commuter.selfieUrl) && (
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    <PhotoTile label="ID Front" url={commuter.idFrontUrl} />
-                    <PhotoTile label="ID Back" url={commuter.idBackUrl} />
-                    <PhotoTile label="Selfie" url={commuter.selfieUrl} />
-                  </div>
-                )
-              )}
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <PhotoTile label="ID Front" url={commuter.idFrontUrl} />
+                <PhotoTile label="ID Back" url={commuter.idBackUrl} />
+                <PhotoTile label="Selfie" url={commuter.selfieUrl} />
+              </div>
             </div>
 
             <CommuterRideHistorySection commuterId={commuter.id} compact />

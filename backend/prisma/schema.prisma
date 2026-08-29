@@ -58,34 +58,29 @@ model Commuter {
   /// number was actually confirmed.
   phoneVerifiedAt DateTime?
 
-  /// Legacy from the standalone-capture flow — no longer written by new
-  /// signups (verification now happens on Didit's own hosted page, which
-  /// stores these images on their side, not ours). Kept for any account
-  /// that signed up before this changed.
+  /// Carried over from PendingCommuterSignup at signup redemption — the
+  /// government ID type/photos and selfie captured during onboarding.
+  /// Stored for the account's lifetime as the KYC record. verificationStatus
+  /// can now be set automatically at signup by Didit (ID authenticity +
+  /// liveness + face-match against [selfieUrl]) — see [autoVerificationNote]
+  /// and POST /signup.
   idType          String?
   idFrontUrl      String?
   idBackUrl       String?
   selfieUrl       String?
 
-  /// Copied from PendingCommuterSignup.diditSessionId at signup
-  /// redemption — lets an admin jump straight to this specific session in
-  /// Didit's own "User Verifications" dashboard to review the actual
-  /// photos for anything not auto-approved (we never receive or store
-  /// them ourselves in this flow).
-  diditSessionId String?
-
   /// Didit's own explanation for why verificationStatus ended up where it
   /// did at signup (e.g. "ID valid; liveness passed; face match confirmed"
   /// or "Face match inconclusive") — for the admin's benefit in the review
   /// queue, not shown to the commuter. Null if Didit wasn't configured
-  /// when this account signed up.
+  /// (DIDIT_API_KEY unset) when this account signed up, same as any
+  /// pre-Didit account.
   autoVerificationNote String?
 
-  /// Null until a Didit verification session was started (nothing to
-  /// review yet); set to PENDING or APPROVED the moment /signup redeems
-  /// a ticket that has a resolved diditDecision — either immediately
-  /// APPROVED by Didit's automated check or left PENDING for an admin to
-  /// decide via POST /api/admin/commuters/:id/verify — see
+  /// Null until ID/selfie is submitted (nothing to review yet); set to
+  /// PENDING the moment /signup redeems a ticket that has them, then
+  /// either immediately APPROVED by Didit's automated check or left for
+  /// an admin to decide via POST /api/admin/commuters/:id/verify — see
   /// [autoVerificationNote] for which happened and why.
   verificationStatus IdVerificationStatus?
 
@@ -112,10 +107,14 @@ model Driver {
   dateOfBirth   DateTime? @db.Date
   photoUrl      String?
 
-  /// Legacy from the standalone-capture flow — no longer written by new
-  /// submissions (verification now happens on Didit's own hosted page,
-  /// which stores these images on their side, not ours). Kept for any
-  /// driver who submitted before this changed.
+  /// Front + back of this driver's license, plus a selfie — all three
+  /// submitted together by the driver themselves (Settings -> License
+  /// Number -> upload/take photos -> submit; see POST
+  /// /api/driver/me/license-photo, which requires all three). Null until
+  /// submitted. There's no admin-side photo upload anymore — uploading is
+  /// the driver's own job now. [selfieUrl] exists specifically so Didit
+  /// can face-match the driver against their own license photo, not just
+  /// check the license is a real document — see [autoVerificationNote].
   licenseFrontUrl String?
   licenseBackUrl  String?
   selfieUrl       String?
@@ -123,31 +122,20 @@ model Driver {
   /// The license number on file. Set one of two ways, both admin-only,
   /// via PATCH /api/admin/drivers/:id/license-number: recorded directly
   /// (e.g. at Add Driver, or a later correction — no photo required), or
-  /// typed in after reviewing a submission alongside approving/rejecting
-  /// it. Never auto-detected/OCR'd either way.
+  /// typed in after reviewing a submitted photo alongside approving/
+  /// rejecting it. Never auto-detected/OCR'd either way.
   licenseNumber String?
-
-  /// Set by POST /driver/me/verification-session once this driver
-  /// requests a Didit hosted-verification session. vendor_data on that
-  /// session is this driver's id, so the webhook (POST
-  /// /api/webhooks/didit) can update this row directly once Didit
-  /// finishes — also lets an admin jump straight to this session in
-  /// Didit's own "User Verifications" dashboard for anything not
-  /// auto-approved (we never receive or store the photos ourselves in
-  /// this flow).
-  diditSessionId String?
 
   /// Didit's own explanation for why licenseVerificationStatus ended up
   /// where it did (e.g. "License valid; liveness passed; face match
   /// confirmed" or "Face match inconclusive") — for the admin's benefit,
-  /// not shown to the driver. Null if Didit wasn't configured at
-  /// submission time.
+  /// not shown to the driver. Null if Didit wasn't configured
+  /// (DIDIT_API_KEY unset) at submission time.
   autoVerificationNote String?
 
-  /// PENDING once the driver starts a Didit verification session (see
-  /// diditSessionId); either immediately APPROVED once the webhook
-  /// reports a clean pass (license authenticity + liveness + face-match,
-  /// all captured on Didit's own hosted page) or left for an admin to
+  /// PENDING once the driver submits license photos + selfie; either
+  /// immediately APPROVED by Didit's automated check (ID authenticity +
+  /// liveness + face-match against [selfieUrl]) or left for an admin to
   /// decide via PATCH /api/admin/drivers/:id/license-number — see
   /// [autoVerificationNote] for which happened and why. Null means
   /// nothing has been submitted yet — a distinct state from "waiting on
@@ -445,26 +433,14 @@ model PendingCommuterSignup {
   /// app always sends it going forward.
   dateOfBirth  DateTime? @db.Date
 
-  /// Legacy from the standalone-capture flow — no longer written by new
-  /// signups (verification now happens on Didit's own hosted page, see
-  /// diditSessionId below), kept only so nothing breaks for any ticket
-  /// already mid-flow when this changed.
+  /// Filled in by POST /signup/:ticket/id-photos and
+  /// /signup/:ticket/selfie as the app moves through those screens —
+  /// null until then. Copied onto the Commuter row once /signup redeems
+  /// this ticket.
   idType       String?
   idFrontUrl   String?
   idBackUrl    String?
   selfieUrl    String?
-
-  /// Set by POST /signup/:ticket/verification-session once the app
-  /// requests a Didit hosted-verification session for this ticket.
-  /// vendor_data on that session is this ticket, so the webhook
-  /// (POST /api/webhooks/didit) can find its way back to this row.
-  diditSessionId String?
-
-  /// Set by the webhook once Didit finishes — 'approved' or
-  /// 'inconclusive'. Null means still waiting (or no session was ever
-  /// created). POST /signup reads this to decide the new Commuter's
-  /// verificationStatus instead of running any check itself.
-  diditDecision  String?
 
   expiresAt    DateTime
   createdAt    DateTime @default(now())

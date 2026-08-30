@@ -17,6 +17,7 @@
     "seed": "ts-node prisma/seed.ts",
     "seed:demo": "ts-node prisma/seedDemoData.ts",
     "create-driver": "ts-node scripts/create-driver.ts",
+    "create-commuter": "ts-node scripts/create-commuter.ts",
     "create-admin": "ts-node scripts/create-admin.ts"
   },
   "dependencies": {

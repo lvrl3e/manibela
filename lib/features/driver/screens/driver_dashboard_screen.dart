@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/map_config.dart';
+import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
@@ -1549,6 +1550,17 @@ class _DriverLiveMap extends StatelessWidget {
                   ),
                 ],
               ),
+            PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: RoutePath.pasigToQuiapo,
+                  strokeWidth: 4,
+                  color: AppColors.primary,
+                  borderStrokeWidth: 2,
+                  borderColor: AppColors.onPrimary,
+                ),
+              ],
+            ),
             MarkerLayer(
               markers: [
                 Marker(

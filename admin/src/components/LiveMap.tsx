@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvent } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvent } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatManilaDateTime } from '../lib/formatDate';
 import { mapTileUrl, mapAttribution } from '../lib/mapConfig';
+import { PASIG_QUIAPO_ROUTE } from '../lib/routePath';
 
 export interface JeepneyMarker {
   id: string;
@@ -285,6 +286,13 @@ export function LiveMap({
   return (
     <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
       <TileLayer url={mapTileUrl} attribution={mapAttribution} />
+      {/* Casing underneath the fill line — Leaflet has no built-in
+          border/casing option on Polyline (unlike flutter_map's Polyline,
+          which the same route line uses on the Flutter side), so it's two
+          stacked polylines instead: a wider dark-amber one first, then a
+          narrower brand-yellow one on top. */}
+      <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#92600A', weight: 6, opacity: 1 }} />
+      <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#EAB308', weight: 4, opacity: 1 }} />
       <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
       {/* Only listens while a selection is actually active — otherwise an
           admin who's freely panned/zoomed the map themselves would get

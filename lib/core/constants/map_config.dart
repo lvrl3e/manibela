@@ -14,14 +14,22 @@ class MapConfig {
   /// by keeping it secret.
   static const String _accessToken = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
 
-  /// ManibelaApp's own custom style (brand yellow for motorway/trunk
-  /// roads, brand blue for primary roads, warm neutral ground) — built
-  /// from the Mapbox Streets base via the Styles API. Overridable via
+  /// ManibelaApp's own custom style — a warm neutral ground and one
+  /// consistent dark label color instead of Mapbox Streets' defaults,
+  /// but plain white/grey roads deliberately, not brand-colored: the
+  /// route line drawn on top of the map (see RoutePath) is meant to be
+  /// the only thing that reads as "highlighted", and colored roads
+  /// underneath it competed with that. Built from the Mapbox Streets
+  /// base via the Styles API. Overridable via
   /// `--dart-define=MAPBOX_STYLE_ID=...` for testing a different style
-  /// without a code change.
+  /// without a code change. Republished under a fresh style ID rather
+  /// than edited in place once before — Mapbox's CDN caches rendered
+  /// tiles per exact style-id+coordinate for up to 2 hours regardless of
+  /// later edits to that same style, so a new ID was the only way to
+  /// make an already-viewed area reflect a style change immediately.
   static const String _styleId = String.fromEnvironment(
     'MAPBOX_STYLE_ID',
-    defaultValue: 'lvrl3e/cmtfwislf000701ss6xnkbzdw',
+    defaultValue: 'lvrl3e/cmtfxoegm004q01sq2vxag5t5',
   );
 
   /// Mapbox's Raster Tiles API — a drop-in {z}/{x}/{y} URL template, same

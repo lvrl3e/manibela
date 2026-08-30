@@ -7,7 +7,7 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
 // ManibelaApp's own custom style — see lib/core/constants/map_config.dart
 // in the Flutter app for the full explanation; both platforms point at
 // the same Mapbox style so the map looks identical everywhere.
-const MAPBOX_STYLE_ID = import.meta.env.VITE_MAPBOX_STYLE_ID ?? 'lvrl3e/cmtfwislf000701ss6xnkbzdw';
+const MAPBOX_STYLE_ID = import.meta.env.VITE_MAPBOX_STYLE_ID ?? 'lvrl3e/cmtfxoegm004q01sq2vxag5t5';
 
 export const mapTileUrl = `https://api.mapbox.com/styles/v1/${MAPBOX_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
 

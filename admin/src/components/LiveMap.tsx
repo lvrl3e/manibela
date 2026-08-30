@@ -283,17 +283,29 @@ export function LiveMap({
     ...demandSignals.map((d): [number, number] => [d.lat, d.lng]),
   ];
 
+  // Off by default — the legend below doubles as the toggle. Only one
+  // route exists today, but this is deliberately shaped as "a route is
+  // either shown or not" rather than "the route is always on", so adding
+  // more routes later is a matter of adding more legend entries/booleans
+  // next to this one, not rethinking how visibility works.
+  const [showRoute, setShowRoute] = useState(false);
+
   return (
     <div style={{ position: 'relative', height: '100%', width: '100%' }}>
       <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
         <TileLayer url={mapTileUrl} attribution={mapAttribution} />
-        {/* Casing underneath the fill line — Leaflet has no built-in
-            border/casing option on Polyline (unlike flutter_map's Polyline,
-            which the same route line uses on the Flutter side), so it's two
-            stacked polylines instead: a wider dark-amber one first, then a
-            narrower brand-yellow one on top. */}
-        <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#92600A', weight: 6, opacity: 1 }} />
-        <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#EAB308', weight: 4, opacity: 1 }} />
+        {showRoute && (
+          <>
+            {/* Casing underneath the fill line — Leaflet has no built-in
+                border/casing option on Polyline (unlike flutter_map's
+                Polyline, which the same route line uses on the Flutter
+                side), so it's two stacked polylines instead: a wider
+                dark-amber one first, then a narrower brand-yellow one on
+                top. */}
+            <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#92600A', weight: 6, opacity: 1 }} />
+            <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#EAB308', weight: 4, opacity: 1 }} />
+          </>
+        )}
         <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
         {/* Only listens while a selection is actually active — otherwise an
             admin who's freely panned/zoomed the map themselves would get
@@ -311,17 +323,20 @@ export function LiveMap({
         ))}
         <FlyToTarget target={focusPosition} />
       </MapContainer>
-      {/* Explains the yellow line drawn above — without this, "what's the
-          yellow line?" is a reasonable question with no answer on the map
-          itself. Bottom-left: stays clear of Leaflet's own zoom control
-          (top-left) and attribution text (bottom-right). */}
-      <div
+      {/* Doubles as both the legend (explains what the yellow line means)
+          and the toggle that shows/hides it — off by default, since a
+          route line drawn over live jeepney markers is clutter until an
+          admin actually asks for it. */}
+      <button
+        type="button"
+        onClick={() => setShowRoute((v) => !v)}
         style={{
           position: 'absolute',
           left: 12,
           bottom: 12,
           zIndex: 1000,
-          background: 'rgba(255,255,255,0.92)',
+          background: showRoute ? 'rgba(255,251,235,0.95)' : 'rgba(255,255,255,0.92)',
+          border: showRoute ? '1px solid #EAB308' : '1px solid transparent',
           borderRadius: 8,
           padding: '6px 10px',
           boxShadow: '0 1px 4px rgba(16,24,40,0.15)',
@@ -331,11 +346,21 @@ export function LiveMap({
           fontSize: 12,
           fontWeight: 600,
           color: '#374151',
+          cursor: 'pointer',
         }}
       >
-        <span style={{ display: 'inline-block', width: 20, height: 4, borderRadius: 2, background: '#EAB308', border: '1px solid #92600A' }} />
+        <span
+          style={{
+            display: 'inline-block',
+            width: 20,
+            height: 4,
+            borderRadius: 2,
+            background: showRoute ? '#EAB308' : '#D1D5DB',
+            border: `1px solid ${showRoute ? '#92600A' : '#9CA3AF'}`,
+          }}
+        />
         Pasig ↔ Quiapo route
-      </div>
+      </button>
     </div>
   );
 }

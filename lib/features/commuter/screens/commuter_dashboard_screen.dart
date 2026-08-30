@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/map_config.dart';
-import '../../../core/constants/route_path.dart';
 import '../../../core/constants/app_assets.dart';
 import '../../../core/utils/location_settings.dart';
 import 'jeepney_booking_flow_screen.dart';
@@ -824,17 +823,6 @@ class _LiveMap extends StatelessWidget {
                 TextSourceAttribution(
                   MapConfig.attribution,
                   onTap: () {},
-                ),
-              ],
-            ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: RoutePath.pasigToQuiapo,
-                  strokeWidth: 4,
-                  color: AppColors.primary,
-                  borderStrokeWidth: 2,
-                  borderColor: AppColors.onPrimary,
                 ),
               ],
             ),

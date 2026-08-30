@@ -26,6 +26,7 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
   String? _licenseNumber;
   File? _frontImage;
   File? _backImage;
+  File? _selfieImage;
   bool _isLoadingStatus = true;
   bool _isPickingImage = false;
   bool _isSubmitting = false;
@@ -44,7 +45,7 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
       case 'REJECTED':
         return 'Your submission was rejected. Submit clearer photos of the front and back of your license.';
       default:
-        return 'Submit clear photos of the front and back of your driver\'s license. An admin will review them and verify your license number.';
+        return 'Submit clear photos of the front and back of your driver\'s license, plus a selfie — a match against your license photo may verify you instantly, otherwise an admin will review it.';
     }
   }
 
@@ -104,37 +105,63 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
     }
   }
 
+  Future<void> _pickSelfie() async {
+    if (_isPickingImage) return;
+
+    setState(() => _isPickingImage = true);
+    try {
+      final File? picked = await InAppCameraCapture.capture(
+        context,
+        lensDirection: CameraLensDirection.front,
+        guideShape: CaptureGuideShape.oval,
+        instruction: 'Position your face within the frame',
+      );
+      if (picked == null || !mounted) return;
+
+      setState(() => _selfieImage = picked);
+    } finally {
+      if (mounted) setState(() => _isPickingImage = false);
+    }
+  }
+
   Future<void> _handleSubmit() async {
-    if (_frontImage == null || _backImage == null) return;
+    if (_frontImage == null || _backImage == null || _selfieImage == null) return;
 
     setState(() => _isSubmitting = true);
 
     try {
-      await ApiClient.uploadFiles(
+      final response = await ApiClient.uploadFiles(
         '/api/driver/me/license-photo',
         files: {
           'licenseFront': _frontImage!.path,
           'licenseBack': _backImage!.path,
+          'selfie': _selfieImage!.path,
         },
         token: DriverSession.instance.authToken,
       );
 
       if (!mounted) return;
+      final driver = response['driver'] as Map<String, dynamic>;
+      final newStatus = driver['licenseVerificationStatus'] as String?;
       setState(() {
         _isSubmitting = false;
         _frontImage = null;
         _backImage = null;
-        _status = 'PENDING';
-        _licenseNumber = null;
+        _selfieImage = null;
+        _status = newStatus;
+        _licenseNumber = driver['licenseNumber'] as String?;
       });
 
+      final autoCleared = newStatus == 'APPROVED';
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Submitted'),
-          content: const Text(
-            "Your license photos have been submitted. An admin will review them and verify your license number.",
+          title: Text(autoCleared ? "You're Verified!" : 'Submitted'),
+          content: Text(
+            autoCleared
+                ? 'Your selfie matched your license photo — your license is verified, no review needed.'
+                : "Your license photos have been submitted. An admin will review them and verify your license number.",
           ),
           actions: [
             TextButton(
@@ -233,12 +260,20 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
                 disabled: _isPickingImage,
                 onTap: () => _pickImage(isFront: false),
               ),
+              const SizedBox(height: 20),
+              Center(
+                child: _SelfieTile(
+                  file: _selfieImage,
+                  disabled: _isPickingImage,
+                  onTap: _pickSelfie,
+                ),
+              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: (_frontImage == null || _backImage == null || _isSubmitting)
+                  onPressed: (_frontImage == null || _backImage == null || _selfieImage == null || _isSubmitting)
                       ? null
                       : _handleSubmit,
                   style: ElevatedButton.styleFrom(
@@ -311,6 +346,62 @@ class _LicensePhotoTile extends StatelessWidget {
                       Text(
                         label,
                         style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.black54, fontSize: 13),
+                      ),
+                      const Text(
+                        'Tap to take a photo',
+                        style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black38, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelfieTile extends StatelessWidget {
+  const _SelfieTile({
+    required this.file,
+    required this.onTap,
+    this.disabled = false,
+  });
+
+  final File? file;
+  final bool disabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = file != null;
+
+    return GestureDetector(
+      onTap: disabled ? null : onTap,
+      child: Container(
+        width: 160,
+        height: 200,
+        // A true ellipse via ShapeDecoration/OvalBorder — matches the
+        // same oval treatment used for the commuter/driver face frames
+        // elsewhere (BorderRadius.circular can't produce a real oval on
+        // a non-square box, only a rounded "stadium" shape).
+        decoration: ShapeDecoration(
+          color: hasImage ? AppColors.qrTileBg : const Color(0xFFF2F2F3),
+          shape: OvalBorder(
+            side: BorderSide(color: hasImage ? AppColors.primary : const Color(0xFFE6E6E7), width: hasImage ? 2 : 1),
+          ),
+        ),
+        child: ClipOval(
+          child: hasImage
+              ? Image.file(file!, fit: BoxFit.cover)
+              : Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.face_retouching_natural_rounded, size: 30, color: AppColors.secondary),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Selfie',
+                        style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black54, fontSize: 13),
                       ),
                       const Text(
                         'Tap to take a photo',

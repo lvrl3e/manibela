@@ -15,6 +15,7 @@ import { requireAuth } from '../middleware/auth';
 import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto, uploadBufferToCloudinary } from '../middleware/upload';
 import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
+import { compareFaces, fetchImageBuffer, FACE_MATCH_AUTO_CLEAR_SCORE } from '../lib/faceMatch';
 
 const router = Router();
 
@@ -456,13 +457,16 @@ router.post('/me/photo', requireAuth('driver'), (req, res, next) => {
   });
 });
 
-// Driver-submitted license photo — Settings -> License Number -> upload
-// or take photo -> submit (see TODO.md). Reuses the same
-// uploadLicensePhotos middleware the (now-removed) admin-side upload used
-// — both sides are required here, unlike that old endpoint where either
-// side alone was accepted. Sets the review status to PENDING — an admin
-// then reviews the photos and types in the license number themselves (no
-// OCR/auto-detect).
+// Driver-submitted license photo + selfie — Settings -> License Number
+// -> upload or take photo -> submit (see TODO.md re: no OCR/auto-detect
+// on the license number itself). Reuses the same uploadLicensePhotos
+// middleware the (now-removed) admin-side upload used — all three files
+// are required here, unlike that old endpoint where either license side
+// alone was accepted. A high enough faceMatchScore (selfie vs. license
+// front, same mechanism/threshold as commuter signup — see
+// lib/faceMatch.ts) auto-clears straight to APPROVED, letting the
+// driver start trips immediately with no admin involved; otherwise this
+// sets PENDING same as before, for an admin to review manually.
 router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
   uploadLicensePhotos(req, res, async (err) => {
     if (err) {
@@ -472,12 +476,13 @@ router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
 
     try {
       const files = req.files as
-        | { licenseFront?: Express.Multer.File[]; licenseBack?: Express.Multer.File[] }
+        | { licenseFront?: Express.Multer.File[]; licenseBack?: Express.Multer.File[]; selfie?: Express.Multer.File[] }
         | undefined;
       const front = files?.licenseFront?.[0];
       const back = files?.licenseBack?.[0];
-      if (!front || !back) {
-        res.status(400).json({ error: 'Please provide both the front and back of your license.' });
+      const selfie = files?.selfie?.[0];
+      if (!front || !back || !selfie) {
+        res.status(400).json({ error: 'Please provide the front and back of your license, and a selfie.' });
         return;
       }
 
@@ -487,24 +492,50 @@ router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
         return;
       }
 
-      const [licenseFrontUrl, licenseBackUrl] = await Promise.all([
+      const [licenseFrontUrl, licenseBackUrl, selfieUrl] = await Promise.all([
         uploadBufferToCloudinary(front.buffer, 'license-photos', { sensitive: true }),
         uploadBufferToCloudinary(back.buffer, 'license-photos', { sensitive: true }),
+        uploadBufferToCloudinary(selfie.buffer, 'selfies', { sensitive: true }),
       ]);
+
+      // Never blocks submission — any failure (no face found, model
+      // error, fetch failure) just degrades to a null score, which
+      // falls back to the same PENDING/manual-review path as before.
+      let faceMatchScore: number | null = null;
+      try {
+        const [selfieBuffer, licenseBuffer] = await Promise.all([
+          fetchImageBuffer(selfieUrl),
+          fetchImageBuffer(licenseFrontUrl),
+        ]);
+        faceMatchScore = await compareFaces(selfieBuffer, licenseBuffer);
+      } catch {
+        faceMatchScore = null;
+      }
+      const autoCleared = faceMatchScore !== null && faceMatchScore >= FACE_MATCH_AUTO_CLEAR_SCORE;
+
       const driver = await prisma.driver.update({
         where: { id: existing.id },
-        data: { licenseFrontUrl, licenseBackUrl, licenseVerificationStatus: 'PENDING' },
+        data: {
+          licenseFrontUrl,
+          licenseBackUrl,
+          selfieUrl,
+          faceMatchScore,
+          licenseVerificationStatus: autoCleared ? 'APPROVED' : 'PENDING',
+        },
       });
 
       deleteUploadedPhoto(existing.licenseFrontUrl);
       deleteUploadedPhoto(existing.licenseBackUrl);
+      deleteUploadedPhoto(existing.selfieUrl);
 
-      await notifyAdmin({
-        title: 'Driver license submitted',
-        message: `${driver.fullName} (${driver.driverId}) submitted license photos for review.`,
-        type: 'LICENSE_SUBMITTED',
-        referenceId: driver.id,
-      });
+      if (!autoCleared) {
+        await notifyAdmin({
+          title: 'Driver license submitted',
+          message: `${driver.fullName} (${driver.driverId}) submitted license photos for review.`,
+          type: 'LICENSE_SUBMITTED',
+          referenceId: driver.id,
+        });
+      }
 
       res.json({ driver: toPublicDriver(driver) });
     } catch (err2) {

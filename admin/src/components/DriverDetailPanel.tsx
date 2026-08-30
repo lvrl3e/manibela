@@ -5,6 +5,7 @@ import { formatManilaDate } from '../lib/formatDate';
 import { formatPhone } from '../lib/formatPhone';
 import { usePolling } from '../lib/usePolling';
 import { DriverTripHistorySection } from './DriverTripHistorySection';
+import { FaceMatchCard } from './FaceMatchCard';
 import { VerificationBadge, type VerificationStatus } from './VerificationBadge';
 
 interface DriverDetail {
@@ -17,6 +18,8 @@ interface DriverDetail {
   photoUrl: string | null;
   licenseFrontUrl: string | null;
   licenseBackUrl: string | null;
+  selfieUrl: string | null;
+  faceMatchScore: number | null;
   licenseNumber: string | null;
   licenseVerificationStatus: VerificationStatus;
   qrToken: string | null;
@@ -539,9 +542,11 @@ export function DriverDetailPanel({
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">License Photos</h3>
                 <VerificationBadge status={driver.licenseVerificationStatus} notSubmitted={!driver.licenseFrontUrl} />
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-3">
+              {driver.licenseFrontUrl && <FaceMatchCard score={driver.faceMatchScore} documentLabel="License Front" />}
+              <div className="mt-3 grid grid-cols-2 gap-3">
                 <LicensePhotoView label="License Front" url={driver.licenseFrontUrl} />
                 <LicensePhotoView label="License Back" url={driver.licenseBackUrl} />
+                <LicensePhotoView label="Selfie" url={driver.selfieUrl} />
               </div>
 
               {driver.licenseFrontUrl && (

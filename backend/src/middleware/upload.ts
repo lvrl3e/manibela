@@ -112,10 +112,12 @@ export const uploadComplaintAttachment = multer({
   fileFilter: imageFileFilter,
 }).single('attachment');
 
-/** Front/back of a driver's license — uploaded by an admin from the
- * Driver Detail Panel (drivers have no self-serve doc upload, unlike a
- * commuter's KYC docs). Either field alone is accepted, so an admin can
- * add or replace just one side without re-uploading both. */
+/** Front/back of a driver's license, plus the face-verification selfie —
+ * all submitted together by the driver themselves via POST
+ * /driver/me/license-photo. `selfie` is optional at the multer level
+ * (older clients / a driver who backs out of the selfie step can still
+ * submit just the two license photos) even though the route itself may
+ * require it. */
 export const uploadLicensePhotos = multer({
   storage,
   limits: IMAGE_LIMITS,
@@ -123,6 +125,7 @@ export const uploadLicensePhotos = multer({
 }).fields([
   { name: 'licenseFront', maxCount: 1 },
   { name: 'licenseBack', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 },
 ]);
 
 /** Deletes a previously-uploaded photo from Cloudinary, keyed by its

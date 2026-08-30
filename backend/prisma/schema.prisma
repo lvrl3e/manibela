@@ -106,24 +106,40 @@ model Driver {
   dateOfBirth   DateTime? @db.Date
   photoUrl      String?
 
-  /// Front + back of this driver's license, submitted together by the
-  /// driver themselves (Settings -> License Number -> upload/take photo
-  /// -> submit; see POST /api/driver/me/license-photo, which requires
-  /// both). Both null until submitted. There's no admin-side photo
-  /// upload anymore — uploading is the driver's own job now.
+  /// Front + back of this driver's license, plus the face-verification
+  /// selfie, all submitted together by the driver themselves (Settings
+  /// -> License Number -> upload/take photo -> submit; see POST
+  /// /api/driver/me/license-photo, which requires all three). Null
+  /// until submitted. There's no admin-side photo upload anymore —
+  /// uploading is the driver's own job now.
   licenseFrontUrl String?
   licenseBackUrl  String?
+  selfieUrl       String?
+
+  /// 0-100 similarity between [selfieUrl] and the photo on
+  /// [licenseFrontUrl], computed at submission via lib/faceMatch.ts —
+  /// same mechanism and threshold as Commuter.faceMatchScore, see its
+  /// own doc comment for the full explanation. Null means the
+  /// comparison couldn't confidently find a face in one or both photos;
+  /// treated exactly like a below-threshold score.
+  faceMatchScore  Int?
 
   /// The license number on file. Set one of two ways, both admin-only,
   /// via PATCH /api/admin/drivers/:id/license-number: recorded directly
   /// (e.g. at Add Driver, or a later correction — no photo required), or
   /// typed in after reviewing a submitted photo alongside approving/
-  /// rejecting it. Never auto-detected/OCR'd either way.
+  /// rejecting it. Never auto-detected/OCR'd either way — stays null for
+  /// a submission the face-match auto-cleared rather than an admin ever
+  /// reviewing it; an admin can still fill it in later if they want the
+  /// record complete.
   licenseNumber String?
 
-  /// PENDING once the driver submits license photos; APPROVED/REJECTED
-  /// only ever set by an admin reviewing them (PATCH /api/admin/drivers/
-  /// :id/license-number with a status), alongside [licenseNumber]. Null
+  /// PENDING once the driver submits license photos with a below-
+  /// threshold/no faceMatchScore; APPROVED immediately if the score
+  /// auto-clears it (same threshold as Commuter, see
+  /// FACE_MATCH_AUTO_CLEAR_SCORE in lib/faceMatch.ts) or otherwise by an
+  /// admin reviewing a PENDING one (PATCH /api/admin/drivers/:id/
+  /// license-number with a status), alongside [licenseNumber]. Null
   /// means nothing has been submitted yet — a distinct state from
   /// "waiting on a human", same reasoning as Commuter.verificationStatus.
   /// Gates POST /driver/trips/start — a driver can't start a trip until

@@ -569,6 +569,8 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
         photoUrl: driver.photoUrl,
         licenseFrontUrl: driver.licenseFrontUrl,
         licenseBackUrl: driver.licenseBackUrl,
+        selfieUrl: driver.selfieUrl,
+        faceMatchScore: driver.faceMatchScore,
         licenseNumber: driver.licenseNumber,
         licenseVerificationStatus: driver.licenseVerificationStatus,
         qrToken: driver.qrToken,

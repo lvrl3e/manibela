@@ -15,8 +15,8 @@ import '../../../core/services/driver_session.dart';
 /// different physical route between the same two endpoints (see
 /// RoutePath.pasigToQuiapoViaStaMesa's own doc comment).
 const List<String> kDriverRoutes = [
-  'Pasig – Quiapo',
-  'Quiapo – Pasig',
+  'Pasig – Quiapo (Shaw Blvd)',
+  'Quiapo – Pasig (Shaw Blvd)',
   'Pasig – Quiapo (Sta. Mesa)',
   'Quiapo – Pasig (Sta. Mesa)',
 ];

@@ -168,11 +168,11 @@ class RoutePath {
 
   /// Picks the path matching one of the app's four exact route strings
   /// (see kDriverRoutes in driver_start_trip_screen.dart) — anything else
-  /// (null, a future route) falls back to the original Pasig→Quiapo
-  /// corridor.
+  /// (null, a future route) falls back to the original Shaw Blvd
+  /// Pasig→Quiapo corridor.
   static List<LatLng> forRoute(String? route) {
     switch (route) {
-      case 'Quiapo – Pasig':
+      case 'Quiapo – Pasig (Shaw Blvd)':
         return quiapoToPasig;
       case 'Pasig – Quiapo (Sta. Mesa)':
         return pasigToQuiapoViaStaMesa;

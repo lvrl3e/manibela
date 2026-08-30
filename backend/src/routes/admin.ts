@@ -685,8 +685,8 @@ router.patch('/drivers/:id/license-number', requireAuth('admin'), async (req, re
 // so the filter's option list costs nothing to render even once a driver
 // has hundreds of thousands of trips on record.
 const DRIVER_ROUTES = [
-  'Pasig – Quiapo',
-  'Quiapo – Pasig',
+  'Pasig – Quiapo (Shaw Blvd)',
+  'Quiapo – Pasig (Shaw Blvd)',
   'Pasig – Quiapo (Sta. Mesa)',
   'Quiapo – Pasig (Sta. Mesa)',
 ] as const;

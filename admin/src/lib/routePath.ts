@@ -175,8 +175,8 @@ export interface RouteDefinition {
 export const ROUTES: RouteDefinition[] = [
   {
     id: 'original',
-    legendLabel: 'Pasig ↔ Quiapo',
-    directions: ['Pasig – Quiapo', 'Quiapo – Pasig'],
+    legendLabel: 'Pasig ↔ Quiapo (Shaw Blvd)',
+    directions: ['Pasig – Quiapo (Shaw Blvd)', 'Quiapo – Pasig (Shaw Blvd)'],
     path: PASIG_QUIAPO_ROUTE,
     color: '#EAB308',
     caseColor: '#92600A',

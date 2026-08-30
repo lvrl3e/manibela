@@ -757,8 +757,8 @@ router.post('/trips/:id/end', requireAuth('driver'), async (req, res, next) => {
 // comment in admin.ts for why this is hardcoded rather than a `SELECT
 // DISTINCT route` per driver.
 const DRIVER_ROUTES = [
-  'Pasig – Quiapo',
-  'Quiapo – Pasig',
+  'Pasig – Quiapo (Shaw Blvd)',
+  'Quiapo – Pasig (Shaw Blvd)',
   'Pasig – Quiapo (Sta. Mesa)',
   'Quiapo – Pasig (Sta. Mesa)',
 ] as const;

@@ -35,8 +35,8 @@ String _formatHistoryDuration(Duration d) {
 /// from whatever's been loaded so far) so the Route filter always offers
 /// both options regardless of which page of trips happens to be loaded.
 const List<String> kTripHistoryRoutes = [
-  'Pasig – Quiapo',
-  'Quiapo – Pasig',
+  'Pasig – Quiapo (Shaw Blvd)',
+  'Quiapo – Pasig (Shaw Blvd)',
   'Pasig – Quiapo (Sta. Mesa)',
   'Quiapo – Pasig (Sta. Mesa)',
 ];

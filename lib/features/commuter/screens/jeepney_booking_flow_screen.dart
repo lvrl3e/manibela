@@ -321,8 +321,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
   // (driver.ts/admin.ts) exactly, character for character, since this is
   // now sent as a literal filter to GET /api/commuter/nearby-jeepneys.
   static const _routes = [
-    'Pasig – Quiapo',
-    'Quiapo – Pasig',
+    'Pasig – Quiapo (Shaw Blvd)',
+    'Quiapo – Pasig (Shaw Blvd)',
     'Pasig – Quiapo (Sta. Mesa)',
     'Quiapo – Pasig (Sta. Mesa)',
   ];

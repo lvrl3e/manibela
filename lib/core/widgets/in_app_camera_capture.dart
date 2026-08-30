@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -326,7 +325,6 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
             guideAspectRatio: widget.guideAspectRatio,
             instruction: widget.instruction,
             isCapturing: _isCapturing,
-            isFrontCamera: widget.lensDirection == CameraLensDirection.front,
             onCapture: _handleCapture,
             awaitingLiveness: _needsLivenessGate,
           ),
@@ -406,7 +404,6 @@ class _LiveCaptureView extends StatelessWidget {
     required this.guideAspectRatio,
     required this.instruction,
     required this.isCapturing,
-    required this.isFrontCamera,
     required this.onCapture,
     required this.awaitingLiveness,
   });
@@ -416,7 +413,6 @@ class _LiveCaptureView extends StatelessWidget {
   final double guideAspectRatio;
   final String instruction;
   final bool isCapturing;
-  final bool isFrontCamera;
   final VoidCallback onCapture;
   // True only between a requireLiveness capture starting and either a
   // detected blink or the safety-valve timeout — see
@@ -430,35 +426,33 @@ class _LiveCaptureView extends StatelessWidget {
   // cropping the overflow — CameraPreview alone only ever renders at its
   // native aspect ratio (a landscape sensor ratio like 4:3 or 16:9, wrapped
   // in its own internal AspectRatio), which on a portrait phone screen
-  // leaves large empty bars above and below rather than filling it. A
-  // hand-rolled Transform.scale factor was tried first and was simply
-  // wrong — verified by hand: for a ~0.46 (portrait) screen aspect against
-  // a ~1.78 (16:9) camera aspect, that formula computed a ~1.2x scale
-  // when ~3.8x is what's actually needed to cover the screen. FittedBox
-  // with BoxFit.cover computes this correctly regardless of the specific
-  // ratios involved, so there's no formula here to get wrong.
+  // leaves large empty bars above and below rather than filling it.
+  //
+  // controller.value.aspectRatio is the RAW sensor ratio (width/height in
+  // landscape terms, e.g. ~1.78 for 16:9) — it is not yet the shape the
+  // preview should take on a portrait screen. The box FittedBox scales
+  // from has to be built with that ratio *inverted* (height = width *
+  // aspectRatio, not width / aspectRatio) so it's already portrait-shaped
+  // (tall, not wide) going in. Getting this backwards was tried first and
+  // was wrong two different ways: un-inverted with no scaling produced a
+  // wide/short box letterboxed onto a portrait screen (thin strip); the
+  // same un-inverted box run through BoxFit.cover instead required a
+  // ~3.8x scale to fill the screen, cropping away most of the width
+  // (looked "zoomed in"). Inverted, cover only needs a modest ~1.2x scale
+  // — the same crop amount a real camera app's viewfinder uses.
   Widget _scaledPreview() {
-    final preview = FittedBox(
-      fit: BoxFit.cover,
-      child: SizedBox(
-        // The absolute number is arbitrary — FittedBox only cares about
-        // the ratio it establishes (matching the camera's own), not the
-        // literal size.
-        width: 100,
-        height: 100 / controller.value.aspectRatio,
-        child: CameraPreview(controller),
-      ),
-    );
     return SizedBox.expand(
-      // Mirrors the front camera so it reads as a mirror while lining up
-      // a selfie, matching how every other camera app previews it.
-      child: isFrontCamera
-          ? Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.rotationY(math.pi),
-              child: preview,
-            )
-          : preview,
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          // The absolute number is arbitrary — FittedBox only cares about
+          // the ratio it establishes (matching the camera's own), not the
+          // literal size.
+          width: 100,
+          height: 100 * controller.value.aspectRatio,
+          child: CameraPreview(controller),
+        ),
+      ),
     );
   }
 

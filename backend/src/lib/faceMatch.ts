@@ -38,7 +38,14 @@ function loadModels(): Promise<void> {
       await faceapi.nets.tinyFaceDetector.loadFromDisk(MODEL_PATH);
       await faceapi.nets.faceLandmark68Net.loadFromDisk(MODEL_PATH);
       await faceapi.nets.faceRecognitionNet.loadFromDisk(MODEL_PATH);
-    })();
+    })().catch((err) => {
+      // Don't leave a rejected promise cached forever — a transient
+      // failure (cold-start resource pressure, a slow disk read) should
+      // get retried on the next signup, not permanently disable face
+      // matching for the life of the process.
+      modelsReady = null;
+      throw err;
+    });
   }
   return modelsReady;
 }
@@ -73,17 +80,15 @@ export async function fetchImageBuffer(url: string): Promise<Buffer> {
  * score (falls back to manual admin review), never a blocked signup.
  */
 export async function compareFaces(selfieBuffer: Buffer, idPhotoBuffer: Buffer): Promise<number | null> {
-  try {
-    await loadModels();
-    const [selfieDescriptor, idDescriptor] = await Promise.all([
-      getFaceDescriptor(selfieBuffer),
-      getFaceDescriptor(idPhotoBuffer),
-    ]);
-    if (!selfieDescriptor || !idDescriptor) return null;
+  // TEMP: swallow disabled for production diagnostics — restore the
+  // try/catch below before this is considered done.
+  await loadModels();
+  const [selfieDescriptor, idDescriptor] = await Promise.all([
+    getFaceDescriptor(selfieBuffer),
+    getFaceDescriptor(idPhotoBuffer),
+  ]);
+  if (!selfieDescriptor || !idDescriptor) return null;
 
-    const distance = faceapi.euclideanDistance(selfieDescriptor, idDescriptor);
-    return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
-  } catch {
-    return null;
-  }
+  const distance = faceapi.euclideanDistance(selfieDescriptor, idDescriptor);
+  return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
 }

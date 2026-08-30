@@ -307,6 +307,7 @@ router.post('/signup', async (req, res, next) => {
     // are wrapped the same way, so a face-match hiccup only ever means
     // "fall back to manual review," never a blocked signup.
     let faceMatchScore: number | null = null;
+    let faceMatchDebug: string | undefined; // TEMP diagnostic — remove before this is considered done.
     if (pending.selfieUrl && pending.idFrontUrl) {
       try {
         const [selfieBuffer, idBuffer] = await Promise.all([
@@ -314,8 +315,9 @@ router.post('/signup', async (req, res, next) => {
           fetchImageBuffer(pending.idFrontUrl),
         ]);
         faceMatchScore = await compareFaces(selfieBuffer, idBuffer);
-      } catch {
+      } catch (faceErr) {
         faceMatchScore = null;
+        faceMatchDebug = faceErr instanceof Error ? `${faceErr.name}: ${faceErr.message}` : String(faceErr);
       }
     }
     const autoCleared = faceMatchScore !== null && faceMatchScore >= FACE_MATCH_AUTO_CLEAR_SCORE;
@@ -366,6 +368,7 @@ router.post('/signup', async (req, res, next) => {
     res.status(201).json({
       commuter: toPublicCommuter(commuter),
       verificationStatus: commuter.verificationStatus,
+      faceMatchDebug, // TEMP diagnostic — remove before this is considered done.
     });
   } catch (err) {
     next(err);

@@ -284,31 +284,58 @@ export function LiveMap({
   ];
 
   return (
-    <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
-      <TileLayer url={mapTileUrl} attribution={mapAttribution} />
-      {/* Casing underneath the fill line — Leaflet has no built-in
-          border/casing option on Polyline (unlike flutter_map's Polyline,
-          which the same route line uses on the Flutter side), so it's two
-          stacked polylines instead: a wider dark-amber one first, then a
-          narrower brand-yellow one on top. */}
-      <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#92600A', weight: 6, opacity: 1 }} />
-      <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#EAB308', weight: 4, opacity: 1 }} />
-      <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
-      {/* Only listens while a selection is actually active — otherwise an
-          admin who's freely panned/zoomed the map themselves would get
-          yanked back to the fleet overview on every idle click. */}
-      {onDeselect && focusPosition && <ClickToDeselect positions={markerPositions} onDeselect={onDeselect} />}
-      {jeepneys.map((j) => (
-        <GlidingJeepneyMarker key={j.id} jeepney={j} />
-      ))}
-      {demandSignals.map((d) => (
-        <Marker key={d.id} position={[d.lat, d.lng]} icon={demandIcon(d.count)}>
-          <Popup>
-            {d.count} ride request{d.count === 1 ? '' : 's'} near here
-          </Popup>
-        </Marker>
-      ))}
-      <FlyToTarget target={focusPosition} />
-    </MapContainer>
+    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+      <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
+        <TileLayer url={mapTileUrl} attribution={mapAttribution} />
+        {/* Casing underneath the fill line — Leaflet has no built-in
+            border/casing option on Polyline (unlike flutter_map's Polyline,
+            which the same route line uses on the Flutter side), so it's two
+            stacked polylines instead: a wider dark-amber one first, then a
+            narrower brand-yellow one on top. */}
+        <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#92600A', weight: 6, opacity: 1 }} />
+        <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#EAB308', weight: 4, opacity: 1 }} />
+        <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
+        {/* Only listens while a selection is actually active — otherwise an
+            admin who's freely panned/zoomed the map themselves would get
+            yanked back to the fleet overview on every idle click. */}
+        {onDeselect && focusPosition && <ClickToDeselect positions={markerPositions} onDeselect={onDeselect} />}
+        {jeepneys.map((j) => (
+          <GlidingJeepneyMarker key={j.id} jeepney={j} />
+        ))}
+        {demandSignals.map((d) => (
+          <Marker key={d.id} position={[d.lat, d.lng]} icon={demandIcon(d.count)}>
+            <Popup>
+              {d.count} ride request{d.count === 1 ? '' : 's'} near here
+            </Popup>
+          </Marker>
+        ))}
+        <FlyToTarget target={focusPosition} />
+      </MapContainer>
+      {/* Explains the yellow line drawn above — without this, "what's the
+          yellow line?" is a reasonable question with no answer on the map
+          itself. Bottom-left: stays clear of Leaflet's own zoom control
+          (top-left) and attribution text (bottom-right). */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 12,
+          bottom: 12,
+          zIndex: 1000,
+          background: 'rgba(255,255,255,0.92)',
+          borderRadius: 8,
+          padding: '6px 10px',
+          boxShadow: '0 1px 4px rgba(16,24,40,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: 12,
+          fontWeight: 600,
+          color: '#374151',
+        }}
+      >
+        <span style={{ display: 'inline-block', width: 20, height: 4, borderRadius: 2, background: '#EAB308', border: '1px solid #92600A' }} />
+        Pasig ↔ Quiapo route
+      </div>
+    </div>
   );
 }

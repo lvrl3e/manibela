@@ -88,8 +88,8 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
         guideShape: CaptureGuideShape.rectangle,
         guideAspectRatio: _LicensePhotoTile.licenseCardAspectRatio,
         instruction: isFront
-            ? 'Line up the front of your license within the frame'
-            : 'Line up the back of your license within the frame',
+            ? 'Move closer so the front of your license fills the frame'
+            : 'Move closer so the back of your license fills the frame',
       );
       if (picked == null || !mounted) return;
 

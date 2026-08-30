@@ -36,6 +36,7 @@ function loadModels(): Promise<void> {
     modelsReady = (async () => {
       await tf.ready();
       await faceapi.nets.tinyFaceDetector.loadFromDisk(MODEL_PATH);
+      await faceapi.nets.ssdMobilenetv1.loadFromDisk(MODEL_PATH);
       await faceapi.nets.faceLandmark68Net.loadFromDisk(MODEL_PATH);
       await faceapi.nets.faceRecognitionNet.loadFromDisk(MODEL_PATH);
     })().catch((err) => {
@@ -122,10 +123,19 @@ async function getFaceDescriptor(imageBuffer: Buffer): Promise<Float32Array | nu
   const decoded = tf.node.decodeImage(imageBuffer, 3) as tf.Tensor3D;
   const tensor = correctOrientation(decoded, readExifOrientation(imageBuffer));
   try {
-    const result = await faceapi
-      .detectSingleFace(tensor, new faceapi.TinyFaceDetectorOptions())
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+    // TinyFaceDetector first — fast, and finds the common case (a
+    // reasonably-sized, well-lit face) fine. It struggles on a small,
+    // low-quality face — exactly what a printed ID/license photo usually
+    // is once the whole card (held at arm's length, background and all)
+    // fills the frame instead of just the photo on it. SsdMobilenetv1 is
+    // slower but meaningfully better at exactly that case, so it's worth
+    // a second, slower pass rather than giving up and falling back to
+    // manual review — this doesn't touch FACE_MATCH_AUTO_CLEAR_SCORE or
+    // how the two descriptors get compared, only how hard this tries to
+    // find a face worth comparing in the first place.
+    const result =
+      (await faceapi.detectSingleFace(tensor, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor()) ??
+      (await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options()).withFaceLandmarks().withFaceDescriptor());
     return result?.descriptor ?? null;
   } finally {
     if (tensor !== decoded) tf.dispose(decoded);

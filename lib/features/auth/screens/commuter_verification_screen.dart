@@ -82,8 +82,8 @@ class _CommuterVerificationScreenState extends State<CommuterVerificationScreen>
         guideShape: CaptureGuideShape.rectangle,
         guideAspectRatio: _IdUploadTile._idCardAspectRatio,
         instruction: isFront
-            ? 'Line up the front of your ID within the frame'
-            : 'Line up the back of your ID within the frame',
+            ? 'Move closer so the front of your ID fills the frame'
+            : 'Move closer so the back of your ID fills the frame',
       );
       if (file == null || !mounted) return; // user backed out
 

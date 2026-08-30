@@ -63,8 +63,8 @@ class _CommuterResubmitScreenState extends State<CommuterResubmitScreen> {
         guideShape: CaptureGuideShape.rectangle,
         guideAspectRatio: 85.6 / 53.98, // CR80 card ratio, same as sign-up's own ID tiles.
         instruction: isFront
-            ? 'Line up the front of your ID within the frame'
-            : 'Line up the back of your ID within the frame',
+            ? 'Move closer so the front of your ID fills the frame'
+            : 'Move closer so the back of your ID fills the frame',
       );
       if (picked == null || !mounted) return;
       setState(() {

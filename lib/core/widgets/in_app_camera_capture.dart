@@ -269,26 +269,39 @@ class _LiveCaptureView extends StatelessWidget {
   final bool isFrontCamera;
   final VoidCallback onCapture;
 
-  Widget _scaledPreview(Size screenSize) {
-    var scale = screenSize.aspectRatio * controller.value.aspectRatio;
-    if (scale < 1) scale = 1 / scale;
-    final preview = AspectRatio(
-      aspectRatio: controller.value.aspectRatio,
-      child: CameraPreview(controller),
-    );
-    return Transform.scale(
-      scale: scale,
-      child: Center(
-        // Mirrors the front camera so it reads as a mirror while lining up
-        // a selfie, matching how every other camera app previews it.
-        child: isFrontCamera
-            ? Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.rotationY(math.pi),
-                child: preview,
-              )
-            : preview,
+  // Fills the whole screen the way a real camera app's viewfinder does,
+  // cropping the overflow — CameraPreview alone only ever renders at its
+  // native aspect ratio (a landscape sensor ratio like 4:3 or 16:9, wrapped
+  // in its own internal AspectRatio), which on a portrait phone screen
+  // leaves large empty bars above and below rather than filling it. A
+  // hand-rolled Transform.scale factor was tried first and was simply
+  // wrong — verified by hand: for a ~0.46 (portrait) screen aspect against
+  // a ~1.78 (16:9) camera aspect, that formula computed a ~1.2x scale
+  // when ~3.8x is what's actually needed to cover the screen. FittedBox
+  // with BoxFit.cover computes this correctly regardless of the specific
+  // ratios involved, so there's no formula here to get wrong.
+  Widget _scaledPreview() {
+    final preview = FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        // The absolute number is arbitrary — FittedBox only cares about
+        // the ratio it establishes (matching the camera's own), not the
+        // literal size.
+        width: 100,
+        height: 100 / controller.value.aspectRatio,
+        child: CameraPreview(controller),
       ),
+    );
+    return SizedBox.expand(
+      // Mirrors the front camera so it reads as a mirror while lining up
+      // a selfie, matching how every other camera app previews it.
+      child: isFrontCamera
+          ? Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.rotationY(math.pi),
+              child: preview,
+            )
+          : preview,
     );
   }
 
@@ -313,7 +326,7 @@ class _LiveCaptureView extends StatelessWidget {
           return Stack(
             fit: StackFit.expand,
             children: [
-              _scaledPreview(size),
+              _scaledPreview(),
               CustomPaint(
                 painter: _GuideOverlayPainter(shape: guideShape, guideRect: guideRect),
                 size: size,

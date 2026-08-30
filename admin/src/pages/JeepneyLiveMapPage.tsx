@@ -6,7 +6,7 @@ import { RoutePill } from '../components/RoutePill';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { isManilaToday } from '../lib/formatDate';
-import { isPasigQuiapoRoute } from '../lib/routePath';
+import { matchesAnyRoute } from '../lib/routePath';
 
 interface JeepneyRow {
   driverId: string;
@@ -54,10 +54,10 @@ export default function JeepneyLiveMapPage() {
   const [jeepneys, setJeepneys] = useState<JeepneyRow[] | null>(null);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('driverId'));
-  // Off by default — see LiveMap's own doc comment on this prop. Filters
-  // both the map and this page's own sidebar list down to just jeepneys
-  // running the Pasig-Quiapo corridor when on.
-  const [showRoute, setShowRoute] = useState(false);
+  // Empty (none shown) by default — see LiveMap's own doc comment on this
+  // prop. Filters both the map and this page's own sidebar list down to
+  // just jeepneys running a toggled-on corridor.
+  const [shownRouteIds, setShownRouteIds] = useState<Set<string>>(new Set());
 
   function fetchJeepneys() {
     apiClient
@@ -90,9 +90,9 @@ export default function JeepneyLiveMapPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return markers
-      .filter((m) => !showRoute || isPasigQuiapoRoute(m.route))
+      .filter((m) => shownRouteIds.size === 0 || matchesAnyRoute(m.route, shownRouteIds))
       .filter((m) => !q || m.plateNumber.toLowerCase().includes(q) || m.driverName.toLowerCase().includes(q));
-  }, [markers, search, showRoute]);
+  }, [markers, search, shownRouteIds]);
 
   const focusPosition = useMemo<[number, number] | null>(() => {
     const selected = markers.find((m) => m.id === selectedId);
@@ -175,8 +175,15 @@ export default function JeepneyLiveMapPage() {
             zoom={14}
             focusPosition={focusPosition}
             onDeselect={() => setSelectedId(null)}
-            showRoute={showRoute}
-            onToggleRoute={() => setShowRoute((v) => !v)}
+            shownRouteIds={shownRouteIds}
+            onToggleRoute={(id) =>
+              setShownRouteIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
           />
         </div>
       </div>

@@ -684,7 +684,12 @@ router.patch('/drivers/:id/license-number', requireAuth('admin'), async (req, re
 // fixed and hardcoded rather than a `SELECT DISTINCT route` per driver,
 // so the filter's option list costs nothing to render even once a driver
 // has hundreds of thousands of trips on record.
-const DRIVER_ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig'] as const;
+const DRIVER_ROUTES = [
+  'Pasig – Quiapo',
+  'Quiapo – Pasig',
+  'Pasig – Quiapo (Sta. Mesa)',
+  'Quiapo – Pasig (Sta. Mesa)',
+] as const;
 
 const driverTripsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

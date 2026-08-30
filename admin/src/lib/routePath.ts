@@ -1,17 +1,11 @@
-/** True for either direction of the one fixed corridor this fleet runs —
- * same two exact strings used everywhere else a route is recorded (see
- * DRIVER_ROUTES in backend/src/routes/admin.ts). Used to filter markers
- * down to "only this route" when the Live Map's route toggle is on. */
-export function isPasigQuiapoRoute(route: string | null | undefined): boolean {
-  return route === 'Pasig – Quiapo' || route === 'Quiapo – Pasig';
-}
+// Mirrors lib/core/constants/route_path.dart — same real, road-following
+// coordinates (simplified via Douglas-Peucker from an actual driving
+// route), kept in sync by hand since these are fixed, rarely-changing
+// corridors. Used to draw each route on the admin Live Map so the fleet's
+// markers have road context, and to filter markers down to just one
+// corridor when its toggle is on.
 
-// Mirrors lib/core/constants/route_path.dart's pasigToQuiapo — same
-// real, road-following coordinates (simplified via Douglas-Peucker from an
-// actual driving route), kept in sync by hand since this is a fixed,
-// rarely-changing corridor. Used to draw the fixed Pasig-Quiapo route on
-// the admin Live Map so the fleet's markers have road context.
-export const PASIG_QUIAPO_ROUTE: [number, number][] = [
+const PASIG_QUIAPO_ROUTE: [number, number][] = [
   [14.576390, 121.085118],
   [14.568189, 121.080947],
   [14.567158, 121.080039],
@@ -100,3 +94,107 @@ export const PASIG_QUIAPO_ROUTE: [number, number][] = [
   [14.599665, 120.983213],
   [14.599501, 120.983192],
 ];
+
+// A second, genuinely different physical corridor between the same two
+// endpoints — a real documented jeepney route ("Pasig (TP) to Quiapo
+// (Echague) via Sta. Mesa and C. Palanca"), traced via Mapbox's
+// Directions API with Sta. Mesa and Carlos Palanca St as waypoints so it
+// actually follows Ramon Magsaysay Blvd through Sta. Mesa rather than
+// PASIG_QUIAPO_ROUTE's more northern path through Mandaluyong/San Juan.
+const PASIG_QUIAPO_STA_MESA_ROUTE: [number, number][] = [
+  [14.576409, 121.085129],
+  [14.575961, 121.084898],
+  [14.578373, 121.081715],
+  [14.575236, 121.079447],
+  [14.573591, 121.078534],
+  [14.574876, 121.076296],
+  [14.577512, 121.073278],
+  [14.576327, 121.072742],
+  [14.569717, 121.070941],
+  [14.571393, 121.068744],
+  [14.572115, 121.067436],
+  [14.572240, 121.066871],
+  [14.571925, 121.064579],
+  [14.584205, 121.050221],
+  [14.587374, 121.046289],
+  [14.588956, 121.042398],
+  [14.589476, 121.040430],
+  [14.589449, 121.035326],
+  [14.590450, 121.033945],
+  [14.592243, 121.029964],
+  [14.593258, 121.028130],
+  [14.596162, 121.020429],
+  [14.596764, 121.021471],
+  [14.597273, 121.021296],
+  [14.596764, 121.021471],
+  [14.595949, 121.020022],
+  [14.595973, 121.019832],
+  [14.597610, 121.017616],
+  [14.603012, 121.015881],
+  [14.602679, 121.014956],
+  [14.601137, 120.998635],
+  [14.600590, 120.996179],
+  [14.601600, 120.992786],
+  [14.601001, 120.991606],
+  [14.600431, 120.990967],
+  [14.603258, 120.984948],
+  [14.603531, 120.983710],
+  [14.603429, 120.983695],
+  [14.603272, 120.984630],
+  [14.603083, 120.984897],
+  [14.598268, 120.984006],
+  [14.596904, 120.983622],
+  [14.596703, 120.983439],
+  [14.596382, 120.983674],
+  [14.597368, 120.984017],
+  [14.607630, 120.985976],
+  [14.607887, 120.986283],
+  [14.608100, 120.985930],
+  [14.599519, 120.984250],
+  [14.599665, 120.983213],
+  [14.599501, 120.983192],
+];
+
+export interface RouteDefinition {
+  id: string;
+  /** Shown on the legend/toggle button. */
+  legendLabel: string;
+  /** The exact two directional strings this corridor is recorded as
+   * everywhere else (see DRIVER_ROUTES in backend/src/routes/admin.ts) —
+   * both map to the same physical line for drawing purposes. */
+  directions: [string, string];
+  path: [number, number][];
+  color: string;
+  caseColor: string;
+}
+
+// Adding a third corridor later is just adding a fourth entry here (plus
+// the matching RoutePath.forRoute case on the Flutter side, and the two
+// new direction strings in every kDriverRoutes-equivalent list) — nothing
+// about how LiveMap draws or filters routes needs to change.
+export const ROUTES: RouteDefinition[] = [
+  {
+    id: 'original',
+    legendLabel: 'Pasig ↔ Quiapo',
+    directions: ['Pasig – Quiapo', 'Quiapo – Pasig'],
+    path: PASIG_QUIAPO_ROUTE,
+    color: '#EAB308',
+    caseColor: '#92600A',
+  },
+  {
+    id: 'sta-mesa',
+    legendLabel: 'Pasig ↔ Quiapo (Sta. Mesa)',
+    directions: ['Pasig – Quiapo (Sta. Mesa)', 'Quiapo – Pasig (Sta. Mesa)'],
+    path: PASIG_QUIAPO_STA_MESA_ROUTE,
+    color: '#0B57D0',
+    caseColor: '#083D94',
+  },
+];
+
+/** Whether `route` belongs to any of the given route ids (both directions
+ * count) — the filtering rule behind "only show markers on the corridors
+ * currently toggled on". */
+export function matchesAnyRoute(route: string | null | undefined, routeIds: Set<string>): boolean {
+  if (!route) return false;
+  return ROUTES.some((r) => routeIds.has(r.id) && (r.directions[0] === route || r.directions[1] === route));
+}

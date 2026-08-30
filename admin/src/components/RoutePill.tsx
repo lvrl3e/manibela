@@ -4,6 +4,8 @@
 const ROUTE_TONE: Record<string, { bg: string; color: string }> = {
   'Pasig – Quiapo': { bg: 'bg-yellow-50', color: 'var(--color-series-drivers)' },
   'Quiapo – Pasig': { bg: 'bg-orange-50', color: 'var(--color-series-commuters)' },
+  'Pasig – Quiapo (Sta. Mesa)': { bg: 'bg-blue-50', color: '#0B57D0' },
+  'Quiapo – Pasig (Sta. Mesa)': { bg: 'bg-blue-50', color: '#083D94' },
 };
 
 export function RoutePill({ route }: { route: string | null }) {

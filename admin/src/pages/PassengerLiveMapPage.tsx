@@ -5,7 +5,7 @@ import { LogoMark } from '../components/Logo';
 import { RoutePill } from '../components/RoutePill';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
-import { isPasigQuiapoRoute } from '../lib/routePath';
+import { matchesAnyRoute } from '../lib/routePath';
 
 interface DemandSignalRow {
   id: string;
@@ -46,10 +46,10 @@ export default function PassengerLiveMapPage() {
   const [onboard, setOnboard] = useState<OnboardPassenger[] | null>(null);
   const [demandSignals, setDemandSignals] = useState<DemandSignalRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Off by default — see LiveMap's own doc comment on this prop. Filters
-  // both the map and this page's own sidebar lists (onboard jeepneys and
-  // ride requests alike) down to just the Pasig-Quiapo corridor when on.
-  const [showRoute, setShowRoute] = useState(false);
+  // Empty (none shown) by default — see LiveMap's own doc comment on this
+  // prop. Filters both the map and this page's own sidebar lists (onboard
+  // jeepneys and ride requests alike) down to just toggled-on corridors.
+  const [shownRouteIds, setShownRouteIds] = useState<Set<string>>(new Set());
 
   function fetchTrips() {
     apiClient
@@ -104,7 +104,7 @@ export default function PassengerLiveMapPage() {
     () =>
       (trips ?? [])
         .filter((t) => t.currentLat != null && t.currentLng != null && (passengersByTrip.get(t.id)?.length ?? 0) > 0)
-        .filter((t) => !showRoute || isPasigQuiapoRoute(t.route))
+        .filter((t) => shownRouteIds.size === 0 || matchesAnyRoute(t.route, shownRouteIds))
         .map((t) => ({
           id: t.id,
           lat: t.currentLat!,
@@ -114,15 +114,18 @@ export default function PassengerLiveMapPage() {
           route: t.route,
           passengers: passengersByTrip.get(t.id) ?? [],
         })),
-    [trips, passengersByTrip, showRoute],
+    [trips, passengersByTrip, shownRouteIds],
   );
 
   // Filtered *before* clustering, not after — a cluster cell can combine
   // pings from commuters who picked different routes, so there's no
   // single "this cluster's route" to filter on once they're merged.
   const demandMarkers = useMemo(
-    () => clusterDemandSignals((demandSignals ?? []).filter((s) => !showRoute || isPasigQuiapoRoute(s.route))),
-    [demandSignals, showRoute],
+    () =>
+      clusterDemandSignals(
+        (demandSignals ?? []).filter((s) => shownRouteIds.size === 0 || matchesAnyRoute(s.route, shownRouteIds)),
+      ),
+    [demandSignals, shownRouteIds],
   );
 
   // Shared selection for both lists below — a jeepney and a demand
@@ -236,8 +239,15 @@ export default function PassengerLiveMapPage() {
             zoom={14}
             focusPosition={focusPosition}
             onDeselect={() => setSelectedId(null)}
-            showRoute={showRoute}
-            onToggleRoute={() => setShowRoute((v) => !v)}
+            shownRouteIds={shownRouteIds}
+            onToggleRoute={(id) =>
+              setShownRouteIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
           />
         </div>
       </div>

@@ -119,7 +119,7 @@ const STATUS_FILTERS: { label: string; value: '' | 'online' | 'offline' }[] = [
 // here rather than derived from the current jeepney list so the filter
 // still offers both routes even when nobody's currently running one of
 // them.
-const ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig'];
+const ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig', 'Pasig – Quiapo (Sta. Mesa)', 'Quiapo – Pasig (Sta. Mesa)'];
 
 export default function JeepneyMonitoringPage() {
   const [stats, setStats] = useState<JeepneyStats | null>(null);

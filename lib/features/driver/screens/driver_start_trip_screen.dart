@@ -10,10 +10,15 @@ import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 
-/// The only two routes this fleet actually services.
+/// The routes this fleet actually services — two directions of the
+/// original corridor, plus two directions of a second, genuinely
+/// different physical route between the same two endpoints (see
+/// RoutePath.pasigToQuiapoViaStaMesa's own doc comment).
 const List<String> kDriverRoutes = [
   'Pasig – Quiapo',
   'Quiapo – Pasig',
+  'Pasig – Quiapo (Sta. Mesa)',
+  'Quiapo – Pasig (Sta. Mesa)',
 ];
 
 class DriverStartTripResult {
@@ -127,20 +132,25 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                 children: [
                   const Text('Route', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
-                  Row(
+                  // Two per row rather than one long row — kDriverRoutes now
+                  // holds two corridors' worth of directions (4 labels, some
+                  // noticeably longer than the original 2), and a single Row
+                  // of Expanded chips would squeeze those into an unreadably
+                  // narrow, awkwardly-wrapped quarter-width each.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      for (int i = 0; i < kDriverRoutes.length; i++)
-                        Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.only(right: i == 0 ? 8 : 0),
-                            child: _RouteChoiceChip(
-                              label: kDriverRoutes[i],
-                              selected: _selectedRoute == kDriverRoutes[i],
-                              onTap: () {
-                                setState(() => _selectedRoute = kDriverRoutes[i]);
-                                _fetchDemandSignals();
-                              },
-                            ),
+                      for (final route in kDriverRoutes)
+                        SizedBox(
+                          width: (MediaQuery.of(context).size.width - 16 * 2 - 8) / 2,
+                          child: _RouteChoiceChip(
+                            label: route,
+                            selected: _selectedRoute == route,
+                            onTap: () {
+                              setState(() => _selectedRoute = route);
+                              _fetchDemandSignals();
+                            },
                           ),
                         ),
                     ],

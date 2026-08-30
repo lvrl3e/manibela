@@ -34,7 +34,12 @@ String _formatHistoryDuration(Duration d) {
 /// driver_start_trip_screen.dart. Hardcoded here too (rather than derived
 /// from whatever's been loaded so far) so the Route filter always offers
 /// both options regardless of which page of trips happens to be loaded.
-const List<String> kTripHistoryRoutes = ['Pasig – Quiapo', 'Quiapo – Pasig'];
+const List<String> kTripHistoryRoutes = [
+  'Pasig – Quiapo',
+  'Quiapo – Pasig',
+  'Pasig – Quiapo (Sta. Mesa)',
+  'Quiapo – Pasig (Sta. Mesa)',
+];
 
 // ===========================================================================
 // TRIP HISTORY ITEM

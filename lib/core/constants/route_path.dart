@@ -102,14 +102,85 @@ class RoutePath {
 
   static final List<LatLng> quiapoToPasig = pasigToQuiapo.reversed.toList();
 
-  /// Picks the direction matching one of the app's two exact route strings
-  /// ('Pasig – Quiapo' / 'Quiapo – Pasig', see _routes in
-  /// jeepney_booking_flow_screen.dart) — anything else (null, a future
-  /// route) falls back to the Pasig→Quiapo ordering, since the corridor's
-  /// shape is identical either way for drawing purposes.
+  /// A second, genuinely different physical corridor between the same two
+  /// endpoints — not a shortcut/detour guess, but a real documented jeepney
+  /// route ("Pasig (TP) to Quiapo (Echague) via Sta. Mesa and C. Palanca").
+  /// Traced via Mapbox's Directions API with Sta. Mesa and Carlos Palanca
+  /// St as waypoints (so it actually follows Ramon Magsaysay Blvd through
+  /// Sta. Mesa rather than the original corridor's more northern path
+  /// through Mandaluyong/San Juan), then simplified the same way as
+  /// [pasigToQuiapo] above.
+  static const List<LatLng> pasigToQuiapoViaStaMesa = [
+    LatLng(14.576409, 121.085129),
+    LatLng(14.575961, 121.084898),
+    LatLng(14.578373, 121.081715),
+    LatLng(14.575236, 121.079447),
+    LatLng(14.573591, 121.078534),
+    LatLng(14.574876, 121.076296),
+    LatLng(14.577512, 121.073278),
+    LatLng(14.576327, 121.072742),
+    LatLng(14.569717, 121.070941),
+    LatLng(14.571393, 121.068744),
+    LatLng(14.572115, 121.067436),
+    LatLng(14.572240, 121.066871),
+    LatLng(14.571925, 121.064579),
+    LatLng(14.584205, 121.050221),
+    LatLng(14.587374, 121.046289),
+    LatLng(14.588956, 121.042398),
+    LatLng(14.589476, 121.040430),
+    LatLng(14.589449, 121.035326),
+    LatLng(14.590450, 121.033945),
+    LatLng(14.592243, 121.029964),
+    LatLng(14.593258, 121.028130),
+    LatLng(14.596162, 121.020429),
+    LatLng(14.596764, 121.021471),
+    LatLng(14.597273, 121.021296),
+    LatLng(14.596764, 121.021471),
+    LatLng(14.595949, 121.020022),
+    LatLng(14.595973, 121.019832),
+    LatLng(14.597610, 121.017616),
+    LatLng(14.603012, 121.015881),
+    LatLng(14.602679, 121.014956),
+    LatLng(14.601137, 120.998635),
+    LatLng(14.600590, 120.996179),
+    LatLng(14.601600, 120.992786),
+    LatLng(14.601001, 120.991606),
+    LatLng(14.600431, 120.990967),
+    LatLng(14.603258, 120.984948),
+    LatLng(14.603531, 120.983710),
+    LatLng(14.603429, 120.983695),
+    LatLng(14.603272, 120.984630),
+    LatLng(14.603083, 120.984897),
+    LatLng(14.598268, 120.984006),
+    LatLng(14.596904, 120.983622),
+    LatLng(14.596703, 120.983439),
+    LatLng(14.596382, 120.983674),
+    LatLng(14.597368, 120.984017),
+    LatLng(14.607630, 120.985976),
+    LatLng(14.607887, 120.986283),
+    LatLng(14.608100, 120.985930),
+    LatLng(14.599519, 120.984250),
+    LatLng(14.599665, 120.983213),
+    LatLng(14.599501, 120.983192),
+  ];
+
+  static final List<LatLng> quiapoToPasigViaStaMesa = pasigToQuiapoViaStaMesa.reversed.toList();
+
+  /// Picks the path matching one of the app's four exact route strings
+  /// (see kDriverRoutes in driver_start_trip_screen.dart) — anything else
+  /// (null, a future route) falls back to the original Pasig→Quiapo
+  /// corridor.
   static List<LatLng> forRoute(String? route) {
-    if (route == 'Quiapo – Pasig') return quiapoToPasig;
-    return pasigToQuiapo;
+    switch (route) {
+      case 'Quiapo – Pasig':
+        return quiapoToPasig;
+      case 'Pasig – Quiapo (Sta. Mesa)':
+        return pasigToQuiapoViaStaMesa;
+      case 'Quiapo – Pasig (Sta. Mesa)':
+        return quiapoToPasigViaStaMesa;
+      default:
+        return pasigToQuiapo;
+    }
   }
 
   /// How far along [path] (as a fractional segment index — e.g. 4.3 means

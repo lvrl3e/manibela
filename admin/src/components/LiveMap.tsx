@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatManilaDateTime } from '../lib/formatDate';
 import { mapTileUrl, mapAttribution } from '../lib/mapConfig';
-import { PASIG_QUIAPO_ROUTE } from '../lib/routePath';
+import { ROUTES } from '../lib/routePath';
 
 export interface JeepneyMarker {
   id: string;
@@ -265,7 +265,7 @@ export function LiveMap({
   zoom = 15,
   focusPosition = null,
   onDeselect,
-  showRoute,
+  shownRouteIds,
   onToggleRoute,
 }: {
   jeepneys?: JeepneyMarker[];
@@ -279,15 +279,16 @@ export function LiveMap({
    * whatever selection is driving `focusPosition` (see ClickToDeselect
    * above). Omit on a map with no selectable sidebar list. */
   onDeselect?: () => void;
-  /** Whether the Pasig–Quiapo route line (and its legend/toggle button) is
-   * currently shown. Owned by the caller, not this component, because
-   * toggling it also filters that caller's own sidebar list down to just
-   * that route (see JeepneyLiveMapPage/PassengerLiveMapPage) — a concern
-   * this component has no visibility into on its own. */
-  showRoute: boolean;
-  /** Called when the legend/toggle button is clicked — the caller should
-   * flip whatever state it's passing back in as [showRoute]. */
-  onToggleRoute: () => void;
+  /** Which of ROUTES (see lib/routePath.ts) currently have their line (and
+   * legend/toggle button) shown. Owned by the caller, not this component,
+   * because toggling one also filters that caller's own sidebar list down
+   * to just that corridor (see JeepneyLiveMapPage/PassengerLiveMapPage) —
+   * a concern this component has no visibility into on its own. */
+  shownRouteIds: Set<string>;
+  /** Called with a route's id when its legend/toggle button is clicked —
+   * the caller should flip that id's membership in whatever set it's
+   * passing back in as [shownRouteIds]. */
+  onToggleRoute: (routeId: string) => void;
 }) {
   const markerPositions: [number, number][] = [
     ...jeepneys.map((j): [number, number] => [j.lat, j.lng]),
@@ -298,18 +299,17 @@ export function LiveMap({
     <div style={{ position: 'relative', height: '100%', width: '100%' }}>
       <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
         <TileLayer url={mapTileUrl} attribution={mapAttribution} />
-        {showRoute && (
-          <>
-            {/* Casing underneath the fill line — Leaflet has no built-in
-                border/casing option on Polyline (unlike flutter_map's
-                Polyline, which the same route line uses on the Flutter
-                side), so it's two stacked polylines instead: a wider
-                dark-amber one first, then a narrower brand-yellow one on
-                top. */}
-            <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#92600A', weight: 6, opacity: 1 }} />
-            <Polyline positions={PASIG_QUIAPO_ROUTE} pathOptions={{ color: '#EAB308', weight: 4, opacity: 1 }} />
-          </>
-        )}
+        {ROUTES.filter((r) => shownRouteIds.has(r.id)).map((r) => (
+          // Casing underneath the fill line — Leaflet has no built-in
+          // border/casing option on Polyline (unlike flutter_map's
+          // Polyline, which the same route lines use on the Flutter
+          // side), so it's two stacked polylines instead: a wider dark
+          // one first, then a narrower bright one on top.
+          <div key={r.id}>
+            <Polyline positions={r.path} pathOptions={{ color: r.caseColor, weight: 6, opacity: 1 }} />
+            <Polyline positions={r.path} pathOptions={{ color: r.color, weight: 4, opacity: 1 }} />
+          </div>
+        ))}
         <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
         {/* Only listens while a selection is actually active — otherwise an
             admin who's freely panned/zoomed the map themselves would get
@@ -327,47 +327,53 @@ export function LiveMap({
         ))}
         <FlyToTarget target={focusPosition} />
       </MapContainer>
-      {/* Doubles as both the legend (explains what the yellow line means)
-          and the toggle that shows/hides it — off by default, since a
-          route line drawn over live jeepney markers is clutter until an
-          admin actually asks for it. Top-right: clear of the sidebar, the
-          zoom control, and Leaflet's own attribution text, and the first
-          thing the eye lands on next to the map itself — a small bottom-
-          corner label was too easy to miss entirely. */}
-      <button
-        type="button"
-        onClick={onToggleRoute}
-        style={{
-          position: 'absolute',
-          right: 16,
-          top: 16,
-          zIndex: 1000,
-          background: showRoute ? '#FFFBEB' : '#FFFFFF',
-          border: showRoute ? '2px solid #EAB308' : '2px solid #D1D5DB',
-          borderRadius: 10,
-          padding: '10px 16px',
-          boxShadow: '0 2px 8px rgba(16,24,40,0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          fontSize: 14,
-          fontWeight: 700,
-          color: '#1F2937',
-          cursor: 'pointer',
-        }}
-      >
-        <span
-          style={{
-            display: 'inline-block',
-            width: 28,
-            height: 6,
-            borderRadius: 3,
-            background: showRoute ? '#EAB308' : '#D1D5DB',
-            border: `1.5px solid ${showRoute ? '#92600A' : '#9CA3AF'}`,
-          }}
-        />
-        Pasig ↔ Quiapo route
-      </button>
+      {/* One button per known route — each doubles as both the legend
+          (explains what its line means) and the toggle that shows/hides
+          it. Off by default: a route line drawn over live jeepney markers
+          is clutter until an admin actually asks for it. Top-right: clear
+          of the sidebar, the zoom control, and Leaflet's own attribution
+          text, and the first thing the eye lands on next to the map
+          itself — a small bottom-corner label was too easy to miss
+          entirely. Stacked vertically so adding a third route later is
+          just a taller stack, not a redesign. */}
+      <div style={{ position: 'absolute', right: 16, top: 16, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {ROUTES.map((r) => {
+          const shown = shownRouteIds.has(r.id);
+          return (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => onToggleRoute(r.id)}
+              style={{
+                background: shown ? '#FFFBEB' : '#FFFFFF',
+                border: shown ? `2px solid ${r.color}` : '2px solid #D1D5DB',
+                borderRadius: 10,
+                padding: '10px 16px',
+                boxShadow: '0 2px 8px rgba(16,24,40,0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 14,
+                fontWeight: 700,
+                color: '#1F2937',
+                cursor: 'pointer',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 28,
+                  height: 6,
+                  borderRadius: 3,
+                  background: shown ? r.color : '#D1D5DB',
+                  border: `1.5px solid ${shown ? r.caseColor : '#9CA3AF'}`,
+                }}
+              />
+              {r.legendLabel}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

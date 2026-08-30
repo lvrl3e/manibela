@@ -20,18 +20,40 @@ export async function sendSms(mobileNumber: string, message: string): Promise<vo
   const apiKey = process.env.SEMAPHORE_API_KEY;
   if (!apiKey) return;
 
+  // Semaphore rejects a leading "+" as an invalid number format (confirmed
+  // by testing directly — 09XXXXXXXXX and 63XXXXXXXXXX both work, but
+  // +63XXXXXXXXXX doesn't) even though the app's own numbers are always
+  // +63XXXXXXXXXX via utils/phone's toE164. Stripped only for this one
+  // API call, not anywhere the E.164 form actually matters (DB storage,
+  // other integrations).
   const response = await fetch('https://semaphore.co/api/v4/priority', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       apikey: apiKey,
-      number: mobileNumber,
+      number: mobileNumber.replace(/^\+/, ''),
       message,
     }),
   });
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
+  const body = await response.text();
+
+  // Semaphore doesn't reliably reflect a failure in the HTTP status —
+  // an invalid number comes back as a 200 with a Laravel-style
+  // validation-error object instead of the array shape every real send
+  // attempt returns (confirmed by testing directly: a missing/unapproved
+  // sender name is a bare error array, an invalid number is a bare error
+  // object). Treating a non-array 2xx body as a failure too, on top of
+  // the ordinary non-2xx check, catches both without needing to guess
+  // the exact shape of a genuine success.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok || !Array.isArray(parsed)) {
     throw new Error(`Semaphore SMS send failed (${response.status}): ${body}`);
   }
 }

@@ -43,7 +43,21 @@ export async function issueOtp(
   console.log(`[OTP] ${purpose} code for ${identifier}: ${code}`);
 
   if (channel === 'sms') {
-    await sendSms(identifier, `Your ManibelaApp verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`);
+    // TEMPORARY: swallow-and-log instead of letting this throw, only for
+    // the sms channel — SEMAPHORE_API_KEY is configured on Render but
+    // the sender name it requires for every send isn't approved yet
+    // (see sendSms), so right now every real attempt fails and would
+    // otherwise take the whole request down with it, blocking sign-up
+    // entirely rather than just failing to deliver the text. The code
+    // is still generated and stored above regardless, readable straight
+    // from the OtpCode table in the meantime. Revert this the moment
+    // the sender name is approved and sends actually start succeeding —
+    // channel: 'email' (Resend, already fully working) is untouched.
+    try {
+      await sendSms(identifier, `Your ManibelaApp verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`);
+    } catch (err) {
+      console.error(`[OTP] sendSms failed for ${identifier} (code still issued, see above):`, err);
+    }
   } else {
     await sendEmail(
       identifier,

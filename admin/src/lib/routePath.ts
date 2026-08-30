@@ -127,45 +127,50 @@ export interface RouteDefinition {
   id: string;
   /** Shown on the legend/toggle button. */
   legendLabel: string;
-  /** The exact two directional strings this corridor is recorded as
-   * everywhere else (see DRIVER_ROUTES in backend/src/routes/admin.ts). */
-  directions: [string, string];
-  /** [outbound, return] — drawn as two separate lines, not one, since the
-   * two directions are genuinely different streets (one-way restrictions
-   * through downtown Manila), not a mirror image of each other. */
-  paths: [[number, number][], [number, number][]];
-  /** [outbound, return] fill colors — genuinely different colors (not
-   * just a dash pattern) so the two directions read apart at a glance
-   * even where their lines run close together. Brand yellow for
-   * outbound, brand blue for return, matching the app's own
-   * primary/secondary hierarchy. */
-  colors: [string, string];
-  /** [outbound, return] casing colors — see LiveMap's own doc comment on
-   * why each line is two stacked polylines. */
-  caseColors: [string, string];
+  /** The exact directional string this is recorded as everywhere else
+   * (see DRIVER_ROUTES in backend/src/routes/admin.ts). Each direction is
+   * its own independently-toggleable entry rather than one entry bundling
+   * both — two same-corridor lines shown together (even color-coded) read
+   * as confusing clutter; a toggle per direction, each labeled with the
+   * exact direction it is, doesn't need any of that disambiguation. */
+  direction: string;
+  path: [number, number][];
+  color: string;
+  caseColor: string;
 }
 
-// A second corridor later is just adding another entry here (plus the
-// matching RoutePath.forRoute case on the Flutter side, and the two new
-// direction strings in every kDriverRoutes-equivalent list) — nothing
-// about how LiveMap draws or filters routes needs to change. Only re-add
-// one once it's independently confirmed as an actual registered route,
-// the same way this one was checked against the public GTFS feed.
+// A third direction/corridor later is just adding another entry here
+// (plus the matching RoutePath.forRoute case on the Flutter side, and the
+// new direction string in every kDriverRoutes-equivalent list) — nothing
+// about how LiveMap draws or filters routes needs to change. Only add one
+// once it's independently confirmed as an actual registered route, the
+// same way these two were checked against the public GTFS feed.
 export const ROUTES: RouteDefinition[] = [
   {
     id: 'pasig-quiapo',
-    legendLabel: 'Pasig ↔ Quiapo',
-    directions: ['Pasig – Quiapo', 'Quiapo – Pasig'],
-    paths: [PASIG_QUIAPO_ROUTE, QUIAPO_PASIG_ROUTE],
-    colors: ['#EAB308', '#0B57D0'],
-    caseColors: ['#92600A', '#083D94'],
+    legendLabel: 'Pasig – Quiapo',
+    direction: 'Pasig – Quiapo',
+    path: PASIG_QUIAPO_ROUTE,
+    color: '#EAB308',
+    caseColor: '#92600A',
+  },
+  {
+    id: 'quiapo-pasig',
+    legendLabel: 'Quiapo – Pasig',
+    direction: 'Quiapo – Pasig',
+    // Deliberately not PASIG_QUIAPO_ROUTE reversed — see this array's own
+    // doc comment above QUIAPO_PASIG_ROUTE for why the real return trip
+    // takes different streets than the outbound leg.
+    path: QUIAPO_PASIG_ROUTE,
+    color: '#0B57D0',
+    caseColor: '#083D94',
   },
 ];
 
-/** Whether `route` belongs to any of the given route ids (both directions
- * count) — the filtering rule behind "only show markers on the corridors
- * currently toggled on". */
+/** Whether `route` belongs to any of the given route ids — the filtering
+ * rule behind "only show markers on the directions currently toggled
+ * on". */
 export function matchesAnyRoute(route: string | null | undefined, routeIds: Set<string>): boolean {
   if (!route) return false;
-  return ROUTES.some((r) => routeIds.has(r.id) && (r.directions[0] === route || r.directions[1] === route));
+  return ROUTES.some((r) => routeIds.has(r.id) && r.direction === route);
 }

@@ -304,19 +304,10 @@ export function LiveMap({
           // border/casing option on Polyline (unlike flutter_map's
           // Polyline, which the same route lines use on the Flutter
           // side), so it's two stacked polylines instead: a wider dark
-          // one first, then a narrower bright one on top. Both directions'
-          // paths are drawn — see RouteDefinition.paths's own doc comment
-          // for why they're two genuinely different lines, not one — each
-          // direction gets its own color (see RouteDefinition.colors) so
-          // they read apart at a glance even where the lines run close
-          // together, rather than relying on a dash pattern alone.
+          // one first, then a narrower bright one on top.
           <div key={r.id}>
-            {r.paths.map((path, i) => (
-              <div key={i}>
-                <Polyline positions={path} pathOptions={{ color: r.caseColors[i], weight: 6, opacity: 1 }} />
-                <Polyline positions={path} pathOptions={{ color: r.colors[i], weight: 4, opacity: 1 }} />
-              </div>
-            ))}
+            <Polyline positions={r.path} pathOptions={{ color: r.caseColor, weight: 6, opacity: 1 }} />
+            <Polyline positions={r.path} pathOptions={{ color: r.color, weight: 4, opacity: 1 }} />
           </div>
         ))}
         <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
@@ -355,7 +346,7 @@ export function LiveMap({
               onClick={() => onToggleRoute(r.id)}
               style={{
                 background: shown ? '#FFFBEB' : '#FFFFFF',
-                border: shown ? `2px solid ${r.colors[0]}` : '2px solid #D1D5DB',
+                border: shown ? `2px solid ${r.color}` : '2px solid #D1D5DB',
                 borderRadius: 10,
                 padding: '10px 16px',
                 boxShadow: '0 2px 8px rgba(16,24,40,0.2)',
@@ -374,48 +365,14 @@ export function LiveMap({
                   width: 28,
                   height: 6,
                   borderRadius: 3,
-                  background: shown ? r.colors[0] : '#D1D5DB',
-                  border: `1.5px solid ${shown ? r.caseColors[0] : '#9CA3AF'}`,
+                  background: shown ? r.color : '#D1D5DB',
+                  border: `1.5px solid ${shown ? r.caseColor : '#9CA3AF'}`,
                 }}
               />
               {r.legendLabel}
             </button>
           );
         })}
-        {/* Only shown once there's an actual pair of lines on the map to
-            explain — otherwise this caption has nothing to refer to.
-            Colors come from the first shown route's own [colors] rather
-            than a fixed yellow/blue, so this stays correct if a route is
-            ever added with different direction colors. */}
-        {shownRouteIds.size > 0 &&
-          (() => {
-            const active = ROUTES.find((r) => shownRouteIds.has(r.id))!;
-            return (
-              <div
-                style={{
-                  background: '#FFFFFF',
-                  borderRadius: 8,
-                  padding: '6px 10px',
-                  boxShadow: '0 2px 8px rgba(16,24,40,0.2)',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#6B7280',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ display: 'inline-block', width: 20, height: 3, borderRadius: 2, background: active.colors[0] }} />
-                  Going
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ display: 'inline-block', width: 20, height: 3, borderRadius: 2, background: active.colors[1] }} />
-                  Return
-                </span>
-              </div>
-            );
-          })()}
       </div>
     </div>
   );

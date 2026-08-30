@@ -105,6 +105,20 @@ export const uploadSelfie = multer({
   fileFilter: imageFileFilter,
 }).single('selfie');
 
+/** ID front/back + selfie, all three together — used only by POST
+ * /commuter/resubmit, a REJECTED commuter's one-screen retry (unlike
+ * original sign-up's two separate steps/endpoints, uploadIdPhotos then
+ * uploadSelfie). */
+export const uploadCommuterResubmit = multer({
+  storage,
+  limits: IMAGE_LIMITS,
+  fileFilter: imageFileFilter,
+}).fields([
+  { name: 'front', maxCount: 1 },
+  { name: 'back', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 },
+]);
+
 /** Optional photo evidence attached to a complaint. */
 export const uploadComplaintAttachment = multer({
   storage,

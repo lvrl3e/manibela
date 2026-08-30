@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_client.dart';
 import 'about_app_screen.dart';
 import 'commuter_login_screen.dart';
+import 'commuter_resubmit_screen.dart';
 
 /// Shown instead of the dashboard whenever a commuter's account isn't
 /// APPROVED yet — right after sign-up, or whenever a later login attempt
@@ -89,6 +90,14 @@ class _CommuterVerificationStatusScreenState extends State<CommuterVerificationS
     );
   }
 
+  void _handleResubmit() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CommuterResubmitScreen(mobileNumber: widget.mobileNumber),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final iconBg = _isRejected
@@ -112,7 +121,7 @@ class _CommuterVerificationStatusScreenState extends State<CommuterVerificationS
             ? "You're Verified!"
             : 'Verification In Progress';
     final message = _isRejected
-        ? "We couldn't verify the ID and selfie you submitted. Please contact support for help getting this resolved."
+        ? "We couldn't verify the ID and selfie you submitted. Submit clearer photos and a new selfie to try again."
         : _isApproved
             ? 'Your account has been approved. You can now log in and start using ManibelaApp.'
             : "We're reviewing the ID and selfie you submitted. This usually only takes a short while — please check back later.";
@@ -154,7 +163,11 @@ class _CommuterVerificationStatusScreenState extends State<CommuterVerificationS
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isApproved ? _handleContinueToLogin : _handleClose,
+                  onPressed: _isApproved
+                      ? _handleContinueToLogin
+                      : _isRejected
+                          ? _handleResubmit
+                          : _handleClose,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     padding: const EdgeInsets.symmetric(vertical: 15),
@@ -162,11 +175,25 @@ class _CommuterVerificationStatusScreenState extends State<CommuterVerificationS
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                   child: Text(
-                    _isApproved ? 'Continue to Login' : 'Close',
+                    _isApproved
+                        ? 'Continue to Login'
+                        : _isRejected
+                            ? 'Resubmit'
+                            : 'Close',
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
                   ),
                 ),
               ),
+              if (_isRejected) ...[
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _handleClose,
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

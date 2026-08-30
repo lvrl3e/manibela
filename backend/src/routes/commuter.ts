@@ -14,6 +14,7 @@ import {
   uploadIdPhotos,
   uploadSelfie,
   uploadComplaintAttachment,
+  uploadCommuterResubmit,
   deleteUploadedPhoto,
   uploadBufferToCloudinary,
 } from '../middleware/upload';
@@ -31,6 +32,7 @@ router.use(
     '/send-signup-otp',
     '/verify-signup-otp',
     '/signup',
+    '/resubmit',
     '/login',
     '/forgot-password',
     '/verify-otp',
@@ -370,6 +372,120 @@ router.post('/signup', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ---------------------------------------------------------------------------
+// RESUBMIT (after REJECTED) — a rejected commuter has no way to log in (see
+// POST /login, which withholds the token until APPROVED), so this can't be
+// an authenticated /me-style endpoint the way a driver's resubmit is.
+// Instead it re-verifies mobileNumber+password per request, exactly like
+// /login and /forgot-password already do — the commuter proves who they
+// are on every call rather than carrying a session. One combined
+// submission (ID front/back + selfie together), unlike original sign-up's
+// two separate steps, mirroring driver's own resubmit-on-REJECTED shape
+// more than commuter's own first-time flow.
+// ---------------------------------------------------------------------------
+
+const resubmitCredentialsSchema = z.object({
+  mobileNumber: z.string().trim().min(1),
+  password: z.string().min(1),
+  idType: z.string().trim().min(1),
+});
+
+router.post('/resubmit', (req, res, next) => {
+  uploadCommuterResubmit(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' });
+      return;
+    }
+
+    try {
+      const body = resubmitCredentialsSchema.parse(req.body);
+      const mobileNumber = toE164(body.mobileNumber);
+
+      const files = req.files as
+        | { front?: Express.Multer.File[]; back?: Express.Multer.File[]; selfie?: Express.Multer.File[] }
+        | undefined;
+      const front = files?.front?.[0];
+      const back = files?.back?.[0];
+      const selfie = files?.selfie?.[0];
+      if (!front || !back || !selfie) {
+        res.status(400).json({ error: 'Please provide the front and back of your ID, and a selfie.' });
+        return;
+      }
+
+      const existing = await prisma.commuter.findUnique({ where: { mobileNumber } });
+      if (!existing) {
+        res.status(404).json({ error: 'This number is not registered.' });
+        return;
+      }
+
+      const validPassword = await bcrypt.compare(body.password, existing.passwordHash);
+      if (!validPassword) {
+        res.status(401).json({ error: 'Incorrect password.' });
+        return;
+      }
+
+      if (existing.verificationStatus !== 'REJECTED') {
+        res.status(400).json({ error: 'Only a rejected account can resubmit.' });
+        return;
+      }
+
+      const [idFrontUrl, idBackUrl, selfieUrl] = await Promise.all([
+        uploadBufferToCloudinary(front.buffer, 'id-photos', { sensitive: true }),
+        uploadBufferToCloudinary(back.buffer, 'id-photos', { sensitive: true }),
+        uploadBufferToCloudinary(selfie.buffer, 'selfies', { sensitive: true }),
+      ]);
+
+      // Never blocks the resubmission — any failure (no face found, model
+      // error, fetch failure) just degrades to a null score, falling back
+      // to the same PENDING/manual-review path as before.
+      let faceMatchScore: number | null = null;
+      try {
+        const [selfieBuffer, idBuffer] = await Promise.all([
+          fetchImageBuffer(selfieUrl),
+          fetchImageBuffer(idFrontUrl),
+        ]);
+        faceMatchScore = await compareFaces(selfieBuffer, idBuffer);
+      } catch {
+        faceMatchScore = null;
+      }
+      const autoCleared = faceMatchScore !== null && faceMatchScore >= FACE_MATCH_AUTO_CLEAR_SCORE;
+
+      const commuter = await prisma.commuter.update({
+        where: { id: existing.id },
+        data: {
+          idType: body.idType,
+          idFrontUrl,
+          idBackUrl,
+          selfieUrl,
+          faceMatchScore,
+          verificationStatus: autoCleared ? 'APPROVED' : 'PENDING',
+          isActive: autoCleared,
+        },
+      });
+
+      deleteUploadedPhoto(existing.idFrontUrl);
+      deleteUploadedPhoto(existing.idBackUrl);
+      deleteUploadedPhoto(existing.selfieUrl);
+
+      if (!autoCleared) {
+        await notifyAdmin({
+          title: 'Commuter resubmitted ID verification',
+          message: `${commuter.fullName} (${commuter.commuterId}) resubmitted after a rejection and is waiting for review.`,
+          type: 'ID_VERIFICATION_SUBMITTED',
+          referenceId: commuter.id,
+        });
+      }
+
+      res.json({
+        commuter: toPublicCommuter(commuter),
+        verificationStatus: commuter.verificationStatus,
+      });
+    } catch (err2) {
+      next(err2);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

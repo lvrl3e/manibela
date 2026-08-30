@@ -134,8 +134,15 @@ export interface RouteDefinition {
    * two directions are genuinely different streets (one-way restrictions
    * through downtown Manila), not a mirror image of each other. */
   paths: [[number, number][], [number, number][]];
-  color: string;
-  caseColor: string;
+  /** [outbound, return] fill colors — genuinely different colors (not
+   * just a dash pattern) so the two directions read apart at a glance
+   * even where their lines run close together. Brand yellow for
+   * outbound, brand blue for return, matching the app's own
+   * primary/secondary hierarchy. */
+  colors: [string, string];
+  /** [outbound, return] casing colors — see LiveMap's own doc comment on
+   * why each line is two stacked polylines. */
+  caseColors: [string, string];
 }
 
 // A second corridor later is just adding another entry here (plus the
@@ -150,8 +157,8 @@ export const ROUTES: RouteDefinition[] = [
     legendLabel: 'Pasig ↔ Quiapo',
     directions: ['Pasig – Quiapo', 'Quiapo – Pasig'],
     paths: [PASIG_QUIAPO_ROUTE, QUIAPO_PASIG_ROUTE],
-    color: '#EAB308',
-    caseColor: '#92600A',
+    colors: ['#EAB308', '#0B57D0'],
+    caseColors: ['#92600A', '#083D94'],
   },
 ];
 

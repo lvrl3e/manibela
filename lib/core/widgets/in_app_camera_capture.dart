@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../constants/app_colors.dart';
@@ -31,6 +32,14 @@ class InAppCameraCapture {
     required CaptureGuideShape guideShape,
     required String instruction,
     double guideAspectRatio = 1,
+    // A blink-detection liveness check before the selfie is accepted —
+    // nothing currently stops someone holding up a printed photo or
+    // another screen to the camera and having it read as a match
+    // otherwise, since the face-match step (see backend/src/lib/
+    // faceMatch.ts) only ever compares two static photos. Only meant for
+    // a genuine selfie (guideShape.oval, front camera) — never pass this
+    // for an ID/license document capture, which has no face to blink.
+    bool requireLiveness = false,
   }) async {
     // camera has no reliable desktop (Windows/Linux/macOS) support in this
     // app — same reasoning as isDesktopPlatform's other use sites — so
@@ -50,6 +59,7 @@ class InAppCameraCapture {
           guideShape: guideShape,
           instruction: instruction,
           guideAspectRatio: guideAspectRatio,
+          requireLiveness: requireLiveness,
         ),
       ),
     );
@@ -64,12 +74,14 @@ class _InAppCameraScreen extends StatefulWidget {
     required this.guideShape,
     required this.instruction,
     required this.guideAspectRatio,
+    required this.requireLiveness,
   });
 
   final CameraLensDirection lensDirection;
   final CaptureGuideShape guideShape;
   final String instruction;
   final double guideAspectRatio;
+  final bool requireLiveness;
 
   @override
   State<_InAppCameraScreen> createState() => _InAppCameraScreenState();
@@ -79,6 +91,22 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
   CameraController? _controller;
   _CameraStatus _status = _CameraStatus.initializing;
   bool _isCapturing = false;
+
+  // --- Liveness (see InAppCameraCapture.capture's requireLiveness doc) ---
+  FaceDetector? _faceDetector;
+  bool _isProcessingFrame = false; // drops a frame rather than queueing behind a slow one
+  bool _eyesSeenClosed = false; // becomes true once a frame reads both eyes as closed
+  bool _livenessConfirmed = false;
+  Timer? _livenessTimeoutTimer;
+  // After this long without a detected blink, reveal a manual fallback —
+  // never leave someone permanently stuck behind a check that isn't
+  // working for them (bad lighting, a face shape the model reads
+  // differently, or simply this feature not having been exercised on
+  // their exact device before).
+  static const _livenessTimeout = Duration(seconds: 15);
+  bool _livenessTimedOut = false;
+
+  bool get _needsLivenessGate => widget.requireLiveness && !_livenessConfirmed && !_livenessTimedOut;
 
   @override
   void initState() {
@@ -108,6 +136,16 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
         camera,
         ResolutionPreset.high,
         enableAudio: false,
+        // Only matters for the liveness stream (see
+        // _inputImageFromCameraImage) — nv21/bgra8888 are what ML Kit
+        // expects and, critically, are the formats that make the camera
+        // plugin deliver a single image plane instead of multiple,
+        // which that conversion depends on. Left as the plugin's own
+        // default for a plain document capture, which never reads the
+        // stream at all.
+        imageFormatGroup: widget.requireLiveness
+            ? (Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888)
+            : null,
       );
       await controller.initialize();
       if (!mounted) {
@@ -118,6 +156,7 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
         _controller = controller;
         _status = _CameraStatus.ready;
       });
+      if (widget.requireLiveness) _startLivenessCheck(controller);
     } on CameraException catch (e) {
       if (!mounted) return;
       const deniedCodes = {'CameraAccessDenied', 'CameraAccessDeniedWithoutPrompt', 'CameraAccessRestricted'};
@@ -128,8 +167,116 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
     }
   }
 
+  // Runs face detection on the live preview stream (not the eventual
+  // captured photo — liveness has to come from something changing over
+  // time, which a single still frame can't prove) looking for a
+  // close-then-open blink. If anything here fails to even get started
+  // (model load, stream start, an unsupported image format on this
+  // device), it degrades to the same manual-fallback path as a timeout —
+  // never blocks capture outright over a liveness-detection problem.
+  Future<void> _startLivenessCheck(CameraController controller) async {
+    try {
+      _faceDetector = FaceDetector(
+        options: FaceDetectorOptions(enableClassification: true, performanceMode: FaceDetectorMode.fast),
+      );
+      await controller.startImageStream(_processCameraImage);
+      _livenessTimeoutTimer = Timer(_livenessTimeout, () {
+        if (!mounted || _livenessConfirmed) return;
+        setState(() => _livenessTimedOut = true);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _livenessTimedOut = true);
+    }
+  }
+
+  Future<void> _processCameraImage(CameraImage image) async {
+    if (_isProcessingFrame || _livenessConfirmed || !mounted) return;
+    _isProcessingFrame = true;
+    try {
+      final controller = _controller;
+      final detector = _faceDetector;
+      if (controller == null || detector == null) return;
+
+      final inputImage = _inputImageFromCameraImage(image, controller.description);
+      if (inputImage == null) return;
+
+      final faces = await detector.processImage(inputImage);
+      if (faces.isEmpty || _livenessConfirmed || !mounted) return;
+
+      final face = faces.first;
+      final leftOpen = face.leftEyeOpenProbability;
+      final rightOpen = face.rightEyeOpenProbability;
+      if (leftOpen == null || rightOpen == null) return;
+      final avgOpen = (leftOpen + rightOpen) / 2;
+
+      if (!_eyesSeenClosed) {
+        if (avgOpen < 0.35) _eyesSeenClosed = true;
+      } else if (avgOpen > 0.65) {
+        // Eyes were closed on an earlier frame and are open again now —
+        // a completed blink. Stop watching the stream and capture
+        // immediately, same as a manual shutter tap.
+        _livenessConfirmed = true;
+        unawaited(_finishLivenessCheck());
+        if (mounted) setState(() {});
+        unawaited(_handleCapture());
+      }
+    } catch (_) {
+      // A single bad frame isn't fatal — the next one just gets tried
+      // normally. Only the setup failure above (or the timeout) gives up
+      // on liveness entirely.
+    } finally {
+      _isProcessingFrame = false;
+    }
+  }
+
+  Future<void> _finishLivenessCheck() async {
+    _livenessTimeoutTimer?.cancel();
+    _livenessTimeoutTimer = null;
+    final controller = _controller;
+    try {
+      if (controller != null && controller.value.isStreamingImages) {
+        await controller.stopImageStream();
+      }
+    } catch (_) {
+      // Best-effort — takePicture() below will surface any real problem.
+    }
+  }
+
+  // Converts a raw camera stream frame into ML Kit's InputImage format.
+  // Deliberately assumes the capture screen stays portrait-locked (it
+  // has no rotation UI) rather than tracking live device orientation —
+  // under that assumption the platform-specific rotation compensation
+  // this normally needs collapses to just the camera's own fixed sensor
+  // angle. Requesting nv21 (Android) / bgra8888 (iOS) as the stream
+  // format up front (see CameraController below) is what guarantees a
+  // single image plane here, matching ML Kit's own official example.
+  InputImage? _inputImageFromCameraImage(CameraImage image, CameraDescription camera) {
+    final rotation = InputImageRotationValue.fromRawValue(camera.sensorOrientation);
+    if (rotation == null) return null;
+
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    if (format == null) return null;
+
+    if (image.planes.length != 1) return null;
+    final plane = image.planes.first;
+
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: format,
+        bytesPerRow: plane.bytesPerRow,
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _livenessTimeoutTimer?.cancel();
+    unawaited(_finishLivenessCheck());
+    unawaited(_faceDetector?.close());
     _controller?.dispose();
     super.dispose();
   }
@@ -139,6 +286,7 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
     if (controller == null || _isCapturing) return;
     setState(() => _isCapturing = true);
     try {
+      await _finishLivenessCheck();
       final file = await controller.takePicture();
       if (!mounted) return;
       Navigator.of(context).pop(File(file.path));
@@ -180,6 +328,7 @@ class _InAppCameraScreenState extends State<_InAppCameraScreen> {
             isCapturing: _isCapturing,
             isFrontCamera: widget.lensDirection == CameraLensDirection.front,
             onCapture: _handleCapture,
+            awaitingLiveness: _needsLivenessGate,
           ),
       },
     );
@@ -259,6 +408,7 @@ class _LiveCaptureView extends StatelessWidget {
     required this.isCapturing,
     required this.isFrontCamera,
     required this.onCapture,
+    required this.awaitingLiveness,
   });
 
   final CameraController controller;
@@ -268,6 +418,13 @@ class _LiveCaptureView extends StatelessWidget {
   final bool isCapturing;
   final bool isFrontCamera;
   final VoidCallback onCapture;
+  // True only between a requireLiveness capture starting and either a
+  // detected blink or the safety-valve timeout — see
+  // _InAppCameraScreenState._needsLivenessGate. Swaps the shutter button
+  // for a "blink to continue" prompt so tapping through without blinking
+  // isn't possible under normal operation, while still guaranteeing a
+  // manual way out once the timeout flips this back to false.
+  final bool awaitingLiveness;
 
   // Fills the whole screen the way a real camera app's viewfinder does,
   // cropping the overflow — CameraPreview alone only ever renders at its
@@ -347,7 +504,7 @@ class _LiveCaptureView extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      instruction,
+                      awaitingLiveness ? 'Blink to continue' : instruction,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -357,29 +514,47 @@ class _LiveCaptureView extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    GestureDetector(
-                      onTap: isCapturing ? null : onCapture,
-                      child: Container(
+                    // While awaiting a blink, the shutter is replaced
+                    // entirely (not just disabled) — tapping through
+                    // without blinking shouldn't be possible under normal
+                    // operation, only once the timeout hands control
+                    // back via awaitingLiveness turning false.
+                    if (awaitingLiveness)
+                      Container(
                         width: 72,
                         height: 72,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white,
-                          border: Border.all(color: Colors.white54, width: 4),
+                          color: Colors.black45,
+                          border: Border.all(color: Colors.white38, width: 3),
                         ),
                         alignment: Alignment.center,
-                        child: isCapturing
-                            ? const SizedBox(
-                                width: 26,
-                                height: 26,
-                                child: CircularProgressIndicator(strokeWidth: 2.6, color: AppColors.primary),
-                              )
-                            : Container(
-                                width: 58,
-                                height: 58,
-                                decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.primary),
-                              ),
-                      ),
+                        child: const Icon(Icons.remove_red_eye_outlined, color: Colors.white70, size: 28),
+                      )
+                    else
+                      GestureDetector(
+                        onTap: isCapturing ? null : onCapture,
+                        child: Container(
+                          width: 72,
+                          height: 72,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                            border: Border.all(color: Colors.white54, width: 4),
+                          ),
+                          alignment: Alignment.center,
+                          child: isCapturing
+                              ? const SizedBox(
+                                  width: 26,
+                                  height: 26,
+                                  child: CircularProgressIndicator(strokeWidth: 2.6, color: AppColors.primary),
+                                )
+                              : Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.primary),
+                                ),
+                        ),
                     ),
                   ],
                 ),

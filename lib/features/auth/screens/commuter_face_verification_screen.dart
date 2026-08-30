@@ -49,6 +49,7 @@ class _CommuterFaceVerificationScreenState extends State<CommuterFaceVerificatio
         lensDirection: CameraLensDirection.front,
         guideShape: CaptureGuideShape.oval,
         instruction: 'Position your face within the frame',
+        requireLiveness: true,
       );
 
       if (!mounted) return;

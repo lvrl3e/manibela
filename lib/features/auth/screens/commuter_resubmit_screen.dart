@@ -88,6 +88,7 @@ class _CommuterResubmitScreenState extends State<CommuterResubmitScreen> {
         lensDirection: CameraLensDirection.front,
         guideShape: CaptureGuideShape.oval,
         instruction: 'Position your face within the frame',
+        requireLiveness: true,
       );
       if (picked == null || !mounted) return;
       setState(() => _selfieImage = picked);

@@ -115,6 +115,7 @@ class _DriverLicenseNumberScreenState extends State<DriverLicenseNumberScreen> {
         lensDirection: CameraLensDirection.front,
         guideShape: CaptureGuideShape.oval,
         instruction: 'Position your face within the frame',
+        requireLiveness: true,
       );
       if (picked == null || !mounted) return;
 

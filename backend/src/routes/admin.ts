@@ -1319,8 +1319,14 @@ router.get('/commuter-stats', requireAuth('admin'), async (_req, res, next) => {
 // routes pass frequently enough that a ping this old is more likely someone
 // who gave up and left (or got picked up outside the app) than someone
 // still standing there; showing it anyway just sends a driver somewhere
-// with no one to find.
-const DEMAND_SIGNAL_WINDOW_MS = 15 * 60 * 1000;
+// with no one to find. Also the safety net for a commuter who backgrounds
+// or force-kills the app instead of backing out normally — there's no way
+// to run the explicit /demand-signals/cancel call in that case, so this is
+// the only thing that ever clears their signal. Kept comfortably above the
+// commuter app's own 2-minute keep-alive resend (see
+// jeepney_booking_flow_screen.dart's _startDemandSignalKeepAlive) so a
+// genuinely still-searching commuter never goes stale between refreshes.
+const DEMAND_SIGNAL_WINDOW_MS = 5 * 60 * 1000;
 
 router.get('/demand-signals', requireAuth('admin'), async (_req, res, next) => {
   try {

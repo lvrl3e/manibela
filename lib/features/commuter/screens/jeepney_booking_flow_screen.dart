@@ -556,19 +556,22 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
   // The demand signal fires the moment a route is picked (right here, not
   // from the dashboard's "Sakay na" tap — the route isn't known yet at that
   // point, and GET /driver/demand-signals needs one to filter by, see its
-  // own doc comment in driver.ts) and keeps re-sending every 10 minutes
+  // own doc comment in driver.ts) and keeps re-sending every 2 minutes
   // while still looking. Each send refreshes the same backend row rather
   // than creating a new one (see POST /demand-signals in commuter.ts), so a
   // long wait never inflates a cluster's count — and re-sending well inside
-  // the 15-minute staleness window (see DEMAND_SIGNAL_WINDOW_MS in
+  // the 5-minute staleness window (see DEMAND_SIGNAL_WINDOW_MS in
   // driver.ts/admin.ts) means it never actually goes dark as long as
-  // they're still here.
+  // they're still here. That 5-minute window is also the only thing that
+  // ever clears a signal left behind by an app that got backgrounded or
+  // force-killed instead of backed out of normally — there's no way to run
+  // the explicit /demand-signals/cancel call in that case.
   Timer? _demandSignalKeepAliveTimer;
 
   void _startDemandSignalKeepAlive() {
     if (_demandSignalKeepAliveTimer != null) return;
     _sendDemandSignal();
-    _demandSignalKeepAliveTimer = Timer.periodic(const Duration(minutes: 10), (_) => _sendDemandSignal());
+    _demandSignalKeepAliveTimer = Timer.periodic(const Duration(minutes: 2), (_) => _sendDemandSignal());
   }
 
   void _sendDemandSignal() {

@@ -65,7 +65,7 @@ export default function PassengerLiveMapPage() {
       .catch(() => {});
   }
 
-  // Raw pings from the last 15 minutes (see DEMAND_SIGNAL_WINDOW_MS in
+  // Raw pings from the last 5 minutes (see DEMAND_SIGNAL_WINDOW_MS in
   // admin.ts, and DemandSignal's doc comment in schema.prisma) — clustered
   // client-side below, same as the driver app's own copy of this logic.
   function fetchDemandSignals() {
@@ -158,7 +158,7 @@ export default function PassengerLiveMapPage() {
           <p className="font-display text-sm font-bold text-white">Live Passenger Map</p>
           <p className="text-xs text-white/60">
             {hasLoaded
-              ? `${markers.length} jeepney(s) currently carrying passengers · ${(demandSignals ?? []).length} ride request(s) in the last 15 minutes`
+              ? `${markers.length} jeepney(s) currently carrying passengers · ${(demandSignals ?? []).length} ride request(s) in the last 5 minutes`
               : 'Loading…'}
           </p>
         </div>
@@ -200,7 +200,7 @@ export default function PassengerLiveMapPage() {
           </div>
 
           <div className="border-y border-gray-100 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ride Requests (last 15 min)</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ride Requests (last 5 min)</p>
           </div>
           <div className="max-h-48 overflow-y-auto">
             {!hasLoaded &&

@@ -981,7 +981,7 @@ router.get('/verify-qr/:token', async (req, res, next) => {
 // Same window and reasoning as GET /admin/demand-signals — kept in sync
 // deliberately so admin and driver never disagree on what counts as "still
 // live."
-const DEMAND_SIGNAL_WINDOW_MS = 15 * 60 * 1000;
+const DEMAND_SIGNAL_WINDOW_MS = 5 * 60 * 1000;
 
 const driverDemandSignalsQuerySchema = z.object({
   // The route this driver is currently running — when given, only pings

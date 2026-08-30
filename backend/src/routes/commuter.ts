@@ -1294,7 +1294,7 @@ router.post('/demand-signals', requireAuth('commuter'), async (req, res, next) =
     const body = demandSignalSchema.parse(req.body);
 
     // At most one *outstanding* (unfulfilled) signal per commuter — the
-    // booking flow re-sends this every 10 minutes while still looking
+    // booking flow re-sends this every 2 minutes while still looking
     // (see jeepney_booking_flow_screen.dart) to keep a genuinely-waiting
     // commuter visible past the staleness window; refreshing the existing
     // row in place (rather than creating another) keeps a cluster's count

@@ -326,37 +326,40 @@ export function LiveMap({
       {/* Doubles as both the legend (explains what the yellow line means)
           and the toggle that shows/hides it — off by default, since a
           route line drawn over live jeepney markers is clutter until an
-          admin actually asks for it. */}
+          admin actually asks for it. Top-right: clear of the sidebar, the
+          zoom control, and Leaflet's own attribution text, and the first
+          thing the eye lands on next to the map itself — a small bottom-
+          corner label was too easy to miss entirely. */}
       <button
         type="button"
         onClick={() => setShowRoute((v) => !v)}
         style={{
           position: 'absolute',
-          left: 12,
-          bottom: 12,
+          right: 16,
+          top: 16,
           zIndex: 1000,
-          background: showRoute ? 'rgba(255,251,235,0.95)' : 'rgba(255,255,255,0.92)',
-          border: showRoute ? '1px solid #EAB308' : '1px solid transparent',
-          borderRadius: 8,
-          padding: '6px 10px',
-          boxShadow: '0 1px 4px rgba(16,24,40,0.15)',
+          background: showRoute ? '#FFFBEB' : '#FFFFFF',
+          border: showRoute ? '2px solid #EAB308' : '2px solid #D1D5DB',
+          borderRadius: 10,
+          padding: '10px 16px',
+          boxShadow: '0 2px 8px rgba(16,24,40,0.2)',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          fontSize: 12,
-          fontWeight: 600,
-          color: '#374151',
+          gap: 10,
+          fontSize: 14,
+          fontWeight: 700,
+          color: '#1F2937',
           cursor: 'pointer',
         }}
       >
         <span
           style={{
             display: 'inline-block',
-            width: 20,
-            height: 4,
-            borderRadius: 2,
+            width: 28,
+            height: 6,
+            borderRadius: 3,
             background: showRoute ? '#EAB308' : '#D1D5DB',
-            border: `1px solid ${showRoute ? '#92600A' : '#9CA3AF'}`,
+            border: `1.5px solid ${showRoute ? '#92600A' : '#9CA3AF'}`,
           }}
         />
         Pasig ↔ Quiapo route

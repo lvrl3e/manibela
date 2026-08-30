@@ -7,10 +7,10 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/map_config.dart';
-import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 import '../../../core/utils/location_settings.dart';
+import '../widgets/passenger_info_sheet.dart';
 
 /// ---------------------------------------------------------------------------
 /// ACTIVE TRIP CONTROLLER
@@ -412,6 +412,22 @@ class _DriverTripInProgressScreenState
     }
   }
 
+  // Tapping a waiting-passenger pin shows just distance + ETA to that
+  // cluster — no Navigate/Accept/Track/Request action, per the spec this
+  // feature was built from (drivers shouldn't be interacting with the
+  // phone beyond a glance while driving).
+  void _showPassengerInfo(_WaitingStop stop, LatLng currentLocation) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => PassengerInfoSheet(
+        origin: currentLocation,
+        destination: stop.point,
+        count: stop.count,
+      ),
+    );
+  }
+
   // -------------------------------------------------------------------------
   // FORMATTING
   // -------------------------------------------------------------------------
@@ -594,27 +610,20 @@ class _DriverTripInProgressScreenState
                       ],
                     ),
 
-                    PolylineLayer(
-                      polylines: [
-                        Polyline(
-                          points: RoutePath.forRoute(route),
-                          strokeWidth: 4,
-                          color: AppColors.primary,
-                          borderStrokeWidth: 2,
-                          borderColor: AppColors.onPrimary,
-                        ),
-                      ],
-                    ),
-
                     MarkerLayer(
                       markers: [
-                        // Waiting passenger stops.
+                        // Waiting passenger stops — tap for distance + ETA
+                        // (see _showPassengerInfo); no full route line here
+                        // per the spec this feature was built from.
                         for (final stop in _demandStops)
                           Marker(
                             point: stop.point,
                             width: 34,
                             height: 34,
-                            child: _WaitingStopPin(count: stop.count),
+                            child: GestureDetector(
+                              onTap: () => _showPassengerInfo(stop, currentLocation),
+                              child: _WaitingStopPin(count: stop.count),
+                            ),
                           ),
 
                         // Driver vehicle.

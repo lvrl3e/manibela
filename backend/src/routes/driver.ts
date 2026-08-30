@@ -16,6 +16,8 @@ import { uploadPhoto, uploadLicensePhotos, deleteUploadedPhoto, uploadBufferToCl
 import { notifyDriver, notifyAdmin, notifyCommuter } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
 import { compareFaces, fetchImageBuffer, FACE_MATCH_AUTO_CLEAR_SCORE } from '../lib/faceMatch';
+import { distanceMeters, estimateEtaMinutes } from '../utils/geo';
+import { getRoute } from '../lib/routingService';
 
 const router = Router();
 
@@ -1008,6 +1010,35 @@ router.get('/demand-signals', requireAuth('driver'), async (req, res, next) => {
       select: { id: true, lat: true, lng: true, createdAt: true, partySize: true },
     });
     res.json({ signals });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const routeToPassengerQuerySchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+  passengerLat: z.coerce.number().min(-90).max(90),
+  passengerLng: z.coerce.number().min(-180).max(180),
+});
+
+// Called once, on tap — not polled — when a driver taps a waiting-
+// passenger cluster on the map. Real routed distance/duration (see
+// lib/routingService.ts) when available, falling back to the same
+// straight-line estimate GET /commuter/nearby-jeepneys uses (see
+// utils/geo.ts) otherwise. No traffic condition here — not part of
+// what the driver-side view needs to show.
+router.get('/route-to-passenger', requireAuth('driver'), async (req, res, next) => {
+  try {
+    const query = routeToPassengerQuerySchema.parse(req.query);
+    const from = { lat: query.lat, lng: query.lng };
+    const to = { lat: query.passengerLat, lng: query.passengerLng };
+    const routed = await getRoute(from, to);
+
+    const distance = routed ? routed.distanceMeters : distanceMeters(from.lat, from.lng, to.lat, to.lng);
+    const etaMinutes = routed ? Math.max(1, Math.round(routed.durationSeconds / 60)) : estimateEtaMinutes(distance);
+
+    res.json({ distanceMeters: Math.round(distance), etaMinutes });
   } catch (err) {
     next(err);
   }

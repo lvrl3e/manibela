@@ -7,7 +7,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/map_config.dart';
-import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
@@ -16,6 +15,7 @@ import '../../../core/utils/location_settings.dart';
 import '../../../core/widgets/logout_confirmation_sheet.dart';
 import '../../../core/widgets/signing_out_screen.dart';
 import '../../auth/screens/driver_login_screen.dart';
+import '../widgets/passenger_info_sheet.dart';
 import 'driver_daily_operations_screen.dart';
 import 'driver_history_screen.dart';
 import 'driver_menu_drawer.dart';
@@ -337,6 +337,24 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _mapController.move(_currentLocation!, 16);
     }
     _resolveCurrentLocation(showErrors: true);
+  }
+
+  // Tapping a waiting-passenger pin on the expanded live map shows just
+  // distance + ETA to that cluster — no Navigate/Accept/Track/Request
+  // action, per the spec this feature was built from (drivers shouldn't be
+  // interacting with the phone beyond a glance). Uses the same real-routed
+  // GET /driver/route-to-passenger the trip-in-progress screen's own
+  // waiting-stop pins call.
+  void _showPassengerInfo(_WaitingStop stop) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => PassengerInfoSheet(
+        origin: _currentLocation ?? _fallbackLocation,
+        destination: stop.point,
+        count: stop.count,
+      ),
+    );
   }
 
   Future<void> _handleLogout() async {
@@ -1347,6 +1365,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               hasRealFix: _currentLocation != null && _locationError == null,
               onRecenter: _recenterMap,
               waitingStops: _demandStops,
+              onTapWaitingStop: _showPassengerInfo,
             ),
           ),
         ],
@@ -1511,6 +1530,11 @@ class _DriverLiveMap extends StatelessWidget {
   /// _DriverDashboardScreenState._fetchDemandSignals.
   final List<_WaitingStop> waitingStops;
 
+  /// Tapping a waiting-passenger pin — null (no tap affordance) on the
+  /// small dashboard preview, which is wrapped in an IgnorePointer anyway;
+  /// wired up only on the expanded, fully interactive map.
+  final ValueChanged<_WaitingStop>? onTapWaitingStop;
+
   const _DriverLiveMap({
     required this.mapController,
     required this.currentLocation,
@@ -1518,6 +1542,7 @@ class _DriverLiveMap extends StatelessWidget {
     this.onRecenter,
     this.interactive = true,
     this.waitingStops = const [],
+    this.onTapWaitingStop,
   });
 
   @override
@@ -1550,17 +1575,6 @@ class _DriverLiveMap extends StatelessWidget {
                   ),
                 ],
               ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: RoutePath.pasigToQuiapo,
-                  strokeWidth: 4,
-                  color: AppColors.primary,
-                  borderStrokeWidth: 2,
-                  borderColor: AppColors.onPrimary,
-                ),
-              ],
-            ),
             MarkerLayer(
               markers: [
                 Marker(
@@ -1595,7 +1609,12 @@ class _DriverLiveMap extends StatelessWidget {
                     point: stop.point,
                     width: 34,
                     height: 34,
-                    child: _WaitingStopPin(count: stop.count),
+                    child: onTapWaitingStop == null
+                        ? _WaitingStopPin(count: stop.count)
+                        : GestureDetector(
+                            onTap: () => onTapWaitingStop!(stop),
+                            child: _WaitingStopPin(count: stop.count),
+                          ),
                   ),
               ],
             ),

@@ -12,6 +12,7 @@ import '../../../core/constants/qr_constants.dart';
 import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/user_session.dart';
+import '../../../core/utils/distance_format.dart';
 import '../../../core/widgets/app_avatar.dart';
 import 'commuter_history_screen.dart';
 import 'notifications_screen.dart';
@@ -134,6 +135,13 @@ class _JeepneyOption {
   /// it, while the commuter is actively searching.
   final LatLng? position;
 
+  /// A time-of-day estimate (not real sensor data — see
+  /// lib/trafficEstimate.ts's own doc comment on the backend), null until
+  /// resolved from either GET /nearby-jeepneys or, once this option is
+  /// actively being followed (see _trackSelectedJeepney), the more precise
+  /// GET /jeepney-route.
+  final String? trafficCondition;
+
   const _JeepneyOption({
     required this.plateNumber,
     required this.driverName,
@@ -144,7 +152,28 @@ class _JeepneyOption {
     this.photoUrl,
     this.tripId,
     this.position,
+    this.trafficCondition,
   });
+
+  _JeepneyOption copyWith({
+    int? etaMinutes,
+    int? distanceMeters,
+    LatLng? position,
+    String? trafficCondition,
+  }) {
+    return _JeepneyOption(
+      plateNumber: plateNumber,
+      driverName: driverName,
+      etaMinutes: etaMinutes ?? this.etaMinutes,
+      distanceMeters: distanceMeters ?? this.distanceMeters,
+      driverRating: driverRating,
+      ratingCount: ratingCount,
+      photoUrl: photoUrl,
+      tripId: tripId,
+      position: position ?? this.position,
+      trafficCondition: trafficCondition ?? this.trafficCondition,
+    );
+  }
 }
 
 /// An already-in-progress trip from GET /api/commuter/active-trip — lets
@@ -229,6 +258,18 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
         try {
           _mapController.move(
             _glidePosition(_boardedGlideKey, _boardedJeepneyPosition!),
+            _mapController.camera.zoom,
+          );
+        } catch (_) {
+          // Map not laid out yet — safe to skip.
+        }
+      } else if (_step == _BookingStep.findingJeepneys && _selectedJeepney?.position != null) {
+        // Same camera-follow trick, applied to whichever jeepney is
+        // currently selected on the findingJeepneys step — see
+        // _selectJeepneyForTracking/_pollTrackedJeepneyRoute.
+        try {
+          _mapController.move(
+            _glidePosition(_selectedJeepney!.plateNumber, _selectedJeepney!.position!),
             _mapController.camera.zoom,
           );
         } catch (_) {
@@ -360,6 +401,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
 
   void _goTo(_BookingStep step) => setState(() => _step = step);
 
+  /// While a jeepney is selected on the findingJeepneys step, the map
+  /// narrows to just that one (its live position + trail) instead of the
+  /// full nearby list — matches the "Now Tracking" card that replaces the
+  /// list's highlight in the panel below (see _FindJeepneysStep).
+  List<_JeepneyOption> get _visibleJeepneys =>
+      _selectedJeepney != null ? [_selectedJeepney!] : _nearbyJeepneys;
+
   // The X button never ends the trip itself — it only ever closes this
   // screen (dispose() below is what cancels the demand-signal watch, see
   // _stopProximityPolling; there's no /alight call anywhere near this). If
@@ -399,6 +447,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
             photoUrl: map['photoUrl'] as String?,
             tripId: map['tripId'] as String?,
             position: LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble()),
+            trafficCondition: map['trafficCondition'] as String?,
           );
         }).toList();
         _isLoadingNearby = false;
@@ -416,6 +465,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
       if (_step == _BookingStep.findingJeepneys) {
         _startProximityPolling();
         _startDemandSignalKeepAlive();
+        if (_selectedJeepney != null) _startTrackingSelectedJeepney();
       }
       _maybeAutoPromptProximityBoard();
     } on ApiException catch (e) {
@@ -447,6 +497,79 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
     _proximityPollTimer = null;
     _proximityFirstSeenAt.clear();
     _stopDemandSignalKeepAlive();
+    _stopTrackingSelectedJeepney();
+  }
+
+  // Follows one specific jeepney once it's selected on the findingJeepneys
+  // step — selecting *is* following (no separate "Track" button, per the
+  // spec this feature was built from). Polls the more precise, real-routed
+  // GET /commuter/jeepney-route (see routingService.ts) every 5s, replacing
+  // that one jeepney's straight-line list figures with real road-network
+  // distance/ETA/traffic and keeping its map position current independent
+  // of the general nearby-list refresh.
+  Timer? _trackingPollTimer;
+
+  void _selectJeepneyForTracking(_JeepneyOption jeepney) {
+    setState(() => _selectedJeepney = jeepney);
+    _startTrackingSelectedJeepney();
+  }
+
+  void _deselectJeepney() {
+    _stopTrackingSelectedJeepney();
+    if (!mounted) return;
+    setState(() => _selectedJeepney = null);
+  }
+
+  void _startTrackingSelectedJeepney() {
+    _trackingPollTimer?.cancel();
+    _pollTrackedJeepneyRoute();
+    _trackingPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollTrackedJeepneyRoute());
+  }
+
+  void _stopTrackingSelectedJeepney() {
+    _trackingPollTimer?.cancel();
+    _trackingPollTimer = null;
+  }
+
+  Future<void> _pollTrackedJeepneyRoute() async {
+    final tracked = _selectedJeepney;
+    if (tracked == null || tracked.tripId == null || _step != _BookingStep.findingJeepneys) return;
+
+    await _locateUser(moveMap: false);
+    if (!mounted || _selectedJeepney?.tripId != tracked.tripId) return;
+
+    try {
+      final response = await ApiClient.get(
+        '/api/commuter/jeepney-route'
+        '?tripId=${tracked.tripId}&lat=${_center.latitude}&lng=${_center.longitude}',
+        token: UserSession.instance.authToken,
+      );
+      if (!mounted || _selectedJeepney?.tripId != tracked.tripId) return;
+
+      final position = LatLng(
+        (response['lat'] as num).toDouble(),
+        (response['lng'] as num).toDouble(),
+      );
+      setState(() {
+        _selectedJeepney = _selectedJeepney!.copyWith(
+          distanceMeters: response['distanceMeters'] as int,
+          etaMinutes: response['etaMinutes'] as int,
+          position: position,
+          trafficCondition: response['trafficCondition'] as String?,
+        );
+      });
+      _setGlideTarget(tracked.plateNumber, position);
+      _restartGlide();
+    } on ApiException catch (e) {
+      // The jeepney went offline mid-follow (trip ended, its location went
+      // stale) — drop back to the normal nearby view rather than silently
+      // tracking a vehicle that's no longer really there.
+      if (!mounted || _selectedJeepney?.tripId != tracked.tripId) return;
+      _deselectJeepney();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      // Best-effort — just try again next tick.
+    }
   }
 
   // The demand signal fires the moment a route is picked (right here, not
@@ -609,6 +732,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
         // later is still worth another prompt) or anything else nearby.
         _proximitySnoozedUntil[tripId] = DateTime.now().add(_proximitySnoozeDuration);
         _startProximityPolling();
+        if (_selectedJeepney != null) _startTrackingSelectedJeepney();
       }
     });
   }
@@ -986,7 +1110,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                         strokeWidth: 3,
                         color: Colors.black26,
                       ),
-                      for (final jeepney in _nearbyJeepneys)
+                      for (final jeepney in _visibleJeepneys)
                         if (jeepney.position != null)
                           Polyline(
                             points: RoutePath.trailBetween(
@@ -994,8 +1118,8 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                               _center,
                               route: _selectedRoute,
                             ),
-                            strokeWidth: jeepney == _selectedJeepney ? 5 : 3,
-                            color: jeepney == _selectedJeepney
+                            strokeWidth: _selectedJeepney != null ? 5 : 3,
+                            color: _selectedJeepney != null
                                 ? _kBlue
                                 : Colors.black54,
                           ),
@@ -1022,16 +1146,16 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                     // step; _nearbyJeepneys is empty everywhere else, so
                     // this naturally shows nothing on the other steps.
                     if (_step == _BookingStep.findingJeepneys)
-                      for (final jeepney in _nearbyJeepneys)
+                      for (final jeepney in _visibleJeepneys)
                         if (jeepney.position != null)
                           Marker(
                             point: _glidePosition(jeepney.plateNumber, jeepney.position!),
                             width: 30,
                             height: 30,
                             child: GestureDetector(
-                              onTap: () => setState(() => _selectedJeepney = jeepney),
+                              onTap: () => _selectJeepneyForTracking(jeepney),
                               child: _JeepneyMapPin(
-                                selected: jeepney == _selectedJeepney,
+                                selected: jeepney.plateNumber == _selectedJeepney?.plateNumber,
                               ),
                             ),
                           ),
@@ -1131,12 +1255,14 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
 
       case _BookingStep.findingJeepneys:
         return _FindJeepneysStep(
+          route: _selectedRoute,
           jeepneys: _nearbyJeepneys,
           isLoading: _isLoadingNearby,
           error: _nearbyError,
           onRetry: () => _startFindingJeepneys(_center),
           selected: _selectedJeepney,
-          onSelect: (jeepney) => setState(() => _selectedJeepney = jeepney),
+          onSelect: _selectJeepneyForTracking,
+          onDeselect: _deselectJeepney,
           onBack: () {
             _stopProximityPolling();
             _goTo(_BookingStep.routeAndCompanions);
@@ -1667,22 +1793,19 @@ class _StepperButton extends StatelessWidget {
 // picking stage, so it's still useful information before boarding).
 // ---------------------------------------------------------------------------
 
-/// "120m away" under 1km, "1.2km away" beyond it — matches how the
-/// backend's own distanceMeters (straight-line, see nearby-jeepneys' doc
-/// comment in commuter.ts) is best presented: precise enough to be
-/// useful, not implying GPS accuracy it doesn't have.
-String _formatDistance(int meters) {
-  if (meters < 1000) return '${meters}m away';
-  return '${(meters / 1000).toStringAsFixed(1)}km away';
-}
-
 class _FindJeepneysStep extends StatelessWidget {
+  final String? route;
   final List<_JeepneyOption> jeepneys;
   final bool isLoading;
   final String? error;
   final VoidCallback onRetry;
   final _JeepneyOption? selected;
   final ValueChanged<_JeepneyOption> onSelect;
+
+  /// Stops following [selected] and returns to the normal nearby-jeepney
+  /// view — the only "close tracking" affordance; there's no separate
+  /// Track button anywhere (selecting a jeepney *is* following it).
+  final VoidCallback onDeselect;
   final VoidCallback onBack;
   final VoidCallback? onBook;
 
@@ -1693,12 +1816,14 @@ class _FindJeepneysStep extends StatelessWidget {
   final VoidCallback? onScanQrInstead;
 
   const _FindJeepneysStep({
+    required this.route,
     required this.jeepneys,
     required this.isLoading,
     required this.error,
     required this.onRetry,
     required this.selected,
     required this.onSelect,
+    required this.onDeselect,
     required this.onBack,
     required this.onBook,
     required this.onScanQrInstead,
@@ -1706,16 +1831,23 @@ class _FindJeepneysStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tracked = selected;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _StepTitle(
-          title: 'Nearby Jeepneys',
-          subtitle: "We'll offer to board automatically once you're right next to one",
+          title: tracked == null ? 'Nearby Jeepneys' : 'Now Tracking',
+          subtitle: tracked == null
+              ? "We'll offer to board automatically once you're right next to one"
+              : 'Following this jeepney live on the map — pick another below to switch',
           onBack: onBack,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
+        if (tracked != null) ...[
+          _TrackedJeepneyCard(route: route, jeepney: tracked, onClose: onDeselect),
+          const SizedBox(height: 12),
+        ],
         if (isLoading)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
@@ -1756,7 +1888,7 @@ class _FindJeepneysStep extends StatelessWidget {
           )
         else
           ...jeepneys.map((jeepney) {
-            final isSelected = jeepney == selected;
+            final isSelected = selected != null && jeepney.plateNumber == selected!.plateNumber;
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Material(
@@ -1789,7 +1921,7 @@ class _FindJeepneysStep extends StatelessWidget {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                '${_formatDistance(jeepney.distanceMeters)} · ~${jeepney.etaMinutes} min',
+                                '${formatDistanceAway(jeepney.distanceMeters)} · ~${jeepney.etaMinutes} min',
                                 style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w500),
                               ),
                             ],
@@ -1818,6 +1950,111 @@ class _FindJeepneysStep extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Live "Now Tracking" summary shown above the list once a jeepney is
+/// selected on the findingJeepneys step — kept current by
+/// _pollTrackedJeepneyRoute, which is what replaces these figures with the
+/// more precise, real-routed GET /commuter/jeepney-route response (real
+/// road-network distance/ETA/traffic) instead of the list's cheaper
+/// straight-line estimate.
+class _TrackedJeepneyCard extends StatelessWidget {
+  final String? route;
+  final _JeepneyOption jeepney;
+  final VoidCallback onClose;
+
+  const _TrackedJeepneyCard({required this.route, required this.jeepney, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF1FF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _kBlue, width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DriverAvatar(photoUrl: jeepney.photoUrl, radius: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${jeepney.plateNumber} · ${jeepney.driverName}',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: _kBlue),
+                ),
+                if (route != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    route!,
+                    style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w600),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      '${formatDistanceAway(jeepney.distanceMeters)} · ~${jeepney.etaMinutes} min',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black87),
+                    ),
+                    if (jeepney.trafficCondition != null)
+                      _TrafficPill(condition: jeepney.trafficCondition!),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          InkWell(
+            onTap: onClose,
+            borderRadius: BorderRadius.circular(16),
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(Icons.close_rounded, size: 18, color: Colors.black45),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A colored pill for the time-of-day traffic estimate (see
+/// trafficEstimate.ts's own doc comment on the backend for why this is a
+/// heuristic, not live sensor data) — green/amber/red matching the
+/// Light/Moderate/Heavy vocabulary used verbatim in the API response.
+class _TrafficPill extends StatelessWidget {
+  final String condition;
+  const _TrafficPill({required this.condition});
+
+  Color get _color {
+    switch (condition) {
+      case 'Heavy':
+        return const Color(0xFFE23F3F);
+      case 'Moderate':
+        return const Color(0xFFE0A800);
+      default:
+        return const Color(0xFF1E9E5A);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: _color.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
+      child: Text(
+        '$condition Traffic',
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: _color),
+      ),
     );
   }
 }

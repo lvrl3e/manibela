@@ -23,6 +23,9 @@ import { toTitleCase } from '../utils/text';
 import { notifyDriver, notifyCommuter, notifyAdmin } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
 import { compareFaces, fetchImageBuffer, FACE_MATCH_AUTO_CLEAR_SCORE } from '../lib/faceMatch';
+import { distanceMeters, estimateEtaMinutes } from '../utils/geo';
+import { getRoute } from '../lib/routingService';
+import { estimateTrafficCondition } from '../lib/trafficEstimate';
 
 const router = Router();
 
@@ -927,26 +930,6 @@ const NEARBY_STALENESS_MS = 5 * 60 * 1000;
 // actually at the jeepney; just watching it approach doesn't).
 const NEARBY_RADIUS_METERS = 20000;
 
-// Rough city-jeepney travel speed for an ETA estimate — this app has no
-// real routing/traffic data, so straight-line distance over an assumed
-// average speed is the best available approximation, clearly presented
-// as an estimate (see etaMinutes below) rather than implying precision
-// the data doesn't support.
-const ASSUMED_SPEED_KMH = 15;
-
-// Haversine distance in meters — the two points are always close enough
-// (city-scale) that Earth's curvature beyond a spherical approximation
-// doesn't matter here.
-function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
-
 router.get('/nearby-jeepneys', requireAuth('commuter'), async (req, res, next) => {
   try {
     const query = nearbyJeepneysQuerySchema.parse(req.query);
@@ -974,6 +957,12 @@ router.get('/nearby-jeepneys', requireAuth('commuter'), async (req, res, next) =
     const driversById = new Map(drivers.map((d) => [d.id, d]));
     const ratingByDriver = new Map(ratingAgg.map((r) => [r.driverId, { avg: r._avg.stars, count: r._count.stars }]));
 
+    // One estimate for the whole list — it's time-of-day-based, not
+    // per-jeepney, so there's no reason to recompute it per row (see
+    // lib/trafficEstimate.ts's own doc comment on why this is an
+    // estimate, not measured data).
+    const trafficCondition = estimateTrafficCondition();
+
     const jeepneys = trips
       .map((trip) => {
         const driver = driversById.get(trip.driverId);
@@ -990,7 +979,8 @@ router.get('/nearby-jeepneys', requireAuth('commuter'), async (req, res, next) =
           lat: trip.currentLat,
           lng: trip.currentLng,
           distanceMeters: Math.round(distance),
-          etaMinutes: Math.max(1, Math.round((distance / 1000 / ASSUMED_SPEED_KMH) * 60)),
+          etaMinutes: estimateEtaMinutes(distance),
+          trafficCondition,
           averageRating: ratingInfo?.avg ?? null,
           ratingCount: ratingInfo?.count ?? 0,
         };
@@ -999,6 +989,68 @@ router.get('/nearby-jeepneys', requireAuth('commuter'), async (req, res, next) =
       .sort((a, b) => a.distanceMeters - b.distanceMeters);
 
     res.json({ jeepneys });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const jeepneyRouteQuerySchema = z.object({
+  tripId: z.string().trim().min(1),
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+});
+
+// The "follow this jeepney" view's own poll target — deliberately
+// separate from the list above rather than folded into it. The list is
+// polled every few seconds for potentially many jeepneys at once, so it
+// deliberately keeps the cheap straight-line estimate; this endpoint is
+// only ever polled for the *one* jeepney a commuter has actually
+// selected, so it's the one place worth paying for a real routed
+// distance/duration (see lib/routingService.ts) — falling back to the
+// same straight-line estimate as the list if that's ever unavailable.
+router.get('/jeepney-route', requireAuth('commuter'), async (req, res, next) => {
+  try {
+    const query = jeepneyRouteQuerySchema.parse(req.query);
+    const since = new Date(Date.now() - NEARBY_STALENESS_MS);
+
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: query.tripId,
+        status: 'ACTIVE',
+        currentLat: { not: null },
+        currentLng: { not: null },
+        locationUpdatedAt: { gte: since },
+      },
+    });
+    if (!trip) {
+      res.status(404).json({ error: 'This jeepney is no longer available.' });
+      return;
+    }
+
+    const driver = await prisma.driver.findUnique({ where: { id: trip.driverId } });
+    if (!driver || !driver.isActive) {
+      res.status(404).json({ error: 'This jeepney is no longer available.' });
+      return;
+    }
+
+    const from = { lat: query.lat, lng: query.lng };
+    const to = { lat: trip.currentLat!, lng: trip.currentLng! };
+    const routed = await getRoute(from, to);
+
+    const distance = routed ? routed.distanceMeters : distanceMeters(from.lat, from.lng, to.lat, to.lng);
+    const etaMinutes = routed ? Math.max(1, Math.round(routed.durationSeconds / 60)) : estimateEtaMinutes(distance);
+
+    res.json({
+      tripId: trip.id,
+      driverName: driver.fullName,
+      plateNumber: driver.plateNumber,
+      route: trip.route,
+      lat: trip.currentLat,
+      lng: trip.currentLng,
+      distanceMeters: Math.round(distance),
+      etaMinutes,
+      trafficCondition: estimateTrafficCondition(),
+    });
   } catch (err) {
     next(err);
   }

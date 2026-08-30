@@ -56,3 +56,7 @@ app.*.map.json
 # the repo root — see .vercel/project.json) — machine-specific, not
 # something to share via version control.
 .vercel/
+
+# Local scratch space for design-tool working files (Claude Design canvases,
+# generated diagrams) — not part of the shipped app.
+/scratch/

@@ -21,6 +21,7 @@ import { normalizePlateNumber } from '../utils/plate';
 import { toTitleCase } from '../utils/text';
 import { notifyDriver, notifyCommuter, notifyAdmin } from '../utils/notify';
 import { authLimiter } from '../middleware/rateLimit';
+import { compareFaces, fetchImageBuffer, FACE_MATCH_AUTO_CLEAR_SCORE } from '../lib/faceMatch';
 
 const router = Router();
 
@@ -300,6 +301,25 @@ router.post('/signup', async (req, res, next) => {
       return;
     }
 
+    // Compares the selfie against the ID's own photo — local, no vendor
+    // API. Never throws: compareFaces already degrades to null on any
+    // failure (no face found, model error, etc.), and the fetches below
+    // are wrapped the same way, so a face-match hiccup only ever means
+    // "fall back to manual review," never a blocked signup.
+    let faceMatchScore: number | null = null;
+    if (pending.selfieUrl && pending.idFrontUrl) {
+      try {
+        const [selfieBuffer, idBuffer] = await Promise.all([
+          fetchImageBuffer(pending.selfieUrl),
+          fetchImageBuffer(pending.idFrontUrl),
+        ]);
+        faceMatchScore = await compareFaces(selfieBuffer, idBuffer);
+      } catch {
+        faceMatchScore = null;
+      }
+    }
+    const autoCleared = faceMatchScore !== null && faceMatchScore >= FACE_MATCH_AUTO_CLEAR_SCORE;
+
     const commuter = await prisma.commuter.create({
       data: {
         commuterId: await generateCommuterId(),
@@ -312,10 +332,15 @@ router.post('/signup', async (req, res, next) => {
         idFrontUrl: pending.idFrontUrl,
         idBackUrl: pending.idBackUrl,
         selfieUrl: pending.selfieUrl,
+        faceMatchScore,
         // Submitting docs is what puts an account in the admin review
         // queue — no docs yet (null) is a different state from "waiting
-        // on a human," which is why this isn't just "always PENDING".
-        verificationStatus: pending.idFrontUrl ? 'PENDING' : null,
+        // on a human," which is why this isn't just "always PENDING". A
+        // high enough faceMatchScore skips that queue entirely and
+        // activates the account immediately, same end state as an
+        // admin's own APPROVED call.
+        verificationStatus: !pending.idFrontUrl ? null : autoCleared ? 'APPROVED' : 'PENDING',
+        isActive: autoCleared,
       },
     });
 
@@ -330,13 +355,14 @@ router.post('/signup', async (req, res, next) => {
       });
     }
 
-    // No token here — a brand-new account is never APPROVED yet (that
-    // can only happen after an admin reviews it, which can't have
-    // happened in the moments since this row was just created), so
-    // handing out a session here would let a fresh sign-up skip the
-    // exact gate /login enforces. The app sends them to the
-    // verification-status screen instead, the same place a blocked
-    // /login attempt does.
+    // No token here even when the face match just auto-cleared this
+    // account (verificationStatus APPROVED) — the app always routes a
+    // fresh sign-up to the verification-status screen next (same place a
+    // blocked /login attempt lands), which reads verificationStatus
+    // itself to show "You're Verified!" and a normal login prompt from
+    // there. Keeping that one path for every outcome, auto-cleared or
+    // not, is simpler than a second "already logged in" branch for a
+    // one-time skip of the login screen.
     res.status(201).json({
       commuter: toPublicCommuter(commuter),
       verificationStatus: commuter.verificationStatus,

@@ -1099,6 +1099,7 @@ router.get('/commuters/:id', requireAuth('admin'), async (req, res, next) => {
         idFrontUrl: commuter.idFrontUrl,
         idBackUrl: commuter.idBackUrl,
         selfieUrl: commuter.selfieUrl,
+        faceMatchScore: commuter.faceMatchScore,
         verificationStatus: commuter.verificationStatus,
         isActive: commuter.isActive,
         totalSignals,

@@ -60,27 +60,35 @@ model Commuter {
 
   /// Carried over from PendingCommuterSignup at signup redemption — the
   /// government ID type/photos and selfie captured during onboarding.
-  /// Stored for the account's lifetime as the KYC record; nothing
-  /// currently runs an actual face-match against [selfieUrl] (see the
-  /// TODO on the face-verification screen) — these are just persisted.
+  /// Stored for the account's lifetime as the KYC record.
   idType          String?
   idFrontUrl      String?
   idBackUrl       String?
   selfieUrl       String?
 
-  /// Null until ID/selfie is submitted (nothing to review yet); set to
-  /// PENDING the moment /signup redeems a ticket that has them, then
-  /// moved to APPROVED/REJECTED by an admin via POST
-  /// /api/admin/commuters/:id/verify. No automated face-match sets this
-  /// — it's purely a manual review outcome.
+  /// 0-100 similarity between [selfieUrl] and the photo on [idFrontUrl],
+  /// computed once at /signup via lib/faceMatch.ts (face-api.js, local —
+  /// no vendor/API key). Null means the comparison couldn't confidently
+  /// find a face in one or both photos (bad lighting, face not fully in
+  /// frame, model failed to load, etc.) — treated exactly like a
+  /// below-threshold score, never blocks signup. Purely informational
+  /// once set; an admin's later APPROVED/REJECTED call doesn't touch it.
+  faceMatchScore  Int?
+
+  /// Null until ID/selfie is submitted (nothing to review yet); set at
+  /// /signup to APPROVED (auto-cleared, see FACE_MATCH_AUTO_CLEAR_SCORE
+  /// in lib/faceMatch.ts) or PENDING (below threshold / no score),
+  /// then — for anything still PENDING — moved to APPROVED/REJECTED by
+  /// an admin via POST /api/admin/commuters/:id/verify.
   verificationStatus IdVerificationStatus?
 
   /// Whether this account can log in — same enforcement point as
   /// verificationStatus in POST /login. Defaults to false: a brand-new
-  /// signup isn't "active" until an admin approves its ID/selfie (see
-  /// POST /api/admin/commuters/:id/verify, which flips this to true
-  /// alongside verificationStatus). An admin can also flip it back to
-  /// false later to soft-disable an already-approved account without
+  /// signup isn't "active" until it's APPROVED — either automatically at
+  /// /signup (a high enough faceMatchScore) or later by an admin via
+  /// POST /api/admin/commuters/:id/verify, both of which flip this to
+  /// true alongside verificationStatus. An admin can also flip it back
+  /// to false later to soft-disable an already-approved account without
   /// deleting it.
   isActive        Boolean   @default(false)
 

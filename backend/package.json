@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
+    "@tensorflow/tfjs-node": "^4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "3.0.3",
     "cloudinary": "^2.10.1",
     "cors": "2.8.6",
@@ -38,5 +40,9 @@
     "prisma": "6.19.3",
     "ts-node": "10.9.2",
     "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "@tensorflow/tfjs-node@4.22.0": true,
+    "core-js@3.29.1": true
   }
 }

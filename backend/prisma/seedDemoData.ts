@@ -10,7 +10,7 @@ import { generateQrToken } from '../src/utils/qrToken';
 // DR-DEMO-*/CM-DEMO-* rows (and everything hanging off them) before
 // recreating, so tweaking this file and rerunning is safe.
 
-const ROUTES = ['Pasig – Quiapo (Shaw Blvd)', 'Quiapo – Pasig (Shaw Blvd)'] as const;
+const ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig'] as const;
 // The admin whose JWT this session has been using — attributed as the
 // reviewer on already-reviewed trips so Trip History reads as a real
 // reviewer having looked at them, not a placeholder.

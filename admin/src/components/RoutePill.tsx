@@ -2,10 +2,8 @@
 // trend chart's Drivers/Commuters lines use) instead of inventing a third
 // ad-hoc color scheme — fixed order, just two directions.
 const ROUTE_TONE: Record<string, { bg: string; color: string }> = {
-  'Pasig – Quiapo (Shaw Blvd)': { bg: 'bg-yellow-50', color: 'var(--color-series-drivers)' },
-  'Quiapo – Pasig (Shaw Blvd)': { bg: 'bg-orange-50', color: 'var(--color-series-commuters)' },
-  'Pasig – Quiapo (Sta. Mesa)': { bg: 'bg-blue-50', color: '#0B57D0' },
-  'Quiapo – Pasig (Sta. Mesa)': { bg: 'bg-blue-50', color: '#083D94' },
+  'Pasig – Quiapo': { bg: 'bg-yellow-50', color: 'var(--color-series-drivers)' },
+  'Quiapo – Pasig': { bg: 'bg-orange-50', color: 'var(--color-series-commuters)' },
 };
 
 export function RoutePill({ route }: { route: string | null }) {

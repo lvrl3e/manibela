@@ -1,107 +1,16 @@
-// Mirrors lib/core/constants/route_path.dart — same real, road-following
-// coordinates (simplified via Douglas-Peucker from an actual driving
-// route), kept in sync by hand since these are fixed, rarely-changing
-// corridors. Used to draw each route on the admin Live Map so the fleet's
-// markers have road context, and to filter markers down to just one
-// corridor when its toggle is on.
+// Mirrors lib/core/constants/route_path.dart — the real, officially-
+// registered LTFRB route ("Pasig (TP) - Quiapo (Echague) via Sta. Mesa,
+// C. Palanca", confirmed against the public GTFS feed at
+// github.com/sakayph/gtfs), traced via Mapbox's Directions API since that
+// feed has no shape data for this specific route to trace exactly. Kept
+// in sync with the Flutter constant by hand since this is a fixed,
+// rarely-changing corridor. Used to draw the route on the admin Live Map
+// so the fleet's markers have road context, and to filter markers down
+// to just this corridor when its toggle is on. A second, unverified
+// corridor briefly lived here alongside this one; removed once this one
+// was confirmed as the actual registered route and the other wasn't.
 
 const PASIG_QUIAPO_ROUTE: [number, number][] = [
-  [14.576390, 121.085118],
-  [14.568189, 121.080947],
-  [14.567158, 121.080039],
-  [14.566122, 121.077661],
-  [14.566379, 121.071275],
-  [14.566108, 121.070269],
-  [14.564475, 121.069680],
-  [14.563259, 121.068828],
-  [14.562917, 121.067894],
-  [14.562978, 121.066536],
-  [14.563254, 121.065682],
-  [14.563649, 121.065446],
-  [14.569953, 121.066539],
-  [14.570341, 121.066472],
-  [14.580629, 121.054540],
-  [14.581289, 121.053561],
-  [14.578580, 121.051537],
-  [14.578889, 121.051101],
-  [14.579575, 121.045686],
-  [14.581159, 121.044968],
-  [14.581759, 121.044499],
-  [14.581454, 121.043740],
-  [14.582355, 121.042936],
-  [14.582417, 121.042326],
-  [14.581899, 121.041826],
-  [14.580673, 121.042159],
-  [14.581272, 121.043403],
-  [14.581033, 121.043578],
-  [14.581138, 121.043871],
-  [14.581425, 121.043753],
-  [14.581657, 121.044345],
-  [14.578955, 121.044262],
-  [14.578180, 121.042828],
-  [14.575843, 121.041107],
-  [14.576596, 121.039941],
-  [14.576633, 121.039500],
-  [14.575831, 121.035794],
-  [14.576283, 121.035134],
-  [14.576803, 121.034766],
-  [14.577491, 121.034902],
-  [14.578169, 121.034466],
-  [14.578431, 121.033659],
-  [14.578148, 121.033089],
-  [14.581205, 121.029545],
-  [14.584880, 121.027279],
-  [14.585979, 121.025907],
-  [14.589691, 121.023223],
-  [14.584326, 121.017236],
-  [14.582185, 121.013415],
-  [14.581946, 121.013279],
-  [14.580141, 121.007427],
-  [14.585617, 121.006076],
-  [14.586668, 121.005338],
-  [14.587975, 121.006531],
-  [14.588698, 121.006572],
-  [14.589619, 121.006165],
-  [14.589061, 121.005228],
-  [14.589758, 121.004398],
-  [14.590320, 121.004849],
-  [14.590656, 121.005688],
-  [14.592018, 121.005162],
-  [14.592595, 121.004608],
-  [14.592974, 121.003374],
-  [14.592862, 121.001673],
-  [14.597450, 121.001284],
-  [14.600972, 120.999547],
-  [14.600627, 120.999366],
-  [14.597919, 120.996357],
-  [14.597421, 120.995260],
-  [14.596648, 120.994721],
-  [14.596570, 120.992275],
-  [14.597216, 120.991973],
-  [14.597016, 120.991464],
-  [14.597438, 120.991291],
-  [14.597016, 120.991464],
-  [14.596844, 120.991011],
-  [14.596527, 120.990992],
-  [14.596522, 120.989567],
-  [14.597729, 120.989640],
-  [14.600378, 120.991030],
-  [14.603258, 120.984948],
-  [14.603531, 120.983710],
-  [14.603181, 120.984871],
-  [14.603029, 120.984893],
-  [14.599519, 120.984250],
-  [14.599665, 120.983213],
-  [14.599501, 120.983192],
-];
-
-// A second, genuinely different physical corridor between the same two
-// endpoints — a real documented jeepney route ("Pasig (TP) to Quiapo
-// (Echague) via Sta. Mesa and C. Palanca"), traced via Mapbox's
-// Directions API with Sta. Mesa and Carlos Palanca St as waypoints so it
-// actually follows Ramon Magsaysay Blvd through Sta. Mesa rather than
-// PASIG_QUIAPO_ROUTE's more northern path through Mandaluyong/San Juan.
-const PASIG_QUIAPO_STA_MESA_ROUTE: [number, number][] = [
   [14.576409, 121.085129],
   [14.575961, 121.084898],
   [14.578373, 121.081715],
@@ -155,58 +64,12 @@ const PASIG_QUIAPO_STA_MESA_ROUTE: [number, number][] = [
   [14.599501, 120.983192],
 ];
 
-// The real Quiapo→Pasig return legs — deliberately *not* the outbound
-// arrays reversed. Confirmed via Mapbox Directions that downtown Manila's
+// The real Quiapo→Pasig return leg — deliberately *not* the outbound
+// array reversed. Confirmed via Mapbox Directions that downtown Manila's
 // one-way streets mean the return trip genuinely takes different roads
-// for both corridors (Rizal Ave/Legarda St/the Legarda-Magsaysay Flyover
-// for the Shaw Blvd corridor; also crossing Old Santa Mesa St for the
-// Sta. Mesa one), not a mirror image of the outbound leg.
+// (crosses the Legarda-Magsaysay Flyover and Old Santa Mesa St rather
+// than retracing the outbound Magsaysay Blvd leg), not a mirror image.
 const QUIAPO_PASIG_ROUTE: [number, number][] = [
-  [14.599501, 120.983192],
-  [14.599665, 120.983213],
-  [14.600090, 120.981504],
-  [14.602353, 120.981905],
-  [14.603675, 120.981965],
-  [14.603272, 120.984630],
-  [14.600601, 120.990570],
-  [14.600315, 120.990962],
-  [14.600948, 120.991647],
-  [14.601528, 120.992782],
-  [14.600496, 120.996186],
-  [14.601055, 120.998525],
-  [14.602637, 121.015406],
-  [14.603046, 121.016160],
-  [14.609163, 121.022358],
-  [14.609476, 121.022940],
-  [14.610661, 121.026546],
-  [14.609920, 121.026812],
-  [14.608571, 121.027907],
-  [14.608248, 121.027964],
-  [14.609797, 121.029956],
-  [14.609057, 121.030847],
-  [14.608756, 121.031619],
-  [14.607978, 121.032387],
-  [14.606083, 121.035648],
-  [14.605922, 121.037263],
-  [14.607515, 121.039195],
-  [14.600968, 121.047741],
-  [14.593040, 121.058610],
-  [14.589069, 121.063272],
-  [14.588738, 121.063920],
-  [14.588658, 121.064438],
-  [14.589762, 121.080563],
-  [14.590539, 121.084813],
-  [14.589308, 121.085016],
-  [14.588218, 121.085025],
-  [14.585085, 121.083946],
-  [14.582406, 121.083763],
-  [14.580744, 121.083166],
-  [14.578319, 121.081676],
-  [14.575961, 121.084898],
-  [14.576409, 121.085129],
-];
-
-const QUIAPO_PASIG_STA_MESA_ROUTE: [number, number][] = [
   [14.599501, 120.983192],
   [14.599665, 120.983213],
   [14.600090, 120.981504],
@@ -275,26 +138,20 @@ export interface RouteDefinition {
   caseColor: string;
 }
 
-// Adding a third corridor later is just adding a fourth entry here (plus
-// the matching RoutePath.forRoute case on the Flutter side, and the two
-// new direction strings in every kDriverRoutes-equivalent list) — nothing
-// about how LiveMap draws or filters routes needs to change.
+// A second corridor later is just adding another entry here (plus the
+// matching RoutePath.forRoute case on the Flutter side, and the two new
+// direction strings in every kDriverRoutes-equivalent list) — nothing
+// about how LiveMap draws or filters routes needs to change. Only re-add
+// one once it's independently confirmed as an actual registered route,
+// the same way this one was checked against the public GTFS feed.
 export const ROUTES: RouteDefinition[] = [
   {
-    id: 'original',
-    legendLabel: 'Pasig ↔ Quiapo (Shaw Blvd)',
-    directions: ['Pasig – Quiapo (Shaw Blvd)', 'Quiapo – Pasig (Shaw Blvd)'],
+    id: 'pasig-quiapo',
+    legendLabel: 'Pasig ↔ Quiapo',
+    directions: ['Pasig – Quiapo', 'Quiapo – Pasig'],
     paths: [PASIG_QUIAPO_ROUTE, QUIAPO_PASIG_ROUTE],
     color: '#EAB308',
     caseColor: '#92600A',
-  },
-  {
-    id: 'sta-mesa',
-    legendLabel: 'Pasig ↔ Quiapo (Sta. Mesa)',
-    directions: ['Pasig – Quiapo (Sta. Mesa)', 'Quiapo – Pasig (Sta. Mesa)'],
-    paths: [PASIG_QUIAPO_STA_MESA_ROUTE, QUIAPO_PASIG_STA_MESA_ROUTE],
-    color: '#0B57D0',
-    caseColor: '#083D94',
   },
 ];
 

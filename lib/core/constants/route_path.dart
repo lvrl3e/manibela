@@ -1,166 +1,24 @@
 import 'package:latlong2/latlong.dart';
 
 /// A fixed, real road-following polyline tracing the actual Pasig–Quiapo
-/// jeepney corridor — simplified (Douglas-Peucker, ~85 points) from a real
-/// driving route rather than hand-guessed waypoints, so it actually follows
-/// the streets instead of cutting through buildings. Used only to draw a
-/// visual "trail" on the booking map (see [trailBetween]); it plays no part
-/// in the ETA numbers themselves, which stay the server's own straight-line
-/// estimate (see GET /commuter/nearby-jeepneys' own doc comment).
+/// jeepney corridor — the real, officially-registered LTFRB route ("Pasig
+/// (TP) - Quiapo (Echague) via Sta. Mesa, C. Palanca", confirmed against
+/// the public GTFS feed at github.com/sakayph/gtfs), traced via Mapbox's
+/// Directions API with Sta. Mesa and Carlos Palanca St as waypoints (that
+/// feed has no shape data for this specific route to trace exactly, so
+/// this follows the same real streets rather than the feed's own
+/// unavailable polyline) and simplified (Douglas-Peucker, ~50 points)
+/// rather than hand-guessed. A second, unverified corridor briefly lived
+/// here alongside this one; removed once this one was confirmed as the
+/// actual registered route and the other wasn't. Used only to draw a
+/// visual "trail" on the booking map (see [trailBetween]); it plays no
+/// part in the ETA numbers themselves, which stay the server's own
+/// straight-line estimate (see GET /commuter/nearby-jeepneys' own doc
+/// comment).
 class RoutePath {
   RoutePath._();
 
   static const List<LatLng> pasigToQuiapo = [
-    LatLng(14.576390, 121.085118),
-    LatLng(14.568189, 121.080947),
-    LatLng(14.567158, 121.080039),
-    LatLng(14.566122, 121.077661),
-    LatLng(14.566379, 121.071275),
-    LatLng(14.566108, 121.070269),
-    LatLng(14.564475, 121.069680),
-    LatLng(14.563259, 121.068828),
-    LatLng(14.562917, 121.067894),
-    LatLng(14.562978, 121.066536),
-    LatLng(14.563254, 121.065682),
-    LatLng(14.563649, 121.065446),
-    LatLng(14.569953, 121.066539),
-    LatLng(14.570341, 121.066472),
-    LatLng(14.580629, 121.054540),
-    LatLng(14.581289, 121.053561),
-    LatLng(14.578580, 121.051537),
-    LatLng(14.578889, 121.051101),
-    LatLng(14.579575, 121.045686),
-    LatLng(14.581159, 121.044968),
-    LatLng(14.581759, 121.044499),
-    LatLng(14.581454, 121.043740),
-    LatLng(14.582355, 121.042936),
-    LatLng(14.582417, 121.042326),
-    LatLng(14.581899, 121.041826),
-    LatLng(14.580673, 121.042159),
-    LatLng(14.581272, 121.043403),
-    LatLng(14.581033, 121.043578),
-    LatLng(14.581138, 121.043871),
-    LatLng(14.581425, 121.043753),
-    LatLng(14.581657, 121.044345),
-    LatLng(14.578955, 121.044262),
-    LatLng(14.578180, 121.042828),
-    LatLng(14.575843, 121.041107),
-    LatLng(14.576596, 121.039941),
-    LatLng(14.576633, 121.039500),
-    LatLng(14.575831, 121.035794),
-    LatLng(14.576283, 121.035134),
-    LatLng(14.576803, 121.034766),
-    LatLng(14.577491, 121.034902),
-    LatLng(14.578169, 121.034466),
-    LatLng(14.578431, 121.033659),
-    LatLng(14.578148, 121.033089),
-    LatLng(14.581205, 121.029545),
-    LatLng(14.584880, 121.027279),
-    LatLng(14.585979, 121.025907),
-    LatLng(14.589691, 121.023223),
-    LatLng(14.584326, 121.017236),
-    LatLng(14.582185, 121.013415),
-    LatLng(14.581946, 121.013279),
-    LatLng(14.580141, 121.007427),
-    LatLng(14.585617, 121.006076),
-    LatLng(14.586668, 121.005338),
-    LatLng(14.587975, 121.006531),
-    LatLng(14.588698, 121.006572),
-    LatLng(14.589619, 121.006165),
-    LatLng(14.589061, 121.005228),
-    LatLng(14.589758, 121.004398),
-    LatLng(14.590320, 121.004849),
-    LatLng(14.590656, 121.005688),
-    LatLng(14.592018, 121.005162),
-    LatLng(14.592595, 121.004608),
-    LatLng(14.592974, 121.003374),
-    LatLng(14.592862, 121.001673),
-    LatLng(14.597450, 121.001284),
-    LatLng(14.600972, 120.999547),
-    LatLng(14.600627, 120.999366),
-    LatLng(14.597919, 120.996357),
-    LatLng(14.597421, 120.995260),
-    LatLng(14.596648, 120.994721),
-    LatLng(14.596570, 120.992275),
-    LatLng(14.597216, 120.991973),
-    LatLng(14.597016, 120.991464),
-    LatLng(14.597438, 120.991291),
-    LatLng(14.597016, 120.991464),
-    LatLng(14.596844, 120.991011),
-    LatLng(14.596527, 120.990992),
-    LatLng(14.596522, 120.989567),
-    LatLng(14.597729, 120.989640),
-    LatLng(14.600378, 120.991030),
-    LatLng(14.603258, 120.984948),
-    LatLng(14.603531, 120.983710),
-    LatLng(14.603181, 120.984871),
-    LatLng(14.603029, 120.984893),
-    LatLng(14.599519, 120.984250),
-    LatLng(14.599665, 120.983213),
-    LatLng(14.599501, 120.983192),
-  ];
-
-  /// The real Quiapo→Pasig return trip — deliberately *not*
-  /// `pasigToQuiapo.reversed`. Confirmed via Mapbox Directions that this
-  /// direction genuinely takes different streets (Rizal Ave, Legarda St,
-  /// the Legarda-Magsaysay Flyover, N. Domingo St, Santolan Rd, Ortigas
-  /// Ave), not a mirror image — downtown Manila's one-way streets mean
-  /// the outbound and return legs of a lot of real routes differ, this
-  /// corridor included.
-  static const List<LatLng> quiapoToPasig = [
-    LatLng(14.599501, 120.983192),
-    LatLng(14.599665, 120.983213),
-    LatLng(14.600090, 120.981504),
-    LatLng(14.602353, 120.981905),
-    LatLng(14.603675, 120.981965),
-    LatLng(14.603272, 120.984630),
-    LatLng(14.600601, 120.990570),
-    LatLng(14.600315, 120.990962),
-    LatLng(14.600948, 120.991647),
-    LatLng(14.601528, 120.992782),
-    LatLng(14.600496, 120.996186),
-    LatLng(14.601055, 120.998525),
-    LatLng(14.602637, 121.015406),
-    LatLng(14.603046, 121.016160),
-    LatLng(14.609163, 121.022358),
-    LatLng(14.609476, 121.022940),
-    LatLng(14.610661, 121.026546),
-    LatLng(14.609920, 121.026812),
-    LatLng(14.608571, 121.027907),
-    LatLng(14.608248, 121.027964),
-    LatLng(14.609797, 121.029956),
-    LatLng(14.609057, 121.030847),
-    LatLng(14.608756, 121.031619),
-    LatLng(14.607978, 121.032387),
-    LatLng(14.606083, 121.035648),
-    LatLng(14.605922, 121.037263),
-    LatLng(14.607515, 121.039195),
-    LatLng(14.600968, 121.047741),
-    LatLng(14.593040, 121.058610),
-    LatLng(14.589069, 121.063272),
-    LatLng(14.588738, 121.063920),
-    LatLng(14.588658, 121.064438),
-    LatLng(14.589762, 121.080563),
-    LatLng(14.590539, 121.084813),
-    LatLng(14.589308, 121.085016),
-    LatLng(14.588218, 121.085025),
-    LatLng(14.585085, 121.083946),
-    LatLng(14.582406, 121.083763),
-    LatLng(14.580744, 121.083166),
-    LatLng(14.578319, 121.081676),
-    LatLng(14.575961, 121.084898),
-    LatLng(14.576409, 121.085129),
-  ];
-
-  /// A second, genuinely different physical corridor between the same two
-  /// endpoints — not a shortcut/detour guess, but a real documented jeepney
-  /// route ("Pasig (TP) to Quiapo (Echague) via Sta. Mesa and C. Palanca").
-  /// Traced via Mapbox's Directions API with Sta. Mesa and Carlos Palanca
-  /// St as waypoints (so it actually follows Ramon Magsaysay Blvd through
-  /// Sta. Mesa rather than the original corridor's more northern path
-  /// through Mandaluyong/San Juan), then simplified the same way as
-  /// [pasigToQuiapo] above.
-  static const List<LatLng> pasigToQuiapoViaStaMesa = [
     LatLng(14.576409, 121.085129),
     LatLng(14.575961, 121.084898),
     LatLng(14.578373, 121.081715),
@@ -214,11 +72,14 @@ class RoutePath {
     LatLng(14.599501, 120.983192),
   ];
 
-  /// The real Quiapo→Pasig-via-Sta.-Mesa return trip — same reasoning as
-  /// [quiapoToPasig] above, confirmed genuinely different from a mirror
-  /// image (this one crosses the Legarda-Magsaysay Flyover and Old Santa
-  /// Mesa St rather than retracing the outbound Magsaysay Blvd leg).
-  static const List<LatLng> quiapoToPasigViaStaMesa = [
+  /// The real Quiapo→Pasig return trip — deliberately *not*
+  /// `pasigToQuiapo.reversed`. Confirmed via Mapbox Directions that this
+  /// direction genuinely takes different streets (crosses the
+  /// Legarda-Magsaysay Flyover and Old Santa Mesa St rather than
+  /// retracing the outbound Magsaysay Blvd leg) — downtown Manila's
+  /// one-way streets mean the outbound and return legs of a lot of real
+  /// routes differ, this corridor included.
+  static const List<LatLng> quiapoToPasig = [
     LatLng(14.599501, 120.983192),
     LatLng(14.599665, 120.983213),
     LatLng(14.600090, 120.981504),
@@ -272,21 +133,13 @@ class RoutePath {
     LatLng(14.576409, 121.085129),
   ];
 
-  /// Picks the path matching one of the app's four exact route strings
-  /// (see kDriverRoutes in driver_start_trip_screen.dart) — anything else
-  /// (null, a future route) falls back to the original Shaw Blvd
-  /// Pasig→Quiapo corridor.
+  /// Picks the direction matching one of the app's two exact route strings
+  /// ('Pasig – Quiapo' / 'Quiapo – Pasig', see kDriverRoutes in
+  /// driver_start_trip_screen.dart) — anything else (null, an
+  /// unrecognized value) falls back to the Pasig→Quiapo ordering.
   static List<LatLng> forRoute(String? route) {
-    switch (route) {
-      case 'Quiapo – Pasig (Shaw Blvd)':
-        return quiapoToPasig;
-      case 'Pasig – Quiapo (Sta. Mesa)':
-        return pasigToQuiapoViaStaMesa;
-      case 'Quiapo – Pasig (Sta. Mesa)':
-        return quiapoToPasigViaStaMesa;
-      default:
-        return pasigToQuiapo;
-    }
+    if (route == 'Quiapo – Pasig') return quiapoToPasig;
+    return pasigToQuiapo;
   }
 
   /// How far along [path] (as a fractional segment index — e.g. 4.3 means

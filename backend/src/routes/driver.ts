@@ -756,12 +756,7 @@ router.post('/trips/:id/end', requireAuth('driver'), async (req, res, next) => {
 // The two fixed routes this fleet services — see DRIVER_ROUTES's doc
 // comment in admin.ts for why this is hardcoded rather than a `SELECT
 // DISTINCT route` per driver.
-const DRIVER_ROUTES = [
-  'Pasig – Quiapo (Shaw Blvd)',
-  'Quiapo – Pasig (Shaw Blvd)',
-  'Pasig – Quiapo (Sta. Mesa)',
-  'Quiapo – Pasig (Sta. Mesa)',
-] as const;
+const DRIVER_ROUTES = ['Pasig – Quiapo', 'Quiapo – Pasig'] as const;
 
 // Completed trips only — the app's own Trip History screen has nothing to
 // show for a still-ACTIVE trip (that's what the dashboard/in-progress

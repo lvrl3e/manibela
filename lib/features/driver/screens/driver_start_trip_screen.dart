@@ -10,15 +10,10 @@ import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_session.dart';
 
-/// The routes this fleet actually services — two directions of the
-/// original corridor, plus two directions of a second, genuinely
-/// different physical route between the same two endpoints (see
-/// RoutePath.pasigToQuiapoViaStaMesa's own doc comment).
+/// The only two routes this fleet actually services.
 const List<String> kDriverRoutes = [
-  'Pasig – Quiapo (Shaw Blvd)',
-  'Quiapo – Pasig (Shaw Blvd)',
-  'Pasig – Quiapo (Sta. Mesa)',
-  'Quiapo – Pasig (Sta. Mesa)',
+  'Pasig – Quiapo',
+  'Quiapo – Pasig',
 ];
 
 class DriverStartTripResult {

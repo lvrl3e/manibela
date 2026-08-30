@@ -29,52 +29,72 @@ class _LoadingScreenState extends State<LoadingScreen> {
   }
 
   void _navigateToNextScreen() {
-    // Delays for 3 seconds, then routes onward. Checks for a "Remember Me"
-    // session first (driver, then commuter — a device could in theory have
-    // both, though that's rare) and skips straight to that dashboard if
-    // found. Otherwise, a commuter who closed the app mid-verification
-    // lands back on AboutAppScreen instead of role selection — see
-    // UserSession.pendingVerificationMobileNumber.
+    // Delays for 3 seconds, then routes onward. Wrapped in an overall
+    // timeout — a platform call below (most likely a secure-storage read;
+    // FlutterSecureStorage's Android Keystore backing is known to hang on
+    // some devices/OS states) never resolving must never leave the app
+    // stuck on this screen forever. A timeout just falls back to the same
+    // role-selection screen a brand-new install would see anyway; it
+    // can't cancel whatever's still hung in the background, but a late
+    // completion is a no-op once `mounted` is false (this screen is
+    // already gone by then).
     Future.delayed(const Duration(seconds: 3), () async {
-      await Future.wait([
-        DriverSession.instance.loadFromPrefs(),
-        UserSession.instance.loadFromPrefs(),
-      ]);
+      try {
+        await _resolveSessionAndNavigate().timeout(const Duration(seconds: 8));
+      } catch (_) {
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+        );
+      }
+    });
+  }
+
+  Future<void> _resolveSessionAndNavigate() async {
+    // Checks for a "Remember Me" session first (driver, then commuter — a
+    // device could in theory have both, though that's rare) and skips
+    // straight to that dashboard if found. Otherwise, a commuter who
+    // closed the app mid-verification lands back on AboutAppScreen
+    // instead of role selection — see UserSession.pendingVerificationMobileNumber.
+    await Future.wait([
+      DriverSession.instance.loadFromPrefs(),
+      UserSession.instance.loadFromPrefs(),
+    ]);
+    if (!mounted) return;
+
+    if (DriverSession.instance.hasRememberedSession) {
+      await DriverOperationsLog.loadFromPrefs();
+      unawaited(DriverOperationsLog.syncFromBackend());
       if (!mounted) return;
-
-      if (DriverSession.instance.hasRememberedSession) {
-        await DriverOperationsLog.loadFromPrefs();
-        unawaited(DriverOperationsLog.syncFromBackend());
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const DriverDashboardScreen()),
-        );
-        return;
-      }
-
-      if (UserSession.instance.hasRememberedSession) {
-        await Future.wait([
-          CommuterHistoryScreen.loadFromPrefs(),
-          NotificationsScreen.loadFromPrefs(),
-        ]);
-        unawaited(CommuterHistoryScreen.syncFromBackend());
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const CommuterDashboardScreen()),
-        );
-        return;
-      }
-
-      final isPendingVerification = UserSession.instance.pendingVerificationMobileNumber != null;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (context) => isPendingVerification ? const AboutAppScreen() : const RoleSelectionScreen(),
-        ),
+        MaterialPageRoute(builder: (_) => const DriverDashboardScreen()),
       );
-    });
+      return;
+    }
+
+    if (UserSession.instance.hasRememberedSession) {
+      await Future.wait([
+        CommuterHistoryScreen.loadFromPrefs(),
+        NotificationsScreen.loadFromPrefs(),
+      ]);
+      unawaited(CommuterHistoryScreen.syncFromBackend());
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const CommuterDashboardScreen()),
+      );
+      return;
+    }
+
+    final isPendingVerification = UserSession.instance.pendingVerificationMobileNumber != null;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => isPendingVerification ? const AboutAppScreen() : const RoleSelectionScreen(),
+      ),
+    );
   }
 
   @override

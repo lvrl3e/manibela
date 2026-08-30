@@ -80,15 +80,17 @@ export async function fetchImageBuffer(url: string): Promise<Buffer> {
  * score (falls back to manual admin review), never a blocked signup.
  */
 export async function compareFaces(selfieBuffer: Buffer, idPhotoBuffer: Buffer): Promise<number | null> {
-  // TEMP: swallow disabled for production diagnostics — restore the
-  // try/catch below before this is considered done.
-  await loadModels();
-  const [selfieDescriptor, idDescriptor] = await Promise.all([
-    getFaceDescriptor(selfieBuffer),
-    getFaceDescriptor(idPhotoBuffer),
-  ]);
-  if (!selfieDescriptor || !idDescriptor) return null;
+  try {
+    await loadModels();
+    const [selfieDescriptor, idDescriptor] = await Promise.all([
+      getFaceDescriptor(selfieBuffer),
+      getFaceDescriptor(idPhotoBuffer),
+    ]);
+    if (!selfieDescriptor || !idDescriptor) return null;
 
-  const distance = faceapi.euclideanDistance(selfieDescriptor, idDescriptor);
-  return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
+    const distance = faceapi.euclideanDistance(selfieDescriptor, idDescriptor);
+    return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
+  } catch {
+    return null;
+  }
 }

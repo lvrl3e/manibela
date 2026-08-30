@@ -488,8 +488,8 @@ router.post('/me/license-photo', requireAuth('driver'), (req, res, next) => {
       }
 
       const [licenseFrontUrl, licenseBackUrl] = await Promise.all([
-        uploadBufferToCloudinary(front.buffer, 'license-photos'),
-        uploadBufferToCloudinary(back.buffer, 'license-photos'),
+        uploadBufferToCloudinary(front.buffer, 'license-photos', { sensitive: true }),
+        uploadBufferToCloudinary(back.buffer, 'license-photos', { sensitive: true }),
       ]);
       const driver = await prisma.driver.update({
         where: { id: existing.id },

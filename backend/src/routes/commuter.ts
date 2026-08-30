@@ -215,8 +215,8 @@ router.post('/signup/:ticket/id-photos', (req, res, next) => {
       }
 
       const [idFrontUrl, idBackUrl] = await Promise.all([
-        uploadBufferToCloudinary(front.buffer, 'id-photos'),
-        uploadBufferToCloudinary(back.buffer, 'id-photos'),
+        uploadBufferToCloudinary(front.buffer, 'id-photos', { sensitive: true }),
+        uploadBufferToCloudinary(back.buffer, 'id-photos', { sensitive: true }),
       ]);
 
       await prisma.pendingCommuterSignup.update({
@@ -259,7 +259,7 @@ router.post('/signup/:ticket/selfie', (req, res, next) => {
         return;
       }
 
-      const selfieUrl = await uploadBufferToCloudinary(req.file.buffer, 'selfies');
+      const selfieUrl = await uploadBufferToCloudinary(req.file.buffer, 'selfies', { sensitive: true });
 
       await prisma.pendingCommuterSignup.update({
         where: { id: pending.id },

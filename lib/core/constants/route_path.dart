@@ -100,7 +100,57 @@ class RoutePath {
     LatLng(14.599501, 120.983192),
   ];
 
-  static final List<LatLng> quiapoToPasig = pasigToQuiapo.reversed.toList();
+  /// The real Quiapo→Pasig return trip — deliberately *not*
+  /// `pasigToQuiapo.reversed`. Confirmed via Mapbox Directions that this
+  /// direction genuinely takes different streets (Rizal Ave, Legarda St,
+  /// the Legarda-Magsaysay Flyover, N. Domingo St, Santolan Rd, Ortigas
+  /// Ave), not a mirror image — downtown Manila's one-way streets mean
+  /// the outbound and return legs of a lot of real routes differ, this
+  /// corridor included.
+  static const List<LatLng> quiapoToPasig = [
+    LatLng(14.599501, 120.983192),
+    LatLng(14.599665, 120.983213),
+    LatLng(14.600090, 120.981504),
+    LatLng(14.602353, 120.981905),
+    LatLng(14.603675, 120.981965),
+    LatLng(14.603272, 120.984630),
+    LatLng(14.600601, 120.990570),
+    LatLng(14.600315, 120.990962),
+    LatLng(14.600948, 120.991647),
+    LatLng(14.601528, 120.992782),
+    LatLng(14.600496, 120.996186),
+    LatLng(14.601055, 120.998525),
+    LatLng(14.602637, 121.015406),
+    LatLng(14.603046, 121.016160),
+    LatLng(14.609163, 121.022358),
+    LatLng(14.609476, 121.022940),
+    LatLng(14.610661, 121.026546),
+    LatLng(14.609920, 121.026812),
+    LatLng(14.608571, 121.027907),
+    LatLng(14.608248, 121.027964),
+    LatLng(14.609797, 121.029956),
+    LatLng(14.609057, 121.030847),
+    LatLng(14.608756, 121.031619),
+    LatLng(14.607978, 121.032387),
+    LatLng(14.606083, 121.035648),
+    LatLng(14.605922, 121.037263),
+    LatLng(14.607515, 121.039195),
+    LatLng(14.600968, 121.047741),
+    LatLng(14.593040, 121.058610),
+    LatLng(14.589069, 121.063272),
+    LatLng(14.588738, 121.063920),
+    LatLng(14.588658, 121.064438),
+    LatLng(14.589762, 121.080563),
+    LatLng(14.590539, 121.084813),
+    LatLng(14.589308, 121.085016),
+    LatLng(14.588218, 121.085025),
+    LatLng(14.585085, 121.083946),
+    LatLng(14.582406, 121.083763),
+    LatLng(14.580744, 121.083166),
+    LatLng(14.578319, 121.081676),
+    LatLng(14.575961, 121.084898),
+    LatLng(14.576409, 121.085129),
+  ];
 
   /// A second, genuinely different physical corridor between the same two
   /// endpoints — not a shortcut/detour guess, but a real documented jeepney
@@ -164,7 +214,63 @@ class RoutePath {
     LatLng(14.599501, 120.983192),
   ];
 
-  static final List<LatLng> quiapoToPasigViaStaMesa = pasigToQuiapoViaStaMesa.reversed.toList();
+  /// The real Quiapo→Pasig-via-Sta.-Mesa return trip — same reasoning as
+  /// [quiapoToPasig] above, confirmed genuinely different from a mirror
+  /// image (this one crosses the Legarda-Magsaysay Flyover and Old Santa
+  /// Mesa St rather than retracing the outbound Magsaysay Blvd leg).
+  static const List<LatLng> quiapoToPasigViaStaMesa = [
+    LatLng(14.599501, 120.983192),
+    LatLng(14.599665, 120.983213),
+    LatLng(14.600090, 120.981504),
+    LatLng(14.602353, 120.981905),
+    LatLng(14.603675, 120.981965),
+    LatLng(14.603272, 120.984630),
+    LatLng(14.600601, 120.990570),
+    LatLng(14.600315, 120.990962),
+    LatLng(14.600948, 120.991647),
+    LatLng(14.601528, 120.992782),
+    LatLng(14.600496, 120.996186),
+    LatLng(14.601069, 120.998653),
+    LatLng(14.602077, 121.010046),
+    LatLng(14.602087, 121.011896),
+    LatLng(14.600689, 121.013364),
+    LatLng(14.597469, 121.015705),
+    LatLng(14.597408, 121.016321),
+    LatLng(14.597660, 121.017601),
+    LatLng(14.595928, 121.019935),
+    LatLng(14.596764, 121.021471),
+    LatLng(14.597273, 121.021296),
+    LatLng(14.596764, 121.021471),
+    LatLng(14.596162, 121.020429),
+    LatLng(14.593258, 121.028130),
+    LatLng(14.592243, 121.029964),
+    LatLng(14.590450, 121.033945),
+    LatLng(14.589449, 121.035326),
+    LatLng(14.589550, 121.039927),
+    LatLng(14.588594, 121.040118),
+    LatLng(14.587666, 121.039698),
+    LatLng(14.586388, 121.041493),
+    LatLng(14.586645, 121.043198),
+    LatLng(14.585913, 121.044491),
+    LatLng(14.587264, 121.046408),
+    LatLng(14.584876, 121.049362),
+    LatLng(14.571825, 121.064544),
+    LatLng(14.572166, 121.066043),
+    LatLng(14.572240, 121.066871),
+    LatLng(14.572115, 121.067436),
+    LatLng(14.571393, 121.068744),
+    LatLng(14.569717, 121.070941),
+    LatLng(14.567598, 121.070377),
+    LatLng(14.566009, 121.070250),
+    LatLng(14.566278, 121.071291),
+    LatLng(14.565984, 121.076121),
+    LatLng(14.565253, 121.075990),
+    LatLng(14.565260, 121.076102),
+    LatLng(14.566122, 121.077661),
+    LatLng(14.567271, 121.080225),
+    LatLng(14.567972, 121.080844),
+    LatLng(14.576409, 121.085129),
+  ];
 
   /// Picks the path matching one of the app's four exact route strings
   /// (see kDriverRoutes in driver_start_trip_screen.dart) — anything else

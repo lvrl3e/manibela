@@ -304,10 +304,16 @@ export function LiveMap({
           // border/casing option on Polyline (unlike flutter_map's
           // Polyline, which the same route lines use on the Flutter
           // side), so it's two stacked polylines instead: a wider dark
-          // one first, then a narrower bright one on top.
+          // one first, then a narrower bright one on top. Both directions'
+          // paths are drawn — see RouteDefinition.paths's own doc comment
+          // for why they're two genuinely different lines, not one.
           <div key={r.id}>
-            <Polyline positions={r.path} pathOptions={{ color: r.caseColor, weight: 6, opacity: 1 }} />
-            <Polyline positions={r.path} pathOptions={{ color: r.color, weight: 4, opacity: 1 }} />
+            {r.paths.map((path, i) => (
+              <div key={i}>
+                <Polyline positions={path} pathOptions={{ color: r.caseColor, weight: 6, opacity: 1 }} />
+                <Polyline positions={path} pathOptions={{ color: r.color, weight: 4, opacity: 1 }} />
+              </div>
+            ))}
           </div>
         ))}
         <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />

@@ -155,15 +155,122 @@ const PASIG_QUIAPO_STA_MESA_ROUTE: [number, number][] = [
   [14.599501, 120.983192],
 ];
 
+// The real Quiapo→Pasig return legs — deliberately *not* the outbound
+// arrays reversed. Confirmed via Mapbox Directions that downtown Manila's
+// one-way streets mean the return trip genuinely takes different roads
+// for both corridors (Rizal Ave/Legarda St/the Legarda-Magsaysay Flyover
+// for the Shaw Blvd corridor; also crossing Old Santa Mesa St for the
+// Sta. Mesa one), not a mirror image of the outbound leg.
+const QUIAPO_PASIG_ROUTE: [number, number][] = [
+  [14.599501, 120.983192],
+  [14.599665, 120.983213],
+  [14.600090, 120.981504],
+  [14.602353, 120.981905],
+  [14.603675, 120.981965],
+  [14.603272, 120.984630],
+  [14.600601, 120.990570],
+  [14.600315, 120.990962],
+  [14.600948, 120.991647],
+  [14.601528, 120.992782],
+  [14.600496, 120.996186],
+  [14.601055, 120.998525],
+  [14.602637, 121.015406],
+  [14.603046, 121.016160],
+  [14.609163, 121.022358],
+  [14.609476, 121.022940],
+  [14.610661, 121.026546],
+  [14.609920, 121.026812],
+  [14.608571, 121.027907],
+  [14.608248, 121.027964],
+  [14.609797, 121.029956],
+  [14.609057, 121.030847],
+  [14.608756, 121.031619],
+  [14.607978, 121.032387],
+  [14.606083, 121.035648],
+  [14.605922, 121.037263],
+  [14.607515, 121.039195],
+  [14.600968, 121.047741],
+  [14.593040, 121.058610],
+  [14.589069, 121.063272],
+  [14.588738, 121.063920],
+  [14.588658, 121.064438],
+  [14.589762, 121.080563],
+  [14.590539, 121.084813],
+  [14.589308, 121.085016],
+  [14.588218, 121.085025],
+  [14.585085, 121.083946],
+  [14.582406, 121.083763],
+  [14.580744, 121.083166],
+  [14.578319, 121.081676],
+  [14.575961, 121.084898],
+  [14.576409, 121.085129],
+];
+
+const QUIAPO_PASIG_STA_MESA_ROUTE: [number, number][] = [
+  [14.599501, 120.983192],
+  [14.599665, 120.983213],
+  [14.600090, 120.981504],
+  [14.602353, 120.981905],
+  [14.603675, 120.981965],
+  [14.603272, 120.984630],
+  [14.600601, 120.990570],
+  [14.600315, 120.990962],
+  [14.600948, 120.991647],
+  [14.601528, 120.992782],
+  [14.600496, 120.996186],
+  [14.601069, 120.998653],
+  [14.602077, 121.010046],
+  [14.602087, 121.011896],
+  [14.600689, 121.013364],
+  [14.597469, 121.015705],
+  [14.597408, 121.016321],
+  [14.597660, 121.017601],
+  [14.595928, 121.019935],
+  [14.596764, 121.021471],
+  [14.597273, 121.021296],
+  [14.596764, 121.021471],
+  [14.596162, 121.020429],
+  [14.593258, 121.028130],
+  [14.592243, 121.029964],
+  [14.590450, 121.033945],
+  [14.589449, 121.035326],
+  [14.589550, 121.039927],
+  [14.588594, 121.040118],
+  [14.587666, 121.039698],
+  [14.586388, 121.041493],
+  [14.586645, 121.043198],
+  [14.585913, 121.044491],
+  [14.587264, 121.046408],
+  [14.584876, 121.049362],
+  [14.571825, 121.064544],
+  [14.572166, 121.066043],
+  [14.572240, 121.066871],
+  [14.572115, 121.067436],
+  [14.571393, 121.068744],
+  [14.569717, 121.070941],
+  [14.567598, 121.070377],
+  [14.566009, 121.070250],
+  [14.566278, 121.071291],
+  [14.565984, 121.076121],
+  [14.565253, 121.075990],
+  [14.565260, 121.076102],
+  [14.566122, 121.077661],
+  [14.567271, 121.080225],
+  [14.567972, 121.080844],
+  [14.576409, 121.085129],
+];
+
 export interface RouteDefinition {
   id: string;
   /** Shown on the legend/toggle button. */
   legendLabel: string;
   /** The exact two directional strings this corridor is recorded as
-   * everywhere else (see DRIVER_ROUTES in backend/src/routes/admin.ts) —
-   * both map to the same physical line for drawing purposes. */
+   * everywhere else (see DRIVER_ROUTES in backend/src/routes/admin.ts). */
   directions: [string, string];
-  path: [number, number][];
+  /** [outbound, return] — drawn as two separate lines, not one, since the
+   * two directions are genuinely different streets (one-way restrictions
+   * through downtown Manila), not a mirror image of each other. */
+  paths: [[number, number][], [number, number][]];
   color: string;
   caseColor: string;
 }
@@ -177,7 +284,7 @@ export const ROUTES: RouteDefinition[] = [
     id: 'original',
     legendLabel: 'Pasig ↔ Quiapo (Shaw Blvd)',
     directions: ['Pasig – Quiapo (Shaw Blvd)', 'Quiapo – Pasig (Shaw Blvd)'],
-    path: PASIG_QUIAPO_ROUTE,
+    paths: [PASIG_QUIAPO_ROUTE, QUIAPO_PASIG_ROUTE],
     color: '#EAB308',
     caseColor: '#92600A',
   },
@@ -185,7 +292,7 @@ export const ROUTES: RouteDefinition[] = [
     id: 'sta-mesa',
     legendLabel: 'Pasig ↔ Quiapo (Sta. Mesa)',
     directions: ['Pasig – Quiapo (Sta. Mesa)', 'Quiapo – Pasig (Sta. Mesa)'],
-    path: PASIG_QUIAPO_STA_MESA_ROUTE,
+    paths: [PASIG_QUIAPO_STA_MESA_ROUTE, QUIAPO_PASIG_STA_MESA_ROUTE],
     color: '#0B57D0',
     caseColor: '#083D94',
   },

@@ -202,7 +202,7 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                           PolylineLayer(
                             polylines: [
                               Polyline(
-                                points: RoutePath.pasigToQuiapo,
+                                points: RoutePath.forRoute(_selectedRoute),
                                 strokeWidth: 4,
                                 color: AppColors.primary,
                                 borderStrokeWidth: 2,

@@ -1,3 +1,11 @@
+/** True for either direction of the one fixed corridor this fleet runs —
+ * same two exact strings used everywhere else a route is recorded (see
+ * DRIVER_ROUTES in backend/src/routes/admin.ts). Used to filter markers
+ * down to "only this route" when the Live Map's route toggle is on. */
+export function isPasigQuiapoRoute(route: string | null | undefined): boolean {
+  return route === 'Pasig – Quiapo' || route === 'Quiapo – Pasig';
+}
+
 // Mirrors lib/core/constants/route_path.dart's pasigToQuiapo — same
 // real, road-following coordinates (simplified via Douglas-Peucker from an
 // actual driving route), kept in sync by hand since this is a fixed,

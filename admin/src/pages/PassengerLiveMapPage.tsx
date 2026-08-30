@@ -5,6 +5,7 @@ import { LogoMark } from '../components/Logo';
 import { RoutePill } from '../components/RoutePill';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
+import { isPasigQuiapoRoute } from '../lib/routePath';
 
 interface DemandSignalRow {
   id: string;
@@ -12,6 +13,7 @@ interface DemandSignalRow {
   lng: number;
   createdAt: string;
   partySize?: number | null;
+  route: string | null;
 }
 
 interface ActiveTripRow {
@@ -44,6 +46,10 @@ export default function PassengerLiveMapPage() {
   const [onboard, setOnboard] = useState<OnboardPassenger[] | null>(null);
   const [demandSignals, setDemandSignals] = useState<DemandSignalRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Off by default — see LiveMap's own doc comment on this prop. Filters
+  // both the map and this page's own sidebar lists (onboard jeepneys and
+  // ride requests alike) down to just the Pasig-Quiapo corridor when on.
+  const [showRoute, setShowRoute] = useState(false);
 
   function fetchTrips() {
     apiClient
@@ -98,6 +104,7 @@ export default function PassengerLiveMapPage() {
     () =>
       (trips ?? [])
         .filter((t) => t.currentLat != null && t.currentLng != null && (passengersByTrip.get(t.id)?.length ?? 0) > 0)
+        .filter((t) => !showRoute || isPasigQuiapoRoute(t.route))
         .map((t) => ({
           id: t.id,
           lat: t.currentLat!,
@@ -107,10 +114,16 @@ export default function PassengerLiveMapPage() {
           route: t.route,
           passengers: passengersByTrip.get(t.id) ?? [],
         })),
-    [trips, passengersByTrip],
+    [trips, passengersByTrip, showRoute],
   );
 
-  const demandMarkers = useMemo(() => clusterDemandSignals(demandSignals ?? []), [demandSignals]);
+  // Filtered *before* clustering, not after — a cluster cell can combine
+  // pings from commuters who picked different routes, so there's no
+  // single "this cluster's route" to filter on once they're merged.
+  const demandMarkers = useMemo(
+    () => clusterDemandSignals((demandSignals ?? []).filter((s) => !showRoute || isPasigQuiapoRoute(s.route))),
+    [demandSignals, showRoute],
+  );
 
   // Shared selection for both lists below — a jeepney and a demand
   // cluster live in different id spaces (a Trip id vs. a cell-bucket key),
@@ -223,6 +236,8 @@ export default function PassengerLiveMapPage() {
             zoom={14}
             focusPosition={focusPosition}
             onDeselect={() => setSelectedId(null)}
+            showRoute={showRoute}
+            onToggleRoute={() => setShowRoute((v) => !v)}
           />
         </div>
       </div>

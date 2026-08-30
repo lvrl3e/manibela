@@ -265,6 +265,8 @@ export function LiveMap({
   zoom = 15,
   focusPosition = null,
   onDeselect,
+  showRoute,
+  onToggleRoute,
 }: {
   jeepneys?: JeepneyMarker[];
   demandSignals?: DemandMarker[];
@@ -277,18 +279,20 @@ export function LiveMap({
    * whatever selection is driving `focusPosition` (see ClickToDeselect
    * above). Omit on a map with no selectable sidebar list. */
   onDeselect?: () => void;
+  /** Whether the Pasig–Quiapo route line (and its legend/toggle button) is
+   * currently shown. Owned by the caller, not this component, because
+   * toggling it also filters that caller's own sidebar list down to just
+   * that route (see JeepneyLiveMapPage/PassengerLiveMapPage) — a concern
+   * this component has no visibility into on its own. */
+  showRoute: boolean;
+  /** Called when the legend/toggle button is clicked — the caller should
+   * flip whatever state it's passing back in as [showRoute]. */
+  onToggleRoute: () => void;
 }) {
   const markerPositions: [number, number][] = [
     ...jeepneys.map((j): [number, number] => [j.lat, j.lng]),
     ...demandSignals.map((d): [number, number] => [d.lat, d.lng]),
   ];
-
-  // Off by default — the legend below doubles as the toggle. Only one
-  // route exists today, but this is deliberately shaped as "a route is
-  // either shown or not" rather than "the route is always on", so adding
-  // more routes later is a matter of adding more legend entries/booleans
-  // next to this one, not rethinking how visibility works.
-  const [showRoute, setShowRoute] = useState(false);
 
   return (
     <div style={{ position: 'relative', height: '100%', width: '100%' }}>
@@ -332,7 +336,7 @@ export function LiveMap({
           corner label was too easy to miss entirely. */}
       <button
         type="button"
-        onClick={() => setShowRoute((v) => !v)}
+        onClick={onToggleRoute}
         style={{
           position: 'absolute',
           right: 16,

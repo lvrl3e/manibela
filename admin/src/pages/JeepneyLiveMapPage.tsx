@@ -6,6 +6,7 @@ import { RoutePill } from '../components/RoutePill';
 import { apiClient } from '../lib/apiClient';
 import { usePolling } from '../lib/usePolling';
 import { isManilaToday } from '../lib/formatDate';
+import { isPasigQuiapoRoute } from '../lib/routePath';
 
 interface JeepneyRow {
   driverId: string;
@@ -53,6 +54,10 @@ export default function JeepneyLiveMapPage() {
   const [jeepneys, setJeepneys] = useState<JeepneyRow[] | null>(null);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('driverId'));
+  // Off by default — see LiveMap's own doc comment on this prop. Filters
+  // both the map and this page's own sidebar list down to just jeepneys
+  // running the Pasig-Quiapo corridor when on.
+  const [showRoute, setShowRoute] = useState(false);
 
   function fetchJeepneys() {
     apiClient
@@ -84,11 +89,10 @@ export default function JeepneyLiveMapPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return markers;
-    return markers.filter(
-      (m) => m.plateNumber.toLowerCase().includes(q) || m.driverName.toLowerCase().includes(q),
-    );
-  }, [markers, search]);
+    return markers
+      .filter((m) => !showRoute || isPasigQuiapoRoute(m.route))
+      .filter((m) => !q || m.plateNumber.toLowerCase().includes(q) || m.driverName.toLowerCase().includes(q));
+  }, [markers, search, showRoute]);
 
   const focusPosition = useMemo<[number, number] | null>(() => {
     const selected = markers.find((m) => m.id === selectedId);
@@ -171,6 +175,8 @@ export default function JeepneyLiveMapPage() {
             zoom={14}
             focusPosition={focusPosition}
             onDeselect={() => setSelectedId(null)}
+            showRoute={showRoute}
+            onToggleRoute={() => setShowRoute((v) => !v)}
           />
         </div>
       </div>

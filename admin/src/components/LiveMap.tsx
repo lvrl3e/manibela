@@ -306,14 +306,20 @@ export function LiveMap({
           // side), so it's two stacked polylines instead: a wider dark
           // one first, then a narrower bright one on top. Both directions'
           // paths are drawn — see RouteDefinition.paths's own doc comment
-          // for why they're two genuinely different lines, not one.
+          // for why they're two genuinely different lines, not one — the
+          // return leg (index 1) is dashed so it reads as "the way back
+          // on this same route" rather than a second, unrelated line in
+          // the same color.
           <div key={r.id}>
-            {r.paths.map((path, i) => (
-              <div key={i}>
-                <Polyline positions={path} pathOptions={{ color: r.caseColor, weight: 6, opacity: 1 }} />
-                <Polyline positions={path} pathOptions={{ color: r.color, weight: 4, opacity: 1 }} />
-              </div>
-            ))}
+            {r.paths.map((path, i) => {
+              const dashArray = i === 1 ? '10, 8' : undefined;
+              return (
+                <div key={i}>
+                  <Polyline positions={path} pathOptions={{ color: r.caseColor, weight: 6, opacity: 1, dashArray }} />
+                  <Polyline positions={path} pathOptions={{ color: r.color, weight: 4, opacity: 1, dashArray }} />
+                </div>
+              );
+            })}
           </div>
         ))}
         <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
@@ -379,6 +385,35 @@ export function LiveMap({
             </button>
           );
         })}
+        {/* Only shown once there's an actual dashed line on the map to
+            explain — otherwise this caption has nothing to refer to. */}
+        {shownRouteIds.size > 0 && (
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: 8,
+              padding: '6px 10px',
+              boxShadow: '0 2px 8px rgba(16,24,40,0.2)',
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#6B7280',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ display: 'inline-block', width: 20, height: 2, background: '#6B7280' }} />
+              Going
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="20" height="2" style={{ display: 'block' }}>
+                <line x1="0" y1="1" x2="20" y2="1" stroke="#6B7280" strokeWidth="2" strokeDasharray="4,3" />
+              </svg>
+              Return
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

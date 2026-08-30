@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvent } from 'rea
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatManilaDateTime } from '../lib/formatDate';
+import { mapTileUrl, mapAttribution } from '../lib/mapConfig';
 
 export interface JeepneyMarker {
   id: string;
@@ -283,10 +284,7 @@ export function LiveMap({
 
   return (
     <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      />
+      <TileLayer url={mapTileUrl} attribution={mapAttribution} />
       <FitBoundsOnLoad positions={markerPositions} skip={focusPosition !== null} />
       {/* Only listens while a selection is actually active — otherwise an
           admin who's freely panned/zoomed the map themselves would get

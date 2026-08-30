@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/map_config.dart';
 import '../../../core/constants/app_assets.dart';
 import '../../../core/utils/location_settings.dart';
 import 'jeepney_booking_flow_screen.dart';
@@ -813,14 +814,14 @@ class _LiveMap extends StatelessWidget {
           ),
           children: [
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: MapConfig.tileUrlTemplate,
               userAgentPackageName: 'com.manibel.app',
               maxZoom: 19,
             ),
             RichAttributionWidget(
               attributions: [
                 TextSourceAttribution(
-                  '© OpenStreetMap contributors',
+                  MapConfig.attribution,
                   onTap: () {},
                 ),
               ],

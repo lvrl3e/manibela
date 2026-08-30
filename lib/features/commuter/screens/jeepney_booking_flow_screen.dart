@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/map_config.dart';
 import '../../../core/constants/qr_constants.dart';
 import '../../../core/constants/route_path.dart';
 import '../../../core/services/api_client.dart';
@@ -963,13 +964,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
               ),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: MapConfig.tileUrlTemplate,
                   userAgentPackageName: 'com.manibel.app',
                   maxZoom: 19,
                 ),
                 RichAttributionWidget(
                   attributions: [
-                    TextSourceAttribution('© OpenStreetMap contributors', onTap: () {}),
+                    TextSourceAttribution(MapConfig.attribution, onTap: () {}),
                   ],
                 ),
                 // The corridor itself, faint, so it's clear which streets

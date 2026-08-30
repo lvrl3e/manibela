@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/map_config.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/driver_operations_log.dart';
 import '../../../core/services/driver_session.dart';
@@ -1535,7 +1536,7 @@ class _DriverLiveMap extends StatelessWidget {
           ),
           children: [
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: MapConfig.tileUrlTemplate,
               userAgentPackageName: 'com.manibel.app',
               maxZoom: 19,
             ),
@@ -1543,7 +1544,7 @@ class _DriverLiveMap extends StatelessWidget {
               RichAttributionWidget(
                 attributions: [
                   TextSourceAttribution(
-                    '© OpenStreetMap contributors',
+                    MapConfig.attribution,
                     onTap: () {},
                   ),
                 ],

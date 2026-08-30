@@ -35,7 +35,7 @@ jobs:
           EOF
 
       - run: flutter pub get
-      - run: flutter build apk --release --dart-define=API_BASE_URL=https://manibela.onrender.com
+      - run: flutter build apk --release --dart-define=API_BASE_URL=https://api.manibelaapp.com
 
       - name: Rename APK to match download link
         run: cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ManibelaApp.apk

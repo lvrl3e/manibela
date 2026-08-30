@@ -6,6 +6,7 @@ import { formatPhone } from '../lib/formatPhone';
 import { usePolling } from '../lib/usePolling';
 import { DriverTripHistorySection } from './DriverTripHistorySection';
 import { FaceMatchCard } from './FaceMatchCard';
+import { PhotoAccessLogNote, type PhotoAccessLogEntry } from './PhotoAccessLogNote';
 import { VerificationBadge, type VerificationStatus } from './VerificationBadge';
 
 interface DriverDetail {
@@ -31,6 +32,7 @@ interface DriverDetail {
   averageRating: number | null;
   ratingCount: number;
   createdAt: string;
+  photoAccessLog: PhotoAccessLogEntry[];
 }
 
 function CloseIcon() {
@@ -548,6 +550,7 @@ export function DriverDetailPanel({
                 <LicensePhotoView label="License Back" url={driver.licenseBackUrl} />
                 <LicensePhotoView label="Selfie" url={driver.selfieUrl} />
               </div>
+              <PhotoAccessLogNote entries={driver.photoAccessLog} />
 
               {driver.licenseFrontUrl && (
                 <div className="mt-3">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { VerificationBadge, type VerificationStatus } from './VerificationBadge';
 import { CommuterRideHistorySection } from './CommuterRideHistorySection';
 import { FaceMatchCard } from './FaceMatchCard';
+import { PhotoAccessLogNote, type PhotoAccessLogEntry } from './PhotoAccessLogNote';
 import { apiClient, ApiError } from '../lib/apiClient';
 import { formatManilaDate } from '../lib/formatDate';
 import { formatPhone } from '../lib/formatPhone';
@@ -23,6 +24,7 @@ interface CommuterDetail {
   isActive: boolean;
   totalSignals: number;
   createdAt: string;
+  photoAccessLog: PhotoAccessLogEntry[];
 }
 
 function CloseIcon() {
@@ -302,6 +304,7 @@ export function CommuterDetailPanel({
                 <PhotoTile label="ID Back" url={commuter.idBackUrl} />
                 <PhotoTile label="Selfie" url={commuter.selfieUrl} />
               </div>
+              <PhotoAccessLogNote entries={commuter.photoAccessLog} />
             </div>
 
             <CommuterRideHistorySection commuterId={commuter.id} compact />

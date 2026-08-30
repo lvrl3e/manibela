@@ -43,6 +43,11 @@ enum ComplaintStatus {
   REJECTED
 }
 
+enum PhotoAccessTargetType {
+  COMMUTER
+  DRIVER
+}
+
 model Commuter {
   id              String    @id @default(cuid())
   commuterId      String    @unique
@@ -484,6 +489,26 @@ model Admin {
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+/// One row per admin who has viewed a commuter's or driver's KYC photos
+/// (ID/license/selfie) — an access audit trail for that sensitive data,
+/// see the security review noted on Commuter/Driver's own photo fields.
+/// Written by lib/photoAccessLog.ts, which collapses repeat views from
+/// the same admin on the same record within a rolling 24h window into a
+/// single row — GET /admin/commuters/:id and GET /admin/drivers/:id are
+/// polled every few seconds by the detail panel while it's open, and
+/// logging every poll would turn "who looked at this" into an unreadable
+/// flood rather than a meaningful trail.
+model PhotoAccessLog {
+  id         String                 @id @default(cuid())
+  adminId    String
+  targetType PhotoAccessTargetType
+  targetId   String
+  viewedAt   DateTime               @default(now())
+
+  @@index([targetType, targetId, viewedAt])
+  @@index([adminId, viewedAt])
 }
 
 enum AdminRole {

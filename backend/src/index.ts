@@ -9,6 +9,7 @@ import adminRouter from './routes/admin';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimit';
 import { startDriverLogReminderJobs } from './jobs/driverLogReminders';
+import { startKycPhotoRetentionJob } from './jobs/kycPhotoRetention';
 
 const app = express();
 
@@ -71,3 +72,4 @@ app.listen(PORT, () => {
 });
 
 startDriverLogReminderJobs();
+startKycPhotoRetentionJob();

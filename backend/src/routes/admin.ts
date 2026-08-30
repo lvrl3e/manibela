@@ -9,6 +9,7 @@ import { toTitleCase } from '../utils/text';
 import { generateDriverId } from '../utils/driverId';
 import { generateQrToken } from '../utils/qrToken';
 import { signAuthToken } from '../utils/jwt';
+import { logPhotoAccess, getPhotoAccessLog } from '../lib/photoAccessLog';
 import {
   dateOnly,
   formatDateOnly,
@@ -553,9 +554,13 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
       return;
     }
 
-    const [reportCount, ratingInfo] = await Promise.all([
+    const hasKycPhoto = Boolean(driver.licenseFrontUrl || driver.licenseBackUrl || driver.selfieUrl);
+    if (hasKycPhoto) void logPhotoAccess(req.auth!.sub, 'DRIVER', id);
+
+    const [reportCount, ratingInfo, photoAccessLog] = await Promise.all([
       prisma.complaint.count({ where: { driverId: id } }),
       prisma.rating.aggregate({ where: { driverId: id }, _avg: { stars: true }, _count: { stars: true } }),
+      hasKycPhoto ? getPhotoAccessLog('DRIVER', id) : Promise.resolve([]),
     ]);
 
     res.json({
@@ -579,6 +584,7 @@ router.get('/drivers/:id', requireAuth('admin'), async (req, res, next) => {
         averageRating: ratingInfo._avg.stars,
         ratingCount: ratingInfo._count.stars,
         createdAt: driver.createdAt,
+        photoAccessLog,
       },
     });
   } catch (err) {
@@ -1086,7 +1092,13 @@ router.get('/commuters/:id', requireAuth('admin'), async (req, res, next) => {
       return;
     }
 
-    const totalSignals = await prisma.demandSignal.count({ where: { commuterId: id } });
+    const hasKycPhoto = Boolean(commuter.idFrontUrl || commuter.idBackUrl || commuter.selfieUrl);
+    if (hasKycPhoto) void logPhotoAccess(req.auth!.sub, 'COMMUTER', id);
+
+    const [totalSignals, photoAccessLog] = await Promise.all([
+      prisma.demandSignal.count({ where: { commuterId: id } }),
+      hasKycPhoto ? getPhotoAccessLog('COMMUTER', id) : Promise.resolve([]),
+    ]);
 
     res.json({
       commuter: {
@@ -1106,6 +1118,7 @@ router.get('/commuters/:id', requireAuth('admin'), async (req, res, next) => {
         isActive: commuter.isActive,
         totalSignals,
         createdAt: commuter.createdAt,
+        photoAccessLog,
       },
     });
   } catch (err) {

@@ -50,8 +50,77 @@ function loadModels(): Promise<void> {
   return modelsReady;
 }
 
+// Phones routinely save a photo's pixels in the camera sensor's native
+// (often landscape) orientation and record how to display it upright as
+// an EXIF Orientation tag instead — browsers and <img> tags apply that
+// tag automatically, which is why a captured selfie looks upright
+// everywhere it's *displayed*, but tf.node.decodeImage only reads raw
+// pixels and ignores EXIF entirely. Left uncorrected, this feeds the
+// detector a sideways face and (confirmed against a real captured
+// selfie) reliably fails detection even on an otherwise clear, well-lit
+// photo — turning "auto face-match" into "always falls back to manual
+// review" for a large share of real phone photos, silently.
+//
+// Only reads the one EXIF tag this needs (0x0112) rather than pulling in
+// a full EXIF parsing dependency for it.
+function readExifOrientation(buf: Buffer): number | null {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null; // not a JPEG
+  let offset = 2;
+  while (offset < buf.length - 4 && buf[offset] === 0xff) {
+    const marker = buf[offset + 1];
+    const size = buf.readUInt16BE(offset + 2);
+    if (marker === 0xe1) {
+      const exifStart = offset + 4;
+      if (buf.toString('ascii', exifStart, exifStart + 4) !== 'Exif') break;
+      const tiffStart = exifStart + 6;
+      const little = buf.toString('ascii', tiffStart, tiffStart + 2) === 'II';
+      const readU16 = (o: number) => (little ? buf.readUInt16LE(o) : buf.readUInt16BE(o));
+      const readU32 = (o: number) => (little ? buf.readUInt32LE(o) : buf.readUInt32BE(o));
+      const ifdOffset = tiffStart + readU32(tiffStart + 4);
+      const numEntries = readU16(ifdOffset);
+      for (let i = 0; i < numEntries; i++) {
+        const entryOffset = ifdOffset + 2 + i * 12;
+        if (readU16(entryOffset) === 0x0112) return readU16(entryOffset + 8);
+      }
+      return null;
+    }
+    offset += 2 + size;
+  }
+  return null;
+}
+
+// One 90-degree-clockwise rotation, done as transpose+reverse rather than
+// tf.image.rotateWithOffset — that op isn't registered on tfjs-node's
+// 'tensorflow' backend at all (throws "Kernel 'RotateWithOffset' not
+// registered"), confirmed by hitting exactly that error against the real
+// production backend. transpose+reverse only needs ops available
+// everywhere.
+function rotate90Cw(t: tf.Tensor3D): tf.Tensor3D {
+  const transposed = tf.transpose(t, [1, 0, 2]);
+  const rotated = tf.reverse(transposed, [1]) as tf.Tensor3D;
+  transposed.dispose();
+  return rotated;
+}
+
+// Only the values a real camera actually produces (1/3/6/8) are handled —
+// the mirrored variants (2/4/5/7) come from flatbed scanners, never a
+// phone camera, so they're left as a no-op same as a missing/unreadable
+// tag rather than guessing.
+function correctOrientation(tensor: tf.Tensor3D, exifOrientation: number | null): tf.Tensor3D {
+  const cwTurns = exifOrientation === 6 ? 1 : exifOrientation === 3 ? 2 : exifOrientation === 8 ? 3 : 0;
+  if (cwTurns === 0) return tensor;
+  let result = tensor;
+  for (let i = 0; i < cwTurns; i++) {
+    const next = rotate90Cw(result);
+    if (result !== tensor) result.dispose();
+    result = next;
+  }
+  return result;
+}
+
 async function getFaceDescriptor(imageBuffer: Buffer): Promise<Float32Array | null> {
-  const tensor = tf.node.decodeImage(imageBuffer, 3) as tf.Tensor3D;
+  const decoded = tf.node.decodeImage(imageBuffer, 3) as tf.Tensor3D;
+  const tensor = correctOrientation(decoded, readExifOrientation(imageBuffer));
   try {
     const result = await faceapi
       .detectSingleFace(tensor, new faceapi.TinyFaceDetectorOptions())
@@ -59,6 +128,7 @@ async function getFaceDescriptor(imageBuffer: Buffer): Promise<Float32Array | nu
       .withFaceDescriptor();
     return result?.descriptor ?? null;
   } finally {
+    if (tensor !== decoded) tf.dispose(decoded);
     tf.dispose(tensor);
   }
 }

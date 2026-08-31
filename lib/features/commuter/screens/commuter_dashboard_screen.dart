@@ -861,20 +861,13 @@ class _LiveMap extends StatelessWidget {
           ],
         ),
 
-        // Map controls, bottom-right — mirrors the reference's floating
-        // location/layers buttons.
+        // Map controls, bottom-right.
         Positioned(
           right: 12,
           bottom: 160,
-          child: Column(
-            children: [
-              _RoundIconButton(
-                icon: Icons.my_location_rounded,
-                onTap: onRecenter,
-              ),
-              const SizedBox(height: 10),
-              _RoundIconButton(icon: Icons.layers_outlined, onTap: () {}),
-            ],
+          child: _RoundIconButton(
+            icon: Icons.my_location_rounded,
+            onTap: onRecenter,
           ),
         ),
       ],

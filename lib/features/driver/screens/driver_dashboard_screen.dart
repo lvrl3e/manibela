@@ -124,6 +124,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // "not verified yet" note and the sidebar badge don't go stale.
   Timer? _licenseStatusPollTimer;
 
+  // A cold-start GPS fix commonly takes longer than the 3 attempts inside
+  // _resolveCurrentLocation are willing to wait for (radio still warming
+  // up) — without this, a driver who opens the dashboard right after
+  // installing/rebooting sees a stale "could not get your location" error
+  // (and the map sitting on _fallbackLocation) indefinitely, with no
+  // indication anything will ever change unless they notice and tap
+  // retry themselves. This silently retries a few more times in the
+  // background and self-corrects the moment a real fix comes through.
+  // Only for the generic timeout/unknown-error case — permission-denied
+  // and services-disabled failures need the driver to actually do
+  // something, so retrying automatically wouldn't help there.
+  Timer? _autoLocationRetryTimer;
+  int _autoLocationRetryCount = 0;
+  static const int _maxAutoLocationRetries = 4;
+
   @override
   void initState() {
     super.initState();
@@ -224,6 +239,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _notificationPollTimer?.cancel();
     _licenseStatusPollTimer?.cancel();
     _demandPollTimer?.cancel();
+    _autoLocationRetryTimer?.cancel();
     _mapController.dispose();
     _previewMapController.dispose();
     super.dispose();
@@ -296,6 +312,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
       if (!mounted) return;
       final resolved = LatLng(position!.latitude, position.longitude);
+      _autoLocationRetryTimer?.cancel();
+      _autoLocationRetryCount = 0;
       setState(() {
         _currentLocation = resolved;
         _locatingInProgress = false;
@@ -329,7 +347,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           const SnackBar(content: Text('Could not get your current location.')),
         );
       }
+      _scheduleAutoLocationRetry();
     }
+  }
+
+  void _scheduleAutoLocationRetry() {
+    if (_autoLocationRetryCount >= _maxAutoLocationRetries) return;
+    _autoLocationRetryCount++;
+    _autoLocationRetryTimer?.cancel();
+    _autoLocationRetryTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      _resolveCurrentLocation();
+    });
   }
 
   void _recenterMap() {

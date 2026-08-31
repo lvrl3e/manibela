@@ -928,7 +928,7 @@ const NEARBY_STALENESS_MS = 5 * 60 * 1000;
 // How far out a commuter can see a jeepney on the map/list — deliberately
 // much wider than BOARD_PROXIMITY_METERS below (boarding needs the commuter
 // actually at the jeepney; just watching it approach doesn't).
-const NEARBY_RADIUS_METERS = 20000;
+const NEARBY_RADIUS_METERS = 2000;
 
 router.get('/nearby-jeepneys', requireAuth('commuter'), async (req, res, next) => {
   try {

@@ -610,11 +610,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
   }
 
   // A jeepney this close is treated as "the commuter is at/near it right
-  // now" rather than just nearby on the map — close enough that GPS
-  // imprecision (5-20m typical in the city, see nearby-jeepneys' own doc
-  // comment) is unlikely to be confusing it with a different stopped
-  // vehicle a full stop-width away.
-  static const double _proximityThresholdMeters = 10;
+  // now" rather than just nearby on the map. Note this sits at the low end
+  // of typical city GPS imprecision (5-20m, see nearby-jeepneys' own doc
+  // comment) — the prompt may not always fire the instant someone's
+  // physically at the jeepney if either phone's fix is a bit noisy that
+  // moment, but "Book This Jeepney" on the manual list still works
+  // regardless.
+  static const double _proximityThresholdMeters = 5;
 
   bool _proximityPromptShowing = false;
 

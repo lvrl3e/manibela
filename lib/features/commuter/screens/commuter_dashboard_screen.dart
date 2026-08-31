@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/map_config.dart';
-import '../../../core/constants/app_assets.dart';
 import '../../../core/utils/location_settings.dart';
 import 'jeepney_booking_flow_screen.dart';
 import 'commuter_menu_drawer.dart';
@@ -29,9 +28,9 @@ class CommuterDashboardScreen extends StatefulWidget {
 }
 
 class _CommuterDashboardScreenState extends State<CommuterDashboardScreen> {
-  // Seeded from the local session, which signup/settings write into. Once a
-  // real backend/auth service exists, replace this with a proper fetch of
-  // the authenticated user's profile.
+  // Seeded from UserSession, populated from the real backend at login/
+  // signup — the 'Juan Dela Cruz' fallback only matters if session data is
+  // somehow missing (shouldn't happen in the normal signed-in flow).
   String _commuterName = UserSession.instance.fullName ?? 'Juan Dela Cruz';
   String _commuterId = UserSession.instance.commuterId ?? '—';
   String _mobileNumber = UserSession.instance.mobileNumber ?? '';

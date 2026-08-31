@@ -59,7 +59,7 @@ docker compose down           # stop Postgres (data persists in its volume)
 Schema changes: edit `backend/prisma/schema.prisma`, then either:
 
 ```powershell
-npx prisma migrate dev --name some_change   # interactive # interactive — only works in a real terminal
+npx prisma migrate dev --name some_change   # interactive — only works in a real terminal
 ```
 
 or, if that's non-interactive-blocked (e.g. run through an agent), write the
@@ -80,9 +80,9 @@ cd backend
 npm run create-driver -- "Full Name" "09XXXXXXXXX" "Password123!" "ABC123"
 ```
 
-Plate number must be exactly 3 letters + 3 numbers (standard PH format,
-no dash/space needed — `abc-123` or `abc 123` get auto-normalized to
-`ABC123` too).    # CAN BE 4 DIGITS
+Plate number must be 3 letters followed by 3 or 4 numbers (standard PH
+format, no dash/space needed — `abc-123` or `abc 123` get auto-normalized
+to `ABC123` too; 4-digit plates like `ABC1234` are also valid).
 
 Commuters self-register from the app's Sign Up screen — no manual step needed.
 

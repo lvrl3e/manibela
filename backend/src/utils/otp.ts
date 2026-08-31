@@ -40,7 +40,15 @@ export async function issueOtp(
     },
   });
 
-  console.log(`[OTP] ${purpose} code for ${identifier}: ${code}`);
+  // Never in production — a real verification/reset code landing in
+  // plaintext in hosted logs (anyone with Render log access could hijack
+  // a signup or password reset) isn't an acceptable trade for local dev
+  // convenience. Still fully recoverable in production without this: the
+  // code is already persisted in OtpCode above, readable straight from
+  // the table if a real SMS/email send needs debugging.
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[OTP] ${purpose} code for ${identifier}: ${code}`);
+  }
 
   if (channel === 'sms') {
     // TEMPORARY: swallow-and-log instead of letting this throw, only for

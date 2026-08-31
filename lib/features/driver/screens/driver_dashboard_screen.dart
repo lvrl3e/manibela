@@ -1606,33 +1606,36 @@ class _DriverLiveMap extends StatelessWidget {
               ),
             MarkerLayer(
               markers: [
-                Marker(
-                  point: currentLocation,
-                  width: 30,
-                  height: 30,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: hasRealFix ? AppColors.logoBlue : Colors.black38,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: [
-                        BoxShadow(
-                          color:
-                              (hasRealFix ? AppColors.logoBlue : Colors.black38)
-                                  .withOpacity(0.4),
-                          blurRadius: 8,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.directions_bus_filled_rounded,
-                      size: 16,
-                      color: Colors.white,
+                // Only shown once a real GPS fix comes through — no marker
+                // at all (not even a greyed-out one) while sitting on
+                // _fallbackLocation, so the map never implies a position
+                // that isn't actually real.
+                if (hasRealFix)
+                  Marker(
+                    point: currentLocation,
+                    width: 30,
+                    height: 30,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.logoBlue,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.logoBlue.withOpacity(0.4),
+                            blurRadius: 8,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.directions_bus_filled_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
                 for (final stop in waitingStops)
                   Marker(
                     point: stop.point,

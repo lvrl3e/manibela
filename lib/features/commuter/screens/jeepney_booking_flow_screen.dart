@@ -1081,18 +1081,19 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                     TextSourceAttribution(MapConfig.attribution, onTap: () {}),
                   ],
                 ),
-                // The corridor itself, faint, so it's clear which streets
-                // jeepneys on this route actually run along — then each
-                // nearby jeepney's own trail (below) highlights the exact
-                // stretch of it between that jeepney and the commuter,
-                // giving the ETA already shown in its card a path to match.
+                // The corridor itself, in the brand yellow so it actually
+                // reads against the map tiles (a faint black26 line used to
+                // be nearly invisible here) — then each nearby jeepney's own
+                // trail (below) highlights the exact stretch of it between
+                // that jeepney and the commuter, giving the ETA already
+                // shown in its card a path to match.
                 if (_step == _BookingStep.findingJeepneys)
                   PolylineLayer(
                     polylines: [
                       Polyline(
                         points: RoutePath.forRoute(_selectedRoute),
-                        strokeWidth: 3,
-                        color: Colors.black26,
+                        strokeWidth: 4,
+                        color: _kYellowDark,
                       ),
                       for (final jeepney in _nearbyJeepneys)
                         if (jeepney.position != null)

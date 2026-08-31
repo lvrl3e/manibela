@@ -199,17 +199,18 @@ class _DriverStartTripScreenState extends State<DriverStartTripScreen> {
                             userAgentPackageName: 'com.manibel.app',
                             maxZoom: 19,
                           ),
-                          PolylineLayer(
-                            polylines: [
-                              Polyline(
-                                points: RoutePath.forRoute(_selectedRoute),
-                                strokeWidth: 4,
-                                color: AppColors.primary,
-                                borderStrokeWidth: 2,
-                                borderColor: AppColors.onPrimary,
-                              ),
-                            ],
-                          ),
+                          if (_selectedRoute != null)
+                            PolylineLayer(
+                              polylines: [
+                                Polyline(
+                                  points: RoutePath.forRoute(_selectedRoute),
+                                  strokeWidth: 4,
+                                  color: AppColors.primary,
+                                  borderStrokeWidth: 2,
+                                  borderColor: AppColors.onPrimary,
+                                ),
+                              ],
+                            ),
                           MarkerLayer(
                             markers: [
                               Marker(

@@ -233,6 +233,16 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
 
   _BookingStep _step = _BookingStep.routeAndCompanions;
 
+  // Lets the commuter shrink the bottom panel down to just its drag handle
+  // to see the full map underneath — the panel otherwise claims however
+  // much height its content needs and can cover most of the screen. A
+  // plain toggle + AnimatedSize on the existing panel (not
+  // DraggableScrollableSheet — that broke on-device with a blank white
+  // screen; this is deliberately simpler and reuses the exact panel
+  // structure that was already working).
+  bool _panelCollapsed = false;
+  void _togglePanelCollapsed() => setState(() => _panelCollapsed = !_panelCollapsed);
+
   // Glides jeepney markers between polls instead of letting them jump
   // straight to each new position — keyed by plate number (or
   // _boardedGlideKey for the single boarded marker), so every jeepney
@@ -387,7 +397,13 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
     setState(() => _totalRiders = value);
   }
 
-  void _goTo(_BookingStep step) => setState(() => _step = step);
+  // Re-expands the panel on every step change — a commuter who collapsed
+  // it to check the map shouldn't miss the QR/boarding/completed step
+  // that just replaced whatever they collapsed away from.
+  void _goTo(_BookingStep step) => setState(() {
+    _step = step;
+    _panelCollapsed = false;
+  });
 
   // The X button never ends the trip itself — it only ever closes this
   // screen (dispose() below is what cancels the demand-signal watch, see
@@ -1196,7 +1212,7 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                 child: Container(
                   width: double.infinity,
                   margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                  padding: EdgeInsets.fromLTRB(20, 10, 20, _panelCollapsed ? 14 : 20),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
@@ -1208,7 +1224,44 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                       ),
                     ],
                   ),
-                  child: _buildStepContent(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Drag handle — tap to toggle, or drag it up/down.
+                      // Deliberately just a GestureDetector on this one
+                      // small strip (not the whole panel/a Scrollable)
+                      // so it can't fight the map's own pan gestures
+                      // underneath, or hit whatever broke
+                      // DraggableScrollableSheet.
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _togglePanelCollapsed,
+                        onVerticalDragEnd: (details) {
+                          final velocity = details.primaryVelocity ?? 0;
+                          if (velocity > 200 && !_panelCollapsed) {
+                            _togglePanelCollapsed();
+                          } else if (velocity < -200 && _panelCollapsed) {
+                            _togglePanelCollapsed();
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Center(
+                            child: Container(
+                              width: 40,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDADDE1),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (!_panelCollapsed) _buildStepContent(),
+                    ],
+                  ),
                 ),
               ),
             ),

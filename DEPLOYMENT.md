@@ -37,14 +37,14 @@ PostgreSQL on **Neon** (serverless Postgres).
   `backend/src/lib/routingService.ts` with a haversine fallback if it's
   ever unavailable. No paid routing API.
 
-## Deployment
+## Deployment Stack
 
 | Piece | Where | Notes |
 |---|---|---|
 | Admin dashboard | **Vercel** | `admin/vercel.json` (SPA rewrite). Auto-deploys on push to `main`. |
 | Mobile app | GitHub Releases (`latest`), not the Play Store | Built by `.github/workflows/build-apk.yml` on every push to `main`; signed with the `ANDROID_KEYSTORE_BASE64`/`ANDROID_KEYSTORE_PASSWORD`/`ANDROID_KEY_PASSWORD`/`ANDROID_KEY_ALIAS` repo secrets. |
-| Backend API (`api.manibelaapp.com`) | **unconfirmed** | No Dockerfile / `render.yaml` / `fly.toml` / deploy workflow in the repo — presumably wired up through a platform's own dashboard/GitHub integration rather than repo config. |
-| Landing page | **unconfirmed** | No deploy config found in-repo either. |
+| Backend API (`api.manibelaapp.com`) | **Render** | No `render.yaml` in the repo — configured via Render's own dashboard/GitHub integration, not repo config. |
+| Landing page | **Vercel** | Same platform as the admin dashboard, separate project. |
 | Database | Neon | Managed Postgres; `DATABASE_URL` in `backend/.env`. |
 
 ### Git remotes

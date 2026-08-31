@@ -1186,24 +1186,20 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
             ),
           ),
 
-          // Draggable, not a fixed-height box — the commuter can slide it
-          // down to see more of the map (it used to always claim whatever
-          // height its content needed, sometimes covering most of the
-          // screen) or back up for the full step content. Same panel and
-          // _buildStepContent() for every step, just now user-resizable.
-          Positioned.fill(
-            child: DraggableScrollableSheet(
-              initialChildSize: 0.42,
-              minChildSize: 0.12,
-              maxChildSize: 0.88,
-              snap: true,
-              snapSizes: const [0.12, 0.42, 0.88],
-              builder: (context, scrollController) {
-                return Container(
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                child: Container(
                   width: double.infinity,
+                  margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.08),
@@ -1212,33 +1208,9 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
                       ),
                     ],
                   ),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 10),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDADDE1),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          controller: scrollController,
-                          padding: EdgeInsets.fromLTRB(
-                            20,
-                            10,
-                            20,
-                            20 + MediaQuery.of(context).padding.bottom,
-                          ),
-                          child: _buildStepContent(),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+                  child: _buildStepContent(),
+                ),
+              ),
             ),
           ),
         ],

@@ -625,12 +625,14 @@ class _JeepneyBookingFlowScreenState extends State<JeepneyBookingFlowScreen>
     );
   }
 
-  // A jeepney this close is treated as "the commuter is at/near it right
-  // now" rather than just nearby on the map — close enough that GPS
-  // imprecision (5-20m typical in the city, see nearby-jeepneys' own doc
-  // comment) is unlikely to be confusing it with a different stopped
-  // vehicle a full stop-width away.
-  static const double _proximityThresholdMeters = 10;
+  // Matches BOARD_PROXIMITY_METERS on the backend (commuter.ts) exactly —
+  // confirmed via real-device testing that anything tighter than the
+  // actual board-proximity radius creates a dead zone where manual
+  // "Book This Jeepney" succeeds but the automatic prompt never fires,
+  // since two independent phones' GPS readings routinely disagree by
+  // 5-20m each in the city. This is the loosest this can go anyway: any
+  // looser and it'd prompt before boarding is even allowed yet.
+  static const double _proximityThresholdMeters = 20;
 
   bool _proximityPromptShowing = false;
 

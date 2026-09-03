@@ -13,15 +13,16 @@ import path from 'path';
  *
  * Score ≥ FACE_MATCH_AUTO_CLEAR_SCORE auto-clears a signup at POST
  * /signup (see commuter.ts) instead of queuing it for manual admin
- * review. That threshold is set well above the ~40% (distance ≈0.6) that
- * face-api's own community treats as "probably the same person" —
- * deliberately conservative since this is a brand-new, unvalidated-in-
- * production system auto-approving real accounts: it should only ever
- * catch the obvious, unambiguous matches, and let anything even slightly
- * uncertain fall through to a human. Tune down only after watching it
- * score a meaningful number of real signups correctly.
+ * review. Originally set to 70 (well above the ~40%/distance≈0.6 that
+ * face-api's own community treats as "probably the same person"),
+ * deliberately conservative for a brand-new, unvalidated-in-production
+ * system auto-approving real accounts. Lowered to 50 after real test
+ * signups with a genuine selfie/ID match scored ~50 and got bounced to
+ * manual review — 70 was catching almost nothing. Still above the
+ * community's bare "probably same person" floor; revisit with real
+ * production score distributions before moving it further.
  */
-export const FACE_MATCH_AUTO_CLEAR_SCORE = 70;
+export const FACE_MATCH_AUTO_CLEAR_SCORE = 50;
 
 // face-api.js ships its own pretrained weights inside its npm package —
 // resolved from wherever it's actually installed rather than a relative
